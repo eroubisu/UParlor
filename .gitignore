@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# 构建产物
+dist/
+build/
+*.tar.gz
+
+# 虚拟环境
+.venv/
+
+# 运行时
+*.log
+*.pid
+
+# 编辑器
+.vscode/
+*.swp
+*~
+
+# Server 特有
+Server/data/
+Server/deploy.py

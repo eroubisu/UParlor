@@ -1,0 +1,147 @@
+{
+    "monsters": [
+        {
+            "id": "slime",
+            "name": "史莱姆",
+            "level": 1,
+            "hp": 20,
+            "attack": 3,
+            "defense": 1,
+            "exp": 10,
+            "gold": 5,
+            "drops": [
+                {"item": "史莱姆凝胶", "chance": 0.5}
+            ]
+        },
+        {
+            "id": "goblin",
+            "name": "哥布林",
+            "level": 3,
+            "hp": 40,
+            "attack": 8,
+            "defense": 3,
+            "exp": 25,
+            "gold": 15,
+            "drops": [
+                {"item": "哥布林短刀", "chance": 0.2},
+                {"item": "破布", "chance": 0.4}
+            ]
+        },
+        {
+            "id": "wolf",
+            "name": "野狼",
+            "level": 5,
+            "hp": 60,
+            "attack": 12,
+            "defense": 5,
+            "exp": 40,
+            "gold": 20,
+            "drops": [
+                {"item": "狼皮", "chance": 0.3},
+                {"item": "狼牙", "chance": 0.2}
+            ]
+        },
+        {
+            "id": "orc",
+            "name": "兽人战士",
+            "level": 8,
+            "hp": 100,
+            "attack": 18,
+            "defense": 10,
+            "exp": 80,
+            "gold": 50,
+            "drops": [
+                {"item": "兽人战斧", "chance": 0.15},
+                {"item": "兽人护甲碎片", "chance": 0.25}
+            ]
+        },
+        {
+            "id": "skeleton",
+            "name": "骷髅兵",
+            "level": 10,
+            "hp": 80,
+            "attack": 22,
+            "defense": 8,
+            "exp": 100,
+            "gold": 60,
+            "drops": [
+                {"item": "骨头", "chance": 0.5},
+                {"item": "破旧头盔", "chance": 0.1}
+            ]
+        },
+        {
+            "id": "dragon_young",
+            "name": "幼龙",
+            "level": 15,
+            "hp": 200,
+            "attack": 35,
+            "defense": 20,
+            "exp": 300,
+            "gold": 200,
+            "drops": [
+                {"item": "龙鳞", "chance": 0.3},
+                {"item": "龙牙", "chance": 0.15}
+            ]
+        }
+    ],
+    "items": [
+        {"id": "health_potion", "name": "生命药水", "type": "consumable", "effect": "heal", "value": 50, "price": 30},
+        {"id": "attack_potion", "name": "力量药水", "type": "consumable", "effect": "buff_attack", "value": 5, "duration": 3, "price": 50},
+        {"id": "iron_sword", "name": "铁剑", "type": "weapon", "attack": 10, "price": 100},
+        {"id": "steel_sword", "name": "钢剑", "type": "weapon", "attack": 20, "price": 300},
+        {"id": "leather_armor", "name": "皮甲", "type": "armor", "defense": 5, "price": 80},
+        {"id": "iron_armor", "name": "铁甲", "type": "armor", "defense": 15, "price": 250}
+    ],
+    "areas": [
+        {"id": "forest", "name": "新手森林", "level_req": 1, "monsters": ["slime", "goblin"]},
+        {"id": "plains", "name": "荒野平原", "level_req": 5, "monsters": ["wolf", "goblin"]},
+        {"id": "dungeon", "name": "地下城", "level_req": 8, "monsters": ["orc", "skeleton"]},
+        {"id": "volcano", "name": "火山", "level_req": 15, "monsters": ["dragon_young"]}
+    ],
+    "maps": {
+        "forest": [
+            "+------------------+",
+            "|   STARTER FOREST |",
+            "|                  |",
+            "|  T    T    T     |",
+            "|     @    *       |",
+            "|  T    T    T     |",
+            "|                  |",
+            "|      -> Plains   |",
+            "+------------------+"
+        ],
+        "plains": [
+            "+------------------+",
+            "|   WILD PLAINS    |",
+            "|                  |",
+            "|  ~   ~   ~   ~   |",
+            "|     @    *       |",
+            "|  ~   ~   ~   ~   |",
+            "|                  |",
+            "| <-F    Dungeon-> |",
+            "+------------------+"
+        ],
+        "dungeon": [
+            "+------------------+",
+            "|     DUNGEON      |",
+            "|                  |",
+            "|  ###  ###  ###   |",
+            "|     @    *       |",
+            "|  ###  ###  ###   |",
+            "|                  |",
+            "| <-P    Volcano-> |",
+            "+------------------+"
+        ],
+        "volcano": [
+            "+------------------+",
+            "|     VOLCANO      |",
+            "|                  |",
+            "|  ^   ^   ^   ^   |",
+            "|     @    *       |",
+            "|  ^   ^   ^   ^   |",
+            "|                  |",
+            "|   <- Dungeon     |",
+            "+------------------+"
+        ]
+    }
+}

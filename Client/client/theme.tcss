@@ -1,0 +1,243 @@
+/* 极简终端风格 — 大厅主界面纯灰度，游戏内容可用彩色 */
+/* 原则：全透明背景，继承终端本身的背景色 */
+
+App {
+    background: ansi_default;
+    color: ansi_default;
+}
+
+* {
+    scrollbar-size: 1 1;
+    scrollbar-background: transparent;
+    scrollbar-background-hover: transparent;
+    scrollbar-background-active: transparent;
+    scrollbar-color: #454545;
+    scrollbar-color-hover: #5a5a5a;
+    scrollbar-color-active: #5a5a5a;
+    background: transparent;
+}
+
+Static, Horizontal, Vertical {
+    background: transparent;
+}
+
+Screen {
+    layout: vertical;
+    background: ansi_default;
+    layers: default overlay;
+    align: center middle;
+}
+
+/* ── 画布 ── */
+#canvas {
+    height: 1fr;
+}
+
+/* ── 拆分容器 ── */
+.split-h {
+    layout: horizontal;
+    height: 1fr;
+    width: 1fr;
+}
+
+.split-v {
+    layout: vertical;
+    height: 1fr;
+    width: 1fr;
+}
+
+/* ── 窗格包装器（无 width，由 inline fr 权重控制） ── */
+.pane-wrapper {
+    border: round #454545;
+    height: 1fr;
+    min-width: 16;
+    min-height: 4;
+    background: transparent;
+    border-title-background: transparent;
+    border-subtitle-background: transparent;
+}
+
+.pane-wrapper.--focused {
+    border: round #b3b3b3;
+}
+
+/* ── 空窗格提示 ── */
+EmptyPane {
+    height: 1fr;
+    width: 1fr;
+    content-align: center middle;
+    background: transparent;
+}
+
+.empty-hint {
+    text-align: center;
+    color: #808080;
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    background: transparent;
+}
+
+/* ── RichLog ── */
+RichLog {
+    background: transparent;
+    height: 1fr;
+    width: 1fr;
+    overflow-x: hidden;
+}
+
+RichLog:focus {
+    background-tint: transparent;
+}
+
+/* ── 面板组件 ── */
+ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
+    height: 1fr;
+    width: 1fr;
+    background: transparent;
+}
+
+/* ── 登录面板 ── */
+#login-log {
+    height: 1fr;
+    width: 1fr;
+    overflow-x: hidden;
+}
+
+/* ── 面板内输入提示行 ── */
+.panel-prompt {
+    height: 1;
+    display: none;
+}
+
+.panel-prompt.visible {
+    display: block;
+}
+
+/* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
+#cmd-hint-bar, #chat-input-bar {
+    height: auto;
+    border: round #a0a0a0;
+    border-title-color: #a0a0a0;
+    padding: 0 1;
+    display: none;
+}
+
+#cmd-hint-bar.visible, #chat-input-bar.visible {
+    display: block;
+}
+
+#cmd-hint-bar {
+    max-height: 10;
+}
+
+#chat-input-bar {
+    max-height: 5;
+}
+
+.input-bar-prompt {
+    height: 1;
+    width: 100%;
+}
+
+.hint-tabs {
+    height: 1;
+    width: 100%;
+}
+
+.hint-content {
+    height: 4;
+    width: 100%;
+    color: #b3b3b3;
+    padding: 0 1 0 0;
+}
+
+/* ── 底部状态栏 ── */
+#footer-bar {
+    dock: bottom;
+    height: 1;
+    background: transparent;
+}
+
+#mode-indicator {
+    width: 12;
+    text-style: bold;
+    color: #ffffff;
+    content-align: left middle;
+    background: transparent;
+}
+
+#location-indicator {
+    width: auto;
+    padding: 0 1;
+    background: transparent;
+}
+
+#connection-status {
+    dock: right;
+    width: auto;
+    padding: 0 1;
+    background: transparent;
+}
+
+/* ── which-key 浮动弹窗 ── */
+#which-key-overlay {
+    layer: overlay;
+    display: none;
+    width: 80%;
+    min-width: 30;
+    height: auto;
+    max-height: 20;
+    border: round #a0a0a0;
+    border-title-color: #a0a0a0;
+    padding: 0 1;
+    background: transparent;
+}
+
+#which-key-overlay.visible {
+    display: block;
+}
+
+#wk-tabs {
+    width: 100%;
+    height: 1;
+}
+
+#wk-content {
+    width: 100%;
+    height: 4;
+    color: #b3b3b3;
+    padding: 0 1 0 0;
+}
+
+/* ── LoginScreen ── */
+#login-container {
+    align: center middle;
+    width: 50;
+    height: auto;
+    border: round #b3b3b3;
+    padding: 2 4;
+}
+
+#login-title {
+    text-align: center;
+    text-style: bold;
+    width: 100%;
+    padding: 0 0 1 0;
+}
+
+#login-input {
+    margin: 1 0;
+    border: tall #454545;
+}
+
+#login-input:focus {
+    border: tall #b3b3b3;
+}
+
+#login-status {
+    text-align: center;
+    width: 100%;
+    height: auto;
+    color: #b3b3b3;
+}

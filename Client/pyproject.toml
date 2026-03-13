@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gamelobby"
+version = "0.1.0"
+description = "游戏大厅 TUI 客户端"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "textual>=0.40",
+]
+
+[project.scripts]
+gamelobby = "client.app:main"
+
+[tool.setuptools.packages.find]
+include = ["client*"]
+
+[tool.setuptools.package-data]
+client = ["*.tcss"]
