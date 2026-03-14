@@ -2,54 +2,28 @@
 
 from __future__ import annotations
 
+from textual import events
 from textual.widgets import RichLog
 
-from ..vim_mode import Mode
+from .vim_mode import Mode
 from .layout import navigate, find_pane
 
 
 class KeyboardMixin:
     """键位处理 Mixin — 提供 on_key 和面板内滚动。"""
 
+    def on_paste(self, event: events.Paste) -> None:
+        """INSERT 模式粘贴 — TextArea 自行处理，无需拦截"""
+        pass
+
     def on_key(self, event) -> None:
         vim = self.vim
 
         # ── INSERT 模式 ──
         if vim.mode == Mode.INSERT:
-            event.prevent_default()
-            event.stop()
-
-            if event.key == "escape":
-                self.action_enter_normal()
-            elif event.key == "enter":
-                self._handle_enter()
-            elif event.key == "tab":
-                self._complete_command()
-            elif event.character == "H":
-                self._hint_nav('left')
-            elif event.character == "L":
-                self._hint_nav('right')
-            elif event.character == "J":
-                self._hint_nav('down')
-            elif event.character == "K":
-                self._hint_nav('up')
-            elif event.key == "backspace":
-                if self._input_buffer:
-                    self._input_buffer = self._input_buffer[:-1]
-                    self._update_panel_prompt(self._input_buffer)
-                    self._update_completion()
-                else:
-                    self._hint_back()
-            elif event.key == "space":
-                self._input_buffer += " "
-                self._update_panel_prompt(self._input_buffer)
-                self._update_completion()
-            else:
-                ch = event.character
-                if ch and ch.isprintable():
-                    self._input_buffer += ch
-                    self._update_panel_prompt(self._input_buffer)
-                    self._update_completion()
+            # TextArea 在 _on_key 中处理可打印字符（并 stop 事件）
+            # backspace/delete/cursor 等通过 binding 处理，需冒泡到 App
+            # 不要 prevent_default / stop — 让事件继续冒泡
             return
 
         # ── NORMAL 模式 ──
@@ -82,13 +56,46 @@ class KeyboardMixin:
                     self._wk.close()
             return
 
-        # hjkl 在聚焦窗口内滚动
+        # hjkl 在聚焦窗口内 — 先尝试面板导航，再 fallback 到滚动
         if key == "j":
-            self._scroll_focused_down()
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_down'):
+                w.nav_down()
+            else:
+                self._scroll_focused_down()
             return
         if key == "k":
-            self._scroll_focused_up()
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_up'):
+                w.nav_up()
+            else:
+                self._scroll_focused_up()
             return
+        if key == "enter":
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_enter'):
+                w.nav_enter()
+                if getattr(w, 'wants_insert', False):
+                    self._enter_insert()
+                return
+        if key == "l":
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_tab_next'):
+                w.nav_tab_next()
+                return
+        if key == "h":
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_tab_prev'):
+                w.nav_tab_prev()
+                return
+        if key == "backspace":
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_back') and w.nav_back():
+                return
+        if key == "escape":
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_escape') and w.nav_escape():
+                return
 
         # HJKL 窗口焦点切换
         if key == "H":
@@ -117,14 +124,16 @@ class KeyboardMixin:
             self._scroll_focused_bottom()
         elif key == "g":
             vim.pending_key = "g"
-        elif key == "q":
-            self._send_command("/back")
         elif key == "tab":
             self._cycle_channel()
-        elif event.character and event.character.isdigit() and event.character != "0":
-            self._send_command(f"/{event.character}")
 
     # ── 滚动 ──
+
+    def _get_focused_widget(self):
+        pane = find_pane(self._layout_tree, self._focused_pane_id)
+        if not pane or not pane.module:
+            return None
+        return self._get_module(pane.module)
 
     def _get_focused_log(self) -> RichLog | None:
         pane = find_pane(self._layout_tree, self._focused_pane_id)

@@ -1,0 +1,172 @@
+"""
+消息分发 — 处理服务端推送消息的路由逻辑
+
+数据流：msg_dispatch → State → (listener) → Widget
+本模块只写 State，不直接操作 Widget。
+"""
+
+from __future__ import annotations
+
+from .messages import (
+    parse_server_message,
+    LoginPrompt, LoginSuccess,
+    SystemMessage, GameMessage, ChatMessage, ChatHistory,
+    StatusUpdate, OnlineUsers, GameInvite,
+    RoomUpdate, RoomLeave, GameQuit, LocationUpdate,
+    CommandsUpdate, GameEvent, ActionCommand,
+)
+from ..protocol.handler import GameHandlerContext, get_handler
+from ..panels import LoginPanel
+
+
+def _push_ai_event(screen, event: str, *, high_priority: bool = False):
+    """如果 AI 面板在线，推送事件
+
+    high_priority=True : AttentionBuffer + event_queue（感知 + 主动搭话）
+    high_priority=False : AttentionBuffer only（被动感知，不触发搭话）
+    """
+    try:
+        panel = screen._get_module('ai')
+        if panel and hasattr(panel, '_service') and panel._service:
+            svc = panel._service
+            svc._attention.push(event)
+            if high_priority:
+                svc.push_event(event)
+    except Exception:
+        pass
+
+
+def dispatch_server_message(app, screen, raw: dict) -> None:
+    """将解析后的服务器消息路由到 State。
+
+    Widget 通过 State listener 自动收到通知并渲染。
+    只有少数不经过 State 的 UI 操作（如布局、位置指示器）仍直接操作 screen。
+    """
+    parsed = parse_server_message(raw)
+    st = screen.state
+
+    if isinstance(parsed, LoginPrompt):
+        login = screen._get_module('login')
+        if isinstance(login, LoginPanel):
+            login.add_message(parsed.text)
+        else:
+            st.cmd.add_line(parsed.text)
+
+    elif isinstance(parsed, LoginSuccess):
+        screen.logged_in = True
+        st.cmd.add_line(parsed.text)
+        screen.call_later(screen._rebuild_to_game_layout)
+
+    elif isinstance(parsed, SystemMessage):
+        st.chat.add_system_message(parsed.text)
+
+    elif isinstance(parsed, GameMessage):
+        st.cmd.add_line(parsed.text, update_last=parsed.update_last)
+
+    elif isinstance(parsed, ChatMessage):
+        st.chat.add_message(parsed.name, parsed.text, parsed.channel, parsed.time)
+
+    elif isinstance(parsed, ChatHistory):
+        st.chat.set_history(parsed.messages, parsed.channel)
+
+    elif isinstance(parsed, StatusUpdate):
+        if parsed.location_path:
+            try:
+                from textual.widgets import Static
+                indicator = screen.query_one("#location-indicator", Static)
+                indicator.update(parsed.location_path)
+            except Exception:
+                pass
+        layout_data = parsed.data.get('window_layout')
+        if layout_data:
+            app._saved_layout = layout_data
+        st.status.update_player_info(parsed.data)
+        st.inventory.update_inventory(parsed.data)
+
+    elif isinstance(parsed, OnlineUsers):
+        st.online.update_users(parsed.users)
+        st.chat.update_online_count(parsed.users)
+
+    elif isinstance(parsed, GameInvite):
+        inv = parsed.raw
+        from ..config import M_BOLD, M_END
+        invite_text = f"{M_BOLD}游戏邀请{M_END}: {inv.get('from', '?')} 邀请你加入 {inv.get('game', '?')}"
+        st.cmd.add_line(invite_text)
+        _push_ai_event(screen, f"{inv.get('from', '?')}邀请你玩{inv.get('game', '?')}", high_priority=True)
+
+    elif isinstance(parsed, RoomUpdate):
+        if parsed.room_data:
+            st.game_board.update_room(parsed.room_data)
+            # 推送房间状态变化给 AI（opt-in: room_data 需声明 ai_priority）
+            rd = parsed.room_data
+            priority = rd.get('ai_priority')
+            if priority:
+                game = rd.get('game_type') or rd.get('game', '')
+                room_state = rd.get('state') or rd.get('status', '')
+                desc = rd.get('ai_description', f"{game} {room_state}".strip())
+                _push_ai_event(screen, f"房间更新: {desc}", high_priority=(priority == 'high'))
+        if parsed.message:
+            st.cmd.add_line(parsed.message)
+
+    elif isinstance(parsed, (RoomLeave, GameQuit)):
+        if parsed.location:
+            if hasattr(parsed, 'commands') and parsed.commands:
+                from ..protocol.commands import set_commands
+                set_commands(parsed.commands)
+                screen._update_hint_bar()
+            path = getattr(parsed, 'location_path', None)
+            screen._update_location(parsed.location, path)
+        _push_ai_event(screen, "玩家离开了游戏房间", high_priority=True)
+
+    elif isinstance(parsed, LocationUpdate):
+        from ..protocol.commands import set_commands
+        set_commands(parsed.commands)
+        screen._update_hint_bar()
+        screen._update_location(parsed.location, parsed.location_path)
+        if screen.logged_in:
+            screen.call_later(screen._rebuild_to_game_layout)
+
+    elif isinstance(parsed, CommandsUpdate):
+        from ..protocol.commands import set_commands
+        set_commands(parsed.commands)
+        screen._update_hint_bar()
+
+    elif isinstance(parsed, GameEvent):
+        handler = get_handler(parsed.game_type)
+        if handler:
+            ctx = GameHandlerContext(
+                state=st,
+                get_module=screen._get_module,
+                set_timer=app.set_timer,
+                ensure_panel=screen._ensure_module_panel,
+                remove_panel=screen._remove_module_panel,
+            )
+            handler.handle_event(parsed.event, parsed.data, ctx)
+        # 推送游戏事件给 AI（opt-in: data 需声明 ai_priority）
+        d = parsed.data or {}
+        priority = d.get('ai_priority')
+        if priority in ('high', 'normal'):
+            desc = d.get('ai_description', parsed.event)
+            _push_ai_event(screen, f"游戏事件: {desc}", high_priority=(priority == 'high'))
+
+    elif isinstance(parsed, ActionCommand):
+        action = parsed.action
+        if action == "clear":
+            st.cmd.clear()
+        elif action == "version":
+            sv = parsed.raw.get("server_version", "未知")
+            try:
+                from ..config import VERSION
+            except ImportError:
+                VERSION = None
+            cv = VERSION or "开发版"
+            ver_text = f"版本信息\n客户端: v{cv}\n服务器: v{sv}"
+            st.cmd.add_line(ver_text)
+        elif action == "exit":
+            app.network.disconnect()
+            app.exit()
+        elif action == "maintenance":
+            from ..config import M_BOLD, M_END
+            maint_text = f"{M_BOLD}系统维护{M_END}: 服务器正在维护，请稍后重连。"
+            st.cmd.add_line(maint_text)
+            app.network.disconnect()

@@ -54,7 +54,7 @@ def register_game_locations(game_info: dict) -> None:
 import json
 
 def _load_command_table() -> dict[str, list[dict]]:
-    path = os.path.join(os.path.dirname(__file__), 'commands.json')
+    path = os.path.join(os.path.dirname(__file__), 'data', 'commands.json')
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 

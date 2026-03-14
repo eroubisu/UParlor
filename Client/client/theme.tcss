@@ -11,9 +11,9 @@ App {
     scrollbar-background: transparent;
     scrollbar-background-hover: transparent;
     scrollbar-background-active: transparent;
-    scrollbar-color: #454545;
-    scrollbar-color-hover: #5a5a5a;
-    scrollbar-color-active: #5a5a5a;
+    scrollbar-color: $color-border;
+    scrollbar-color-hover: $color-border-light;
+    scrollbar-color-active: $color-border-light;
     background: transparent;
 }
 
@@ -48,7 +48,7 @@ Screen {
 
 /* ── 窗格包装器（无 width，由 inline fr 权重控制） ── */
 .pane-wrapper {
-    border: round #454545;
+    border: round $color-border;
     height: 1fr;
     min-width: 16;
     min-height: 4;
@@ -58,7 +58,7 @@ Screen {
 }
 
 .pane-wrapper.--focused {
-    border: round #b3b3b3;
+    border: round $color-fg-secondary;
 }
 
 /* ── 空窗格提示 ── */
@@ -71,7 +71,7 @@ EmptyPane {
 
 .empty-hint {
     text-align: center;
-    color: #808080;
+    color: $color-fg-tertiary;
     width: 100%;
     height: 100%;
     content-align: center middle;
@@ -91,10 +91,14 @@ RichLog:focus {
 }
 
 /* ── 面板组件 ── */
-ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
+ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel, AIChatPanel {
     height: 1fr;
     width: 1fr;
     background: transparent;
+}
+
+AIChatPanel {
+    layout: vertical;
 }
 
 /* ── 登录面板 ── */
@@ -106,38 +110,94 @@ ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
 
 /* ── 面板内输入提示行 ── */
 .panel-prompt {
-    height: 1;
+    height: auto;
+    max-height: 4;
     display: none;
+    border: none;
+    background: transparent;
 }
 
 .panel-prompt.visible {
     display: block;
 }
 
-/* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#cmd-hint-bar, #chat-input-bar {
+/* ── InputTextArea 基础样式 ── */
+InputTextArea {
     height: auto;
-    border: round #a0a0a0;
-    border-title-color: #a0a0a0;
+    max-height: 4;
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: $color-fg-primary;
+}
+
+InputTextArea:focus {
+    border: none;
+    background: transparent;
+}
+
+/* ── AI 面板常驻顶栏（Tab + 状态） ── */
+#ai-chat-header {
+    height: auto;
+    dock: top;
+    display: none;
+    background: transparent;
+    border: round $color-border;
+    padding: 0 1;
+}
+
+/* ── AI 聊天日志 ── */
+#ai-chat-log {
+    scrollbar-size: 1 1;
+}
+
+/* ── AI 面板内容区（可滚动） ── */
+#ai-panel-content {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* ── 物品栏内容（可滚动） ── */
+#inventory-content {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
+#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar {
+    height: auto;
+    border: round $color-accent;
+    border-title-color: $color-accent;
     padding: 0 1;
     display: none;
 }
 
-#cmd-hint-bar.visible, #chat-input-bar.visible {
+#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible {
     display: block;
 }
 
 #cmd-hint-bar {
-    max-height: 10;
+    max-height: 12;
 }
 
 #chat-input-bar {
-    max-height: 5;
+    max-height: 7;
+}
+
+#inventory-input-bar {
+    max-height: 7;
+}
+
+#ai-input-bar {
+    max-height: 8;
 }
 
 .input-bar-prompt {
-    height: 1;
+    height: auto;
+    max-height: 4;
     width: 100%;
+    border: none;
+    background: transparent;
 }
 
 .hint-tabs {
@@ -148,7 +208,7 @@ ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
 .hint-content {
     height: 4;
     width: 100%;
-    color: #b3b3b3;
+    color: $color-fg-secondary;
     padding: 0 1 0 0;
 }
 
@@ -162,7 +222,7 @@ ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
 #mode-indicator {
     width: 12;
     text-style: bold;
-    color: #ffffff;
+    color: $color-fg-primary;
     content-align: left middle;
     background: transparent;
 }
@@ -188,8 +248,8 @@ ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
     min-width: 30;
     height: auto;
     max-height: 20;
-    border: round #a0a0a0;
-    border-title-color: #a0a0a0;
+    border: round $color-accent;
+    border-title-color: $color-accent;
     padding: 0 1;
     background: transparent;
 }
@@ -206,38 +266,6 @@ ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel {
 #wk-content {
     width: 100%;
     height: 4;
-    color: #b3b3b3;
+    color: $color-fg-secondary;
     padding: 0 1 0 0;
-}
-
-/* ── LoginScreen ── */
-#login-container {
-    align: center middle;
-    width: 50;
-    height: auto;
-    border: round #b3b3b3;
-    padding: 2 4;
-}
-
-#login-title {
-    text-align: center;
-    text-style: bold;
-    width: 100%;
-    padding: 0 0 1 0;
-}
-
-#login-input {
-    margin: 1 0;
-    border: tall #454545;
-}
-
-#login-input:focus {
-    border: tall #b3b3b3;
-}
-
-#login-status {
-    text-align: center;
-    width: 100%;
-    height: auto;
-    color: #b3b3b3;
 }

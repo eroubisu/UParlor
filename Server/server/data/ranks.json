@@ -1,0 +1,42 @@
+{
+    "ranks": {
+        "novice_1": {"name": "初心一", "tier": 1, "stars": 1, "points_up": 20, "points_down": null},
+        "novice_2": {"name": "初心二", "tier": 1, "stars": 2, "points_up": 20, "points_down": null},
+        "novice_3": {"name": "初心三", "tier": 1, "stars": 3, "points_up": 20, "points_down": null},
+
+        "adept_1":  {"name": "学士一", "tier": 2, "stars": 1, "points_up": 80, "points_down": null},
+        "adept_2":  {"name": "学士二", "tier": 2, "stars": 2, "points_up": 80, "points_down": 0},
+        "adept_3":  {"name": "学士三", "tier": 2, "stars": 3, "points_up": 80, "points_down": 0},
+
+        "expert_1": {"name": "精英一", "tier": 3, "stars": 1, "points_up": 100, "points_down": 0},
+        "expert_2": {"name": "精英二", "tier": 3, "stars": 2, "points_up": 100, "points_down": 0},
+        "expert_3": {"name": "精英三", "tier": 3, "stars": 3, "points_up": 100, "points_down": 0},
+
+        "master_1": {"name": "大师一", "tier": 4, "stars": 1, "points_up": 200, "points_down": 0},
+        "master_2": {"name": "大师二", "tier": 4, "stars": 2, "points_up": 200, "points_down": 0},
+        "master_3": {"name": "大师三", "tier": 4, "stars": 3, "points_up": 200, "points_down": 0},
+
+        "saint_1":  {"name": "宗师一", "tier": 5, "stars": 1, "points_up": 400, "points_down": 0},
+        "saint_2":  {"name": "宗师二", "tier": 5, "stars": 2, "points_up": 400, "points_down": 0},
+        "saint_3":  {"name": "宗师三", "tier": 5, "stars": 3, "points_up": 400, "points_down": 0},
+
+        "celestial": {"name": "传奇", "tier": 6, "stars": 0, "points_up": null, "points_down": 0}
+    },
+
+    "rank_order": [
+        "novice_1", "novice_2", "novice_3",
+        "adept_1",  "adept_2",  "adept_3",
+        "expert_1", "expert_2", "expert_3",
+        "master_1", "master_2", "master_3",
+        "saint_1",  "saint_2",  "saint_3",
+        "celestial"
+    ],
+
+    "rank_to_title": {
+        "adept_1":   "rank_adept",
+        "expert_1":  "rank_expert",
+        "master_1":  "rank_master",
+        "saint_1":   "rank_saint",
+        "celestial": "rank_celestial"
+    }
+}

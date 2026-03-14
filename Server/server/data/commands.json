@@ -1,0 +1,26 @@
+{
+    "*": [
+        {"name": "help",     "label": "帮助",     "desc": "显示帮助信息",       "tab": "导航"},
+        {"name": "back",     "label": "返回",     "desc": "返回上一级",         "tab": "导航"},
+        {"name": "home",     "label": "回大厅",   "desc": "直接返回大厅",       "tab": "导航"},
+        {"name": "clear",    "label": "清屏",     "desc": "清空指令面板",       "tab": "系统"},
+        {"name": "exit",     "label": "退出",     "desc": "关闭程序",           "tab": "系统"},
+        {"name": "use",      "label": "使用物品", "desc": "use <物品ID> [方式]", "tab": "物品", "scope": "inventory"},
+        {"name": "gift",     "label": "赠送物品", "desc": "gift <物品ID>",      "tab": "物品", "scope": "inventory"},
+        {"name": "drop",     "label": "丢弃物品", "desc": "drop <物品ID>",      "tab": "物品", "scope": "inventory"}
+    ],
+    "lobby": [
+        {"name": "games",    "label": "游戏列表", "desc": "查看可用游戏",       "tab": "导航"},
+        {"name": "play",     "label": "进入游戏", "desc": "play <游戏ID>",      "tab": "导航"},
+        {"name": "profile",  "label": "个人资料", "desc": "查看个人资料",       "tab": "个人"},
+        {"name": "mytitle",  "label": "我的头衔", "desc": "查看已拥有头衔",     "tab": "个人"},
+        {"name": "alltitle", "label": "头衔图鉴", "desc": "查看全部头衔",       "tab": "个人"},
+        {"name": "title",    "label": "切换头衔", "desc": "title <编号>",       "tab": "个人"},
+        {"name": "version",  "label": "版本",     "desc": "显示版本信息",       "tab": "系统"}
+    ],
+    "profile": [
+        {"name": "rename",   "label": "改名",   "desc": "rename <新名>",  "tab": "资料"},
+        {"name": "password", "label": "改密码", "desc": "修改密码",       "tab": "资料"},
+        {"name": "delete",   "label": "删号",   "desc": "删除账号",       "tab": "资料"}
+    ]
+}

@@ -1,8 +1,10 @@
 """客户端配置"""
 
-from importlib.metadata import version as _pkg_version
-
-VERSION = _pkg_version("gamelobby")
+try:
+    from importlib.metadata import version as _pkg_version
+    VERSION = _pkg_version("uparlor")
+except Exception:
+    VERSION = None
 
 # 网络配置
 PORT = 5555
@@ -38,5 +40,24 @@ COLOR_ERROR = '#707070'           # 错误
 COLOR_HINT_BORDER = '#a0a0a0'     # 指令提示框边框
 COLOR_HINT_TAB_ACTIVE = '#a0a0a0' # 活动标签页
 COLOR_HINT_TAB_DIM = '#606060'    # 非活动标签页
+
+# ── Rich Markup 语义常量（全局统一，禁止硬编码 [dim]/[b] 等） ──
+# 用法：f"{M_DIM}文本{M_END}", f"{M_BOLD}标题{M_END}"
+M_DIM     = f'[{COLOR_FG_TERTIARY}]'       # 弱化文本（替代 [dim]）
+M_BOLD    = f'[bold {COLOR_FG_PRIMARY}]'    # 加粗标题（替代 [b]）
+M_ACCENT  = f'[{COLOR_ACCENT}]'             # 强调
+M_MUTED   = f'[{COLOR_FG_SECONDARY}]'       # 次要文本
+M_END     = '[/]'                            # 关闭标记
+
+# ── 面板行数限制 ──
+MAX_LINES_CMD = 1000
+MAX_LINES_CHAT = 500
+MAX_LINES_STATUS = 500
+MAX_LINES_GAME_BOARD = 500
+MAX_LINES_ONLINE = 200
+MAX_LINES_LOGIN = 100
+
+# ── 频道 ──
+CHANNEL_NAMES = {1: "世界", 2: "房间"}
 
 

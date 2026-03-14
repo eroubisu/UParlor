@@ -1,5 +1,5 @@
 """
-GameLobbyApp — 游戏大厅 TUI 主应用入口
+UParlorApp — 游戏大厅 TUI 主应用入口
 """
 
 from __future__ import annotations
@@ -12,12 +12,16 @@ from textual.message import Message
 from textual.widgets import Static
 from textual import work
 
-from .config import PORT
-from .network import NetworkManager
-from .vim_mode import VimMode
+from .config import (
+    PORT, M_DIM, M_END,
+    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
+    COLOR_ACCENT, COLOR_BORDER, COLOR_BORDER_LIGHT,
+)
+from .net.connection import NetworkManager
+from .ui.vim_mode import VimMode
 from .ui.screen import GameScreen
-from .ui.panels import LoginPanel, CommandPanel
-from .msg_dispatch import dispatch_server_message
+from .panels import LoginPanel, CommandPanel
+from .net.dispatch import dispatch_server_message
 
 try:
     from .config import VERSION
@@ -40,18 +44,30 @@ class Disconnected(Message):
 
 
 # ═══════════════════════════════════════════════════════
-#  GameLobbyApp — 主应用
+#  UParlorApp — 主应用
 # ═══════════════════════════════════════════════════════
 
-class GameLobbyApp(App):
-    """游戏大厅 TUI 客户端"""
+class UParlorApp(App):
+    """UParlor — 终端游戏厅 TUI 客户端"""
 
-    TITLE = "游戏大厅"
+    TITLE = "UParlor"
     CSS_PATH = "theme.tcss"
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "退出", show=True, priority=True),
     ]
+
+    def get_css_variables(self) -> dict[str, str]:
+        variables = super().get_css_variables()
+        variables.update({
+            "color-fg-primary": COLOR_FG_PRIMARY,
+            "color-fg-secondary": COLOR_FG_SECONDARY,
+            "color-fg-tertiary": COLOR_FG_TERTIARY,
+            "color-accent": COLOR_ACCENT,
+            "color-border": COLOR_BORDER,
+            "color-border-light": COLOR_BORDER_LIGHT,
+        })
+        return variables
 
     def __init__(self, **kw):
         super().__init__(ansi_color=True, **kw)
@@ -64,6 +80,7 @@ class GameLobbyApp(App):
 
     def on_mount(self) -> None:
         self.push_screen(GameScreen())
+        self.set_interval(60, self._ai_tick)
 
     # ── 网络 ──
 
@@ -75,7 +92,7 @@ class GameLobbyApp(App):
             if isinstance(screen, GameScreen):
                 login = screen._get_module('login')
                 if isinstance(login, LoginPanel):
-                    login.add_message(f"[dim]连接失败: {e}[/]")
+                    login.add_message(f"{M_DIM}连接失败: {e}{M_END}")
             return
 
         self._start_receive_worker()
@@ -116,12 +133,12 @@ class GameLobbyApp(App):
                 board.clear()
             login = screen._get_module('login')
             if isinstance(login, LoginPanel):
-                login.add_message("[dim]连接已断开[/]")
+                login.add_message(f"{M_DIM}连接已断开{M_END}")
             else:
-                screen.state.cmd.add_line("[dim]连接已断开[/]")
+                screen.state.cmd.add_line(f"{M_DIM}连接已断开{M_END}")
                 cmd = screen._get_module('cmd')
                 if isinstance(cmd, CommandPanel):
-                    cmd.add_message("[dim]连接已断开[/]")
+                    cmd.add_message(f"{M_DIM}连接已断开{M_END}")
             try:
                 conn = screen.query_one("#connection-status", Static)
                 conn.update("已断开")
@@ -152,19 +169,50 @@ class GameLobbyApp(App):
     # ── 退出 ──
 
     def action_quit(self) -> None:
+        self._cleanup_ai()
         self.network.disconnect()
         self.exit()
+
+    def _ai_tick(self):
+        """60s 定时器 — 检查 AI 主动搭话"""
+        screen = self.screen
+        if not isinstance(screen, GameScreen):
+            return
+        try:
+            panel = screen._get_module('ai')
+            if not panel or not hasattr(panel, '_service'):
+                return
+            svc = panel._service
+            if not svc:
+                return
+            reason = svc.tick()
+            if reason:
+                import asyncio
+                asyncio.create_task(panel.handle_proactive(reason))
+        except Exception:
+            pass
+
+    def _cleanup_ai(self):
+        screen = self.screen
+        if not isinstance(screen, GameScreen):
+            return
+        try:
+            panel = screen._get_module('ai')
+            if panel and hasattr(panel, '_service') and panel._service:
+                panel._service.on_exit()
+        except Exception:
+            pass
 
 
 def _check_version() -> bool:
     """检查是否最新版，返回 True 表示可以启动"""
     current = VERSION or "0.0.0"
-    print(f"gamelobby v{current}")
+    print(f"uparlor v{current}")
     print("正在检查更新...")
     try:
         import urllib.request
         req = urllib.request.Request(
-            "https://pypi.org/pypi/gamelobby/json",
+            "https://pypi.org/pypi/uparlor/json",
             headers={"Accept": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -174,7 +222,7 @@ def _check_version() -> bool:
         if lat > cur:
             print(f"\n发现新版本 v{latest}（当前 v{current}）")
             print(f"请运行以下命令更新:\n")
-            print(f"  pip install --upgrade gamelobby\n")
+            print(f"  pip install --upgrade uparlor\n")
     except Exception:
         pass
     print()
@@ -185,5 +233,5 @@ def main():
     """CLI 入口点"""
     if not _check_version():
         return
-    app = GameLobbyApp()
+    app = UParlorApp()
     app.run()

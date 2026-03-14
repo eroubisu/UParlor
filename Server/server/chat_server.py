@@ -8,16 +8,21 @@ import json
 from datetime import datetime
 
 from .config import HOST, PORT
-from .player_manager import PlayerManager
-from .lobby_engine import LobbyEngine
-from .title_system import get_title_name
-from .chat_log import ChatLogManager
-from . import maintenance
-from .auth import AuthMixin
-from .result_dispatcher import (
+from .player.manager import PlayerManager
+from .lobby.engine import LobbyEngine
+from .systems.titles import get_title_name
+from .systems.items import get_item_info
+from .infra.chat_log import ChatLogManager
+from .infra import maintenance
+from .player.auth import AuthMixin
+from .game.result_dispatcher import (
     dispatch_game_result as _dispatch_game_result_impl,
     dispatch_result as _dispatch_result_impl,
     inject_location_path as _inject_location_path_impl,
+)
+from .msg_types import (
+    CHAT, CHAT_HISTORY, GAME, LOGIN_PROMPT, LOCATION_UPDATE,
+    ONLINE_USERS, STATUS,
 )
 
 
@@ -34,7 +39,7 @@ class ChatServer(AuthMixin):
         self.lobby_engine.set_invite_callback(self._send_invite_notification)
         
         # Bot 调度器泛化注册：从 GAME_INFO 自动创建
-        from games import GAMES
+        from .games import GAMES
         self.bot_schedulers = {}
         for _gid, _mod in GAMES.items():
             _info = getattr(_mod, 'GAME_INFO', {})
@@ -79,7 +84,7 @@ class ChatServer(AuthMixin):
     def _send_chat_history(self, client_socket, channel):
         """发送聊天历史"""
         self.send_to(client_socket, {
-            'type': 'chat_history',
+            'type': CHAT_HISTORY,
             'channel': channel,
             'messages': self.log_mgr.get_history(channel)
         })
@@ -127,7 +132,7 @@ class ChatServer(AuthMixin):
                         'name': info['name'],
                         'channel': info.get('channel', 1)
                     })
-        self.broadcast({'type': 'online_users', 'users': users})
+        self.broadcast({'type': ONLINE_USERS, 'users': users})
 
     def handle_client(self, client_socket):
         buffer = ""
@@ -147,7 +152,7 @@ class ChatServer(AuthMixin):
             }
         
         # 登录提示发到指令区
-        self.send_to(client_socket, {'type': 'login_prompt', 'text': '请输入用户名：'})
+        self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
         
         while self.running:
             try:
@@ -203,7 +208,7 @@ class ChatServer(AuthMixin):
         with self.lock:
             player_data = self.clients.get(client_socket, {}).get('data')
         msg = {
-            'type': 'location_update',
+            'type': LOCATION_UPDATE,
             'location': loc,
             'location_path': self.lobby_engine.get_location_path(loc, name),
         }
@@ -225,7 +230,7 @@ class ChatServer(AuthMixin):
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                self.send_to(client_socket, {'type': 'game', 'text': f'[服务器错误] {e}'})
+                self.send_to(client_socket, {'type': GAME, 'text': f'[服务器错误] {e}'})
                 return
             if result:
                 try:
@@ -233,9 +238,9 @@ class ChatServer(AuthMixin):
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    self.send_to(client_socket, {'type': 'game', 'text': f'[服务器错误] {e}'})
+                    self.send_to(client_socket, {'type': GAME, 'text': f'[服务器错误] {e}'})
             else:
-                self.send_to(client_socket, {'type': 'game', 'text': '未知指令。'})
+                self.send_to(client_socket, {'type': GAME, 'text': '未知指令。'})
         
         elif msg_type == 'save_layout':
             layout = msg.get('layout')
@@ -259,7 +264,7 @@ class ChatServer(AuthMixin):
             
             # 广播给同频道的人
             chat_msg = {
-                'type': 'chat',
+                'type': CHAT,
                 'name': display_name,
                 'text': text,
                 'channel': channel,
@@ -284,7 +289,25 @@ class ChatServer(AuthMixin):
                 'accessory': player_data.get('accessory'),
                 'window_layout': player_data.get('window_layout'),
             }
-            
+            # 附带富物品信息供客户端直接渲染
+            inv_raw = player_data.get('inventory', {})
+            inv_enriched = {}
+            for item_id, count in inv_raw.items():
+                if count > 0:
+                    info = get_item_info(item_id) or {}
+                    inv_enriched[item_id] = {
+                        'count': count,
+                        'name': info.get('name', item_id),
+                        'desc': info.get('desc', ''),
+                        'use_methods': info.get('use_methods', []),
+                    }
+            status_data['inventory'] = inv_enriched
+
+            # 全局游戏统计
+            gs = player_data.get('game_stats')
+            if gs:
+                status_data['game_stats'] = gs
+
             # 查询当前游戏引擎的附加状态
             player_name = player_data.get('name', '')
             location = self.lobby_engine.get_player_location(player_name)
@@ -295,7 +318,7 @@ class ChatServer(AuthMixin):
                 if engine:
                     extras = engine.get_status_extras(player_name, player_data) or {}
             
-            status_msg = {'type': 'status', 'data': status_data}
+            status_msg = {'type': STATUS, 'data': status_data}
             status_msg['location'] = location
             status_msg['location_path'] = self.lobby_engine.get_location_path(location, player_name)
             status_msg.update(extras)
@@ -334,7 +357,7 @@ class ChatServer(AuthMixin):
             # 聊天室显示下线消息
             offline_msg = f'{name} 下线了'
             self.log_mgr.save(1, '[SYS]', offline_msg)
-            self.broadcast({'type': 'chat', 'name': '[SYS]', 'text': offline_msg, 'channel': 1})
+            self.broadcast({'type': CHAT, 'name': '[SYS]', 'text': offline_msg, 'channel': 1})
             self.broadcast_online_users()
             
             # 通知房间内其他玩家
@@ -347,7 +370,7 @@ class ChatServer(AuthMixin):
         self.server.listen(10)
         
         # 启动时升级所有用户数据到最新模板
-        from .player_manager import PlayerManager
+        from .player.manager import PlayerManager
         total, updated = PlayerManager.upgrade_all_users()
         if total > 0:
             print(f"[用户数据检查] 共 {total} 个用户，已更新 {updated} 个")

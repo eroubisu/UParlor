@@ -10,8 +10,8 @@ from textual.containers import Horizontal
 from textual.binding import Binding
 from textual.app import ComposeResult
 
-from ..vim_mode import VimMode, Mode
-from ..game_handler import GameHandlerContext, get_handler
+from .vim_mode import VimMode, Mode
+from ..protocol.handler import GameHandlerContext, get_handler
 from ..state import ModuleStateManager
 from .canvas import Canvas
 from .layout import (
@@ -21,8 +21,9 @@ from .layout import (
     all_panes, find_pane, find_module_pane,
     split_pane, close_pane, resize_pane,
 )
-from .panels import ChatPanel, CommandPanel, LoginPanel
-from .panels.which_key import WhichKeyPanel
+from ..panels import ChatPanel, CommandPanel, LoginPanel, AIChatPanel
+from ..panels.inventory import InventoryPanel
+from ..panels.which_key import WhichKeyPanel
 from .keyboard import KeyboardMixin
 from .input_handler import InputMixin
 from .space_menu import SpaceMenuMixin
@@ -76,19 +77,23 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self.app.connect_to_server(DEFAULT_HOST)
         self._enter_insert()
 
-    async def _apply_saved_layout(self):
-        await self.canvas.rebuild(self._layout_tree)
-        self._restore_all_modules()
-        panes = all_panes(self._layout_tree)
-        for p in panes:
-            if p.module == 'cmd':
-                self._set_focused_pane(p.pane_id)
-                return
-        if panes:
-            self._set_focused_pane(panes[0].pane_id)
-
     async def _rebuild_to_game_layout(self):
-        self._layout_tree = get_game_layout()
+        # 决定最终布局树
+        saved = getattr(self.app, '_saved_layout', None)
+        if saved:
+            from .layout import deserialize
+            tree = deserialize(saved)
+            if tree:
+                if self._layout_loaded:
+                    # 已经用过保存布局，不再重复重建
+                    return
+                self._layout_tree = tree
+                self._layout_loaded = True
+        elif self._layout_loaded:
+            # 已有保存布局，不降级为默认布局
+            return
+        else:
+            self._layout_tree = get_game_layout()
         await self.canvas.rebuild(self._layout_tree)
         self._restore_all_modules()
         panes = all_panes(self._layout_tree)
@@ -137,16 +142,23 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     @property
     def _input_target(self) -> str:
         mod = self._focused_module()
-        if mod == 'chat':
-            return 'chat'
-        if mod == 'cmd':
-            return 'cmd'
-        if mod == 'login':
-            return 'login'
+        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai'):
+            return mod
         return ''
 
     def _can_input(self) -> bool:
-        return self._input_target in ('chat', 'cmd', 'login')
+        target = self._input_target
+        if target in ('chat', 'cmd', 'login'):
+            return True
+        if target == 'inventory':
+            w = self._get_module('inventory')
+            return isinstance(w, InventoryPanel) and getattr(w, 'wants_insert', False)
+        if target == 'ai':
+            w = self._get_module('ai')
+            if isinstance(w, AIChatPanel):
+                return w._view == "chat" or w.wants_insert
+            return False
+        return False
 
     @property
     def _wk(self) -> WhichKeyPanel:
@@ -160,6 +172,9 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             self._input_buffer = ""
             self._hide_panel_prompt()
             self._hide_input_bar()
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'cancel_input'):
+                w.cancel_input()
         self.vim.enter_normal()
         self._update_mode_indicator()
         self.set_focus(None)
@@ -172,6 +187,58 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self._update_mode_indicator()
         self._show_panel_prompt("")
         self._show_input_bar()
+        self._focus_active_input()
+
+    def _focus_active_input(self):
+        """聚焦当前面板的 InputTextArea"""
+        from ..widgets.input_bar import InputTextArea
+        mod = self._focused_module()
+        widget = self._get_module(mod) if mod else None
+        if widget:
+            try:
+                ta = widget.query_one(InputTextArea)
+                ta.focus()
+            except Exception:
+                pass
+
+    # ── InputTextArea 自定义消息 ──
+
+    def on_text_area_changed(self, event) -> None:
+        """TextArea 内容变更 — 同步 _input_buffer + 更新补全"""
+        if self.vim.mode == Mode.INSERT:
+            self._input_buffer = event.text_area.text
+            self._update_completion()
+
+    def on_input_text_area_submit(self, event) -> None:
+        """Enter / Ctrl+Enter 提交"""
+        if self.vim.mode == Mode.INSERT:
+            self._handle_enter()
+
+    def on_input_text_area_escape(self, event) -> None:
+        """Escape 退出 INSERT"""
+        self.action_enter_normal()
+
+    def on_input_text_area_tab_press(self, event) -> None:
+        """Tab 指令补全"""
+        if self.vim.mode == Mode.INSERT:
+            self._complete_command()
+
+    def on_input_text_area_passthrough(self, event) -> None:
+        """HJKL hint 导航"""
+        if self.vim.mode == Mode.INSERT:
+            nav_map = {"H": "left", "L": "right", "J": "down", "K": "up"}
+            direction = nav_map.get(event.character)
+            if direction:
+                self._hint_nav(direction)
+
+    def on_input_text_area_empty_backspace(self, event) -> None:
+        """空文本 Backspace — 指令面板 hint_back"""
+        if self.vim.mode == Mode.INSERT:
+            self._hint_back()
+
+    def on_ai_chat_panel_request_insert(self, event) -> None:
+        """AI 面板异步步骤完成后请求进入 INSERT 模式"""
+        self._enter_insert()
 
     def _update_mode_indicator(self):
         indicator = self.query_one("#mode-indicator", Static)
@@ -186,19 +253,19 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def _show_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel)):
+        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
             widget.show_prompt(text)
 
     def _update_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel)):
+        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
             widget.update_prompt(text)
 
     def _hide_panel_prompt(self):
-        for mod in ('chat', 'cmd', 'login'):
+        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai'):
             widget = self._get_module(mod)
-            if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel)):
+            if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
                 widget.hide_prompt()
 
     # ── Space 菜单由 SpaceMenuMixin 提供 ──
@@ -331,6 +398,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def _update_location(self, location: str, location_path: str | None = None):
         old_location = self.current_location
         self.current_location = location
+        self.state.location = location
 
         old_game = old_location.split('_')[0] if old_location else ''
         new_game = location.split('_')[0] if location else ''

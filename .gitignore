@@ -12,15 +12,18 @@ build/
 # 虚拟环境
 .venv/
 
-# 运行时
+# 运行时数据
 *.log
 *.pid
+Server/data/
+
+# 部署脚本（含服务器凭据）
+Server/deploy.py
 
 # 编辑器
 .vscode/
 *.swp
 *~
 
-# Server 特有
-Server/data/
-Server/deploy.py
+# 存档
+game_archive/

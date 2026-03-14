@@ -1,0 +1,79 @@
+{
+    "items": {
+        "rename_card": {
+            "name": "改名卡",
+            "source": "system",
+            "desc": "可以修改一次用户名，每张改名卡限用一次",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "使用改名卡", "input_prompt": "请输入新名字:"}
+            ]
+        },
+        "gold": {
+            "name": "金币",
+            "source": "system",
+            "desc": "通用货币，用于交易与购买",
+            "stackable": true
+        },
+        "exp_potion": {
+            "name": "经验药水",
+            "source": "system",
+            "desc": "饮用后获得50点经验值",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "饮用药水"}
+            ],
+            "effect": {"type": "add_exp", "value": 50}
+        },
+        "lucky_coin": {
+            "name": "幸运硬币",
+            "source": "system",
+            "desc": "传说中的幸运硬币，据说能带来好运",
+            "stackable": true,
+            "use_methods": [
+                {"id": "flip", "name": "抛硬币"},
+                {"id": "wish", "name": "许愿"}
+            ],
+            "effect": {"wish_gold_min": 10, "wish_gold_max": 100}
+        },
+        "firework": {
+            "name": "烟花",
+            "source": "event",
+            "desc": "绽放在聊天频道的烟花，所有人可见",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "燃放烟花"}
+            ]
+        },
+        "gift_box": {
+            "name": "礼盒",
+            "source": "event",
+            "desc": "神秘礼盒，打开后随机获得一件物品",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "打开礼盒"}
+            ],
+            "effect": {
+                "rewards": [
+                    {"id": "gold", "count": 50},
+                    {"id": "exp_potion", "count": 1},
+                    {"id": "lucky_coin", "count": 1},
+                    {"id": "firework", "count": 2},
+                    {"id": "rename_card", "count": 1}
+                ]
+            }
+        }
+    },
+
+    "action_labels": {
+        "use":  "使用",
+        "gift": "赠送",
+        "info": "详情",
+        "drop": "丢弃"
+    },
+
+    "sources": {
+        "system": "系统",
+        "event": "活动"
+    }
+}

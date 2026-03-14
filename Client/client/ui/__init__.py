@@ -13,12 +13,12 @@ from .layout import (
     all_panes, find_pane, find_module_pane,
     split_pane, close_pane, navigate, next_pane_id, resize_pane,
 )
-from .widgets import (
+from ..widgets import (
     RoundedScrollBarRender, PromptMixin, InputBar,
 )
 
 # 导入 panels 触发 register_module 注册
-from . import panels  # noqa: F401
+from .. import panels  # noqa: F401
 
 __all__ = [
     'Canvas', 'PaneWrapper', 'EmptyPane',

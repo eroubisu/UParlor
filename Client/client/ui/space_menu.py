@@ -31,13 +31,18 @@ class SpaceMenuMixin:
         """构建游戏标签页：按游戏分组，每个游戏是子菜单入口"""
         game_mods = get_module_names(scope='game')
         if not game_mods:
-            return [("[dim]暂无游戏[/dim]", "")]
+            from ..config import M_DIM, M_END
+            return [(f"{M_DIM}暂无游戏{M_END}", "")]
+        from ..config import COLOR_ACCENT, COLOR_FG_TERTIARY, M_END
         game_labels = get_module_labels(scope='game')
         items = []
         for m in game_mods:
             label = game_labels.get(m, m)
             opened = find_module_pane(self._layout_tree, m) is not None
-            mark = "●" if opened else "○"
+            if opened:
+                mark = f"[{COLOR_ACCENT}]●{M_END}"
+            else:
+                mark = f"[{COLOR_FG_TERTIARY}]○{M_END}"
             items.append((f"{mark} {label}", ""))
         if len(game_mods) > 1:
             items.append(("全选/取消", ""))
