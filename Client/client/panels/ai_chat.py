@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from rich.text import Text as RichText
 from textual.app import ComposeResult
@@ -69,6 +70,7 @@ class AIChatPanel(Widget):
         self._menu_tab: str = "chat"
         self._gift_items: list[dict] = []
         self._gift_cursor: int = 0
+        self._gift_qty: int = 0         # 0=未选中, >0=选择数量中
         self._settings_cursor: int = 0
         self._model_picking: bool = False  # 设置中选模型
 
@@ -160,10 +162,16 @@ class AIChatPanel(Widget):
                 self._select_cursor = (self._select_cursor + 1) % (len(self._char_list) + 1)
             self._refresh_content()
         elif self._view == _VIEW_CREATE:
-            pass
+            try:
+                self.query_one("#ai-panel-content", Static).scroll_down(animate=False)
+            except Exception:
+                pass
         elif self._view == _VIEW_CHAT:
             if self._menu_tab == "gift":
-                if self._gift_items:
+                if self._gift_qty > 0:
+                    # 数量选择模式：减少数量
+                    self._gift_qty = max(1, self._gift_qty - 1)
+                elif self._gift_items:
                     self._gift_cursor = (self._gift_cursor + 1) % len(self._gift_items)
                 self._refresh_content()
             elif self._menu_tab == "settings":
@@ -190,10 +198,18 @@ class AIChatPanel(Widget):
                 self._select_cursor = (self._select_cursor - 1) % (len(self._char_list) + 1)
             self._refresh_content()
         elif self._view == _VIEW_CREATE:
-            pass
+            try:
+                self.query_one("#ai-panel-content", Static).scroll_up(animate=False)
+            except Exception:
+                pass
         elif self._view == _VIEW_CHAT:
             if self._menu_tab == "gift":
-                if self._gift_items:
+                if self._gift_qty > 0:
+                    # 数量选择模式：增加数量
+                    item = self._gift_items[self._gift_cursor] if self._gift_items else None
+                    max_qty = item.get("count", 1) if item else 1
+                    self._gift_qty = min(max_qty, self._gift_qty + 1)
+                elif self._gift_items:
                     self._gift_cursor = (self._gift_cursor - 1) % len(self._gift_items)
                 self._refresh_content()
             elif self._menu_tab == "settings":
@@ -229,6 +245,10 @@ class AIChatPanel(Widget):
     def nav_back(self) -> bool:
         if self._wants_insert:
             return False
+        if self._gift_qty > 0:
+            self._gift_qty = 0
+            self._refresh_content()
+            return True
         if self._model_picking:
             self._model_picking = False
             self._refresh_content()
@@ -257,6 +277,10 @@ class AIChatPanel(Widget):
         return False
 
     def nav_escape(self) -> bool:
+        if self._gift_qty > 0:
+            self._gift_qty = 0
+            self._refresh_content()
+            return True
         if self._model_picking:
             self._model_picking = False
             self._refresh_content()
@@ -299,7 +323,7 @@ class AIChatPanel(Widget):
             self._log(f"[b]你>[/b] {text}")
         elif event == "add_ai":
             (text,) = args
-            self._log(f"{M_DIM}{self._char_label}> {text}{M_END}")
+            self._log_ai(text)
 
     def _on_service_event(self, event: str, *args):
         if event == "token_update":
@@ -316,6 +340,24 @@ class AIChatPanel(Widget):
             log.scroll_end(animate=False)
         except Exception:
             pass
+
+    _ACTION_RE = re.compile(r'\*([^*]+)\*')
+
+    def _log_ai(self, text: str):
+        """记录 AI 回复，*动作* 独立行无前缀，说话行带 name> 前缀"""
+        label = self._char_label
+        last = 0
+        for m in self._ACTION_RE.finditer(text):
+            speech = text[last:m.start()].strip()
+            if speech:
+                self._log(f"[{COLOR_FG_SECONDARY}]{label}>[/] {speech}")
+            self._log(f"[italic {COLOR_FG_TERTIARY}]*{m.group(1)}*[/]")
+            last = m.end()
+        tail = text[last:].strip()
+        if tail:
+            self._log(f"[{COLOR_FG_SECONDARY}]{label}>[/] {tail}")
+        if not text.strip():
+            self._log(f"[{COLOR_FG_SECONDARY}]{label}>[/] {text}")
 
     @property
     def _char_label(self) -> str:
@@ -396,11 +438,21 @@ class AIChatPanel(Widget):
             pass
 
         char_name = self._service.character.name if self._service.character else "?"
-        for msg in self._service._recent:
+        for msg in self._service.display_recent:
             if msg["role"] == "user":
-                self._log(f"[b]你>[/b] {msg['content']}")
+                content = msg["content"]
+                if content.startswith("[玩家对你做了一个动作: "):
+                    action = content[10:-1]
+                    self._log(f"[{COLOR_FG_TERTIARY}]◆ {action}[/]")
+                elif content.startswith("[玩家送给你"):
+                    gift = content.split(": ", 1)[-1].rstrip("]")
+                    self._log(f"[{COLOR_FG_TERTIARY}]◆ 赠送 {gift}[/]")
+                elif content.startswith("[系统:"):
+                    pass  # 不显示系统提示
+                else:
+                    self._log(f"[b]你>[/b] {content}")
             elif msg["role"] == "assistant":
-                self._log(f"{M_DIM}{char_name}> {msg['content']}{M_END}")
+                self._log_ai(msg['content'])
 
         self._refresh_content()
 
@@ -505,7 +557,7 @@ class AIChatPanel(Widget):
         text = text.strip()
         if self._create_step == "desc":
             self._create_desc = text
-            self._create_status = "AI 正在整理角色信息..."
+            self._create_status = "正在整理角色信息..."
             self._wants_insert = False
             self._refresh_content()
             asyncio.create_task(self._do_structurize())
@@ -536,10 +588,17 @@ class AIChatPanel(Widget):
             self._wants_insert = True
             self._refresh_content()
             self.post_message(self.RequestInsert())
+        except ValueError as e:
+            if self._view != _VIEW_CREATE:
+                return
+            self._create_status = str(e)
+            self._wants_insert = True
+            self._refresh_content()
+            self.post_message(self.RequestInsert())
         except Exception as e:
             if self._view != _VIEW_CREATE:
                 return
-            self._create_status = f"整理失败: {e}"
+            self._create_status = "整理失败，请重新描述或精简描述后再试"
             self._wants_insert = True
             self._refresh_content()
             self.post_message(self.RequestInsert())
@@ -557,10 +616,17 @@ class AIChatPanel(Widget):
             self._wants_insert = True
             self._refresh_content()
             self.post_message(self.RequestInsert())
+        except ValueError as e:
+            if self._view != _VIEW_CREATE:
+                return
+            self._create_status = str(e)
+            self._wants_insert = True
+            self._refresh_content()
+            self.post_message(self.RequestInsert())
         except Exception as e:
             if self._view != _VIEW_CREATE:
                 return
-            self._create_status = f"调整失败: {e}"
+            self._create_status = "调整失败，请换个方式描述修改意见"
             self._wants_insert = True
             self._refresh_content()
             self.post_message(self.RequestInsert())
@@ -578,7 +644,7 @@ class AIChatPanel(Widget):
         except Exception as e:
             if self._view != _VIEW_CREATE:
                 return
-            self._create_status = f"保存失败: {e}"
+            self._create_status = "保存失败，请重试"
             self._create_step = "review"
             self._wants_insert = True
             self._refresh_content()
@@ -590,7 +656,7 @@ class AIChatPanel(Widget):
         if self._streaming:
             return
         self._streaming = True
-        self._log(f"[b]* {text}[/b]")
+        self._log(f"[{COLOR_FG_TERTIARY}]◆ {text}[/]")
         full_reply = ""
         try:
             async for chunk in self._service.do_action(text):
@@ -600,30 +666,39 @@ class AIChatPanel(Widget):
         finally:
             self._streaming = False
             if full_reply:
-                self._log(f"{M_DIM}{self._char_label}> {full_reply}{M_END}")
+                self._log_ai(full_reply)
 
     def _on_gift_enter(self):
         if not self._gift_items or not self._service:
             return
         item = self._gift_items[self._gift_cursor]
-        asyncio.create_task(self._do_gift(item))
+        if self._gift_qty == 0:
+            # 进入数量选择
+            self._gift_qty = 1
+            self._refresh_content()
+        else:
+            # 确认赠送
+            qty = self._gift_qty
+            self._gift_qty = 0
+            asyncio.create_task(self._do_gift(item, qty))
 
-    async def _do_gift(self, item: dict):
+    async def _do_gift(self, item: dict, qty: int = 1):
         if self._streaming:
             return
         self._streaming = True
         name = item.get("name", "?")
-        self._log(f"[b]* 赠送 {name}[/b]")
+        label = f"{name} x{qty}" if qty > 1 else name
+        self._log(f"[{COLOR_FG_TERTIARY}]◆ 赠送 {label}[/]")
         full_reply = ""
         try:
-            async for chunk in self._service.give_gift(name):
+            async for chunk in self._service.give_gift(name, qty):
                 full_reply += chunk
         except Exception as e:
             self._log(f"{M_DIM}>>> 出错: {e}{M_END}")
         finally:
             self._streaming = False
             if full_reply:
-                self._log(f"{M_DIM}{self._char_label}> {full_reply}{M_END}")
+                self._log_ai(full_reply)
 
     def _on_settings_enter(self):
         if self._model_picking:
@@ -667,13 +742,14 @@ class AIChatPanel(Widget):
             save_global_config(cfg)
             self._refresh_content()
         elif idx == 4:
-            # 清空聊天框（保留 AI 记忆）
+            # 清空聊天显示
             try:
                 log: RichLog = self.query_one("#ai-chat-log", RichLog)
                 log.clear()
             except Exception:
                 pass
-            self._log(f"{M_DIM}>>> 聊天框已清空（对话记忆仍保留）{M_END}")
+            if self._service:
+                self._service.clear_display()
         elif idx == 5:
             # 删除角色
             if self._service and self._service.char_id:
@@ -798,7 +874,6 @@ class AIChatPanel(Widget):
 
             if self._menu_tab == "action":
                 # 互动模式：输入作为动作
-                self._log(f"[b]你>[/b] *{text}*")
                 asyncio.create_task(self._do_action(text))
             else:
                 # 聊天模式
@@ -851,7 +926,7 @@ class AIChatPanel(Widget):
                 if self._state_mgr:
                     self._state_mgr.ai_chat.add_ai_message(full_reply)
                 else:
-                    self._log(f"{M_DIM}{self._char_label}> {full_reply}{M_END}")
+                    self._log_ai(full_reply)
 
     async def _stream_reply(self, text: str):
         self._streaming = True
@@ -867,7 +942,7 @@ class AIChatPanel(Widget):
                 if self._state_mgr:
                     self._state_mgr.ai_chat.add_ai_message(full_reply)
                 else:
-                    self._log(f"{M_DIM}{self._char_label}> {full_reply}{M_END}")
+                    self._log_ai(full_reply)
 
     # ── 主动搭话 ──
 
@@ -887,7 +962,7 @@ class AIChatPanel(Widget):
                 if self._state_mgr:
                     self._state_mgr.ai_chat.add_ai_message(full_reply)
                 else:
-                    self._log(f"{M_DIM}{self._char_label}> {full_reply}{M_END}")
+                    self._log_ai(full_reply)
 
     # ── 滚动辅助 ──
 
@@ -1111,7 +1186,13 @@ class AIChatPanel(Widget):
         for i, item in enumerate(self._gift_items):
             name = item.get("name", "?")
             count = item.get("count", 0)
-            if i == self._gift_cursor:
+            selected = i == self._gift_cursor
+            if selected and self._gift_qty > 0:
+                # 数量选择模式
+                lines.append(f" [{COLOR_ACCENT}]●[/] [b]{name} x{count}[/b]")
+                lines.append(f"   赠送数量: [{COLOR_ACCENT}]{self._gift_qty}[/]")
+                lines.append(f"   [{COLOR_FG_TERTIARY}]j/k 调整  Enter 确定  Esc 取消{M_END}")
+            elif selected:
                 lines.append(f" [{COLOR_ACCENT}]●[/] [b]{name} x{count}[/b]")
             else:
                 lines.append(f"   [{COLOR_FG_SECONDARY}]{name} x{count}{M_END}")
@@ -1134,7 +1215,7 @@ class AIChatPanel(Widget):
             f"切换模型: {current_model}",
             f"自动启动: {auto_label}",
             f"注意力: {attn_label}",
-            f"清空聊天框",
+            f"清空聊天记录",
             f"删除此角色",
         ]
         lines = []

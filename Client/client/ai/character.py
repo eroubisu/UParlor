@@ -71,18 +71,39 @@ def generate_char_id() -> str:
 
 # ── Gemini 结构化提取 ──
 
-_STRUCTURIZE_PROMPT = """\
-将用户的自由角色描述提取为 JSON 人设。
-输出格式（只输出 JSON，不要其他文字）:
-{
-  "name": "角色名字",
-  "personality": "性格特点",
-  "speech_style": "说话风格",
-  "appearance": "外貌描述",
-  "backstory": "背景故事",
-  "custom_rules": ["特殊规则1", "特殊规则2"]
+_STRUCTURIZE_INSTRUCTION = """\
+你是角色设定整理师。将用户的自由描述拆解到下面 6 个字段里。
+规则：
+- 原文里明确提到的信息必须**原样保留**，不要概括、缩写或丢弃任何细节
+- 每个字段写完整的句子，不是关键词罗列
+- 只有原文完全没涉及的字段才填合理默认值
+- 只输出 JSON"""
+
+
+def _check_truncation(resp) -> None:
+    """检查 Gemini 响应是否因 token 上限被截断"""
+    candidates = getattr(resp, "candidates", None)
+    if candidates and candidates[0].finish_reason and \
+       candidates[0].finish_reason.name == "MAX_TOKENS":
+        raise ValueError("描述过长，请精简后重试")
+
+
+_CHAR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name":         {"type": "string", "description": "角色名字"},
+        "personality":  {"type": "string", "description": "性格特点：内向/外向、优缺点、矛盾面等"},
+        "speech_style": {"type": "string", "description": "说话风格：语气、口头禅、情绪表达方式等"},
+        "appearance":   {"type": "string", "description": "外貌：身高、发色、瞳色、体型、特征部位等"},
+        "backstory":    {"type": "string", "description": "背景故事：种族、身份、日常生活、经济状况等"},
+        "custom_rules": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "角色扮演时必须遵守的行为规则",
+        },
+    },
+    "required": ["name", "personality", "speech_style", "appearance", "backstory", "custom_rules"],
 }
-如果用户没提到某字段，填写合理的默认值。name 必须有值。"""
 
 
 async def structurize_description(desc: str, api_key: str) -> Character:
@@ -92,19 +113,19 @@ async def structurize_description(desc: str, api_key: str) -> Character:
 
     client = genai.Client(api_key=api_key)
     config = types.GenerateContentConfig(
-        system_instruction=_STRUCTURIZE_PROMPT,
-        max_output_tokens=400,
-        temperature=0.3,
+        system_instruction=_STRUCTURIZE_INSTRUCTION,
+        max_output_tokens=4000,
+        temperature=0.2,
+        response_mime_type="application/json",
+        response_schema=_CHAR_SCHEMA,
     )
     resp = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
-        contents=desc,
+        contents=f"请从以下描述中提取完整角色设定，所有细节都要保留：\n\n{desc}",
         config=config,
     )
-    text = (resp.text or "").strip()
-    if "{" in text:
-        text = text[text.index("{"):text.rindex("}") + 1]
-    data = json.loads(text)
+    _check_truncation(resp)
+    data = json.loads(resp.text or "{}")
 
     char_id = generate_char_id()
     return Character(
@@ -119,17 +140,7 @@ async def structurize_description(desc: str, api_key: str) -> Character:
     )
 
 
-_REFINE_PROMPT = """\
-根据用户的修改意见调整角色设定。
-当前设定和用户意见已提供。请输出调整后的完整 JSON（只输出 JSON，不要其他文字）:
-{
-  "name": "角色名字",
-  "personality": "性格特点",
-  "speech_style": "说话风格",
-  "appearance": "外貌描述",
-  "backstory": "背景故事",
-  "custom_rules": ["特殊规则1", "特殊规则2"]
-}"""
+_REFINE_INSTRUCTION = "根据用户的修改意见调整角色设定，输出调整后的完整 JSON。保留未被修改的字段原值。"
 
 
 async def refine_character(char: Character, feedback: str, api_key: str) -> Character:
@@ -149,19 +160,19 @@ async def refine_character(char: Character, feedback: str, api_key: str) -> Char
 
     client = genai.Client(api_key=api_key)
     config = types.GenerateContentConfig(
-        system_instruction=_REFINE_PROMPT,
-        max_output_tokens=400,
-        temperature=0.3,
+        system_instruction=_REFINE_INSTRUCTION,
+        max_output_tokens=4000,
+        temperature=0.2,
+        response_mime_type="application/json",
+        response_schema=_CHAR_SCHEMA,
     )
     resp = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
         config=config,
     )
-    text = (resp.text or "").strip()
-    if "{" in text:
-        text = text[text.index("{"):text.rindex("}") + 1]
-    data = json.loads(text)
+    _check_truncation(resp)
+    data = json.loads(resp.text or "{}")
 
     char.name = data.get("name", char.name)
     char.personality = data.get("personality", char.personality)

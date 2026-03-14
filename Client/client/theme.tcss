@@ -155,6 +155,7 @@ InputTextArea:focus {
 #ai-panel-content {
     height: 1fr;
     overflow-y: auto;
+    scrollbar-size: 1 1;
 }
 
 /* ── 物品栏内容（可滚动） ── */

@@ -220,12 +220,13 @@ def _check_version() -> bool:
         cur = tuple(int(x) for x in current.split("."))
         lat = tuple(int(x) for x in latest.split("."))
         if lat > cur:
-            print(f"\n发现新版本 v{latest}（当前 v{current}）")
-            print(f"请运行以下命令更新:\n")
+            print(f"\n发现新版本 v{latest}（当前 v{current}），请更新后启动:\n")
             print(f"  pip install --upgrade uparlor\n")
+            return False
+        else:
+            print("已是最新版本\n")
     except Exception:
         pass
-    print()
     return True
 
 

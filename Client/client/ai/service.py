@@ -63,6 +63,7 @@ class AIService:
         self._ready = False
         self._today_tokens = 0
         self._attention = AttentionBuffer()
+        self._display_from = 0  # _recent 中开始显示的索引
 
     # ── 角色切换 ──
 
@@ -78,6 +79,10 @@ class AIService:
         self._cognitive = CognitiveState(status.get("cognitive"))
         self._impression = ImpressionState(load_json(d / "impression.json", {}))
         self._recent = load_json(d / "recent.json", [])
+        self._display_from = status.get("display_from", 0)
+        # 如果 display_from 超过 recent 长度，修正
+        if self._display_from > len(self._recent):
+            self._display_from = len(self._recent)
         self._summary = load_text(d / "summary.txt")
         self._load_today_tokens()
         self._mood.decay()
@@ -103,6 +108,7 @@ class AIService:
             "social": self._social.to_dict(),
             "mood": self._mood.to_dict(),
             "cognitive": self._cognitive.to_dict(),
+            "display_from": self._display_from,
         })
         save_json(d / "impression.json", self._impression.to_dict())
         save_json(d / "recent.json", self._recent[-50:])
@@ -195,6 +201,15 @@ class AIService:
     @property
     def impression(self) -> ImpressionState:
         return self._impression
+
+    @property
+    def display_recent(self) -> list[dict]:
+        """返回需要在 UI 中显示的 recent 消息（跳过已清空的部分）"""
+        return self._recent[self._display_from:]
+
+    def clear_display(self):
+        """标记当前 recent 全部不再显示（对话记忆仍保留）"""
+        self._display_from = len(self._recent)
 
     def set_api_key(self, key: str):
         self._api_config["api_key"] = key
@@ -398,7 +413,12 @@ class AIService:
         messages = self._build_messages()
         messages.append({
             "role": "user",
-            "content": f"玩家向你{desc}了，你会有什么反应？用动作和语言自然回应，不要说'收到动作'之类的元描述。",
+            "content": (
+                f"玩家向你{desc}了。"
+                "根据这个动作自然回应。"
+                "如果这个动作不需要语言回应，只用 *动作描述* 即可，不要强行说话。"
+                "动作描述必须用第三人称，禁止用第一人称。"
+            ),
         })
 
         full_reply = ""
@@ -417,19 +437,24 @@ class AIService:
         self._save_recent()
         self._notify("status_update")
 
-    async def give_gift(self, item_name: str) -> AsyncIterator[str]:
+    async def give_gift(self, item_name: str, qty: int = 1) -> AsyncIterator[str]:
         """赠送礼物，返回 AI 反应流"""
         self._social.apply_gains("gift")
 
+        label = f"{item_name} x{qty}" if qty > 1 else item_name
         self._recent.append({
             "role": "user",
-            "content": f"[玩家送给你一个礼物: {item_name}]",
+            "content": f"[玩家送给你一个礼物: {label}]",
         })
 
         messages = self._build_messages()
         messages.append({
             "role": "user",
-            "content": f"玩家送了你{item_name}，请自然地表达你的反应。不要说'收到礼物'之类的元描述。",
+            "content": (
+                f"玩家送了你{label}。"
+                "自然地回应，可以包含动作和语言。"
+                "动作描述必须用第三人称，禁止用第一人称。"
+            ),
         })
 
         full_reply = ""
@@ -479,13 +504,13 @@ class AIService:
                 )},
             ]
             text = await self._generate(
-                messages, max_tokens=300, temperature=_SUMMARY_TEMPERATURE,
+                messages, max_tokens=800, temperature=_SUMMARY_TEMPERATURE,
             )
             text = text.strip()
             if "{" not in text:
                 return
-            text = text[text.index("{"):text.rindex("}") + 1]
-            data = json.loads(text)
+            from .character import _extract_json
+            data = _extract_json(text)
 
             # 更新心情
             mood_data = data.get("mood", {})
@@ -532,7 +557,11 @@ class AIService:
         parts.append(
             "你是玩家在 UParlor 游戏厅里的朋友。"
             "你不是 AI 助手，你是朋友。不要说'作为AI'或'我无法'这类话。"
-            "保持角色不崩。回复简短口语化，像微信聊天。3句话以内，除非对方明确问了复杂问题。"
+            "保持角色不崩。回复简短口语化，像微信聊天。3句话以内，除非对方明确问了复杂问题。\n"
+            "回复格式规则：说话的内容直接写；动作/表情/心理描述用 *星号* 包裹。"
+            "动作描述必须用第三人称（她/他），禁止用第一人称「我」。"
+            "例如：*她微微偏过头* 你干嘛呢？"
+            "如果不需要说话，只写 *动作描述* 即可。"
         )
 
         if self._character:
@@ -617,7 +646,10 @@ class AIService:
 
     async def _compress(self):
         to_compress = self._recent[:-_COMPRESS_KEEP]
+        removed = len(to_compress)
         self._recent = self._recent[-_COMPRESS_KEEP:]
+        # 调整 display_from（被压缩的部分已移除）
+        self._display_from = max(0, self._display_from - removed)
 
         mem.store_messages(self._char_id, to_compress)
 
@@ -628,7 +660,7 @@ class AIService:
                 {"role": "user", "content": f"已有摘要:\n{self._summary or '(无)'}\n\n新对话:\n{conv_text}"},
             ]
             new_summary = await self._generate(
-                messages, max_tokens=400, temperature=_SUMMARY_TEMPERATURE,
+                messages, max_tokens=800, temperature=_SUMMARY_TEMPERATURE,
             )
             self._summary = new_summary.strip()
             save_text(char_dir(self._char_id) / "summary.txt", self._summary)

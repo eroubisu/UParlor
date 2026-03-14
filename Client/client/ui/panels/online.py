@@ -6,8 +6,8 @@ from textual.app import ComposeResult
 from textual.widgets import RichLog
 from textual.widget import Widget
 
-from ..config import MAX_LINES_ONLINE, M_BOLD, M_END
-from ..state import ModuleStateManager
+from ...config import MAX_LINES_ONLINE
+from ...state import ModuleStateManager
 
 
 class OnlineUsersPanel(Widget):
@@ -17,16 +17,15 @@ class OnlineUsersPanel(Widget):
         yield RichLog(id="online-log", wrap=True, highlight=True, markup=True, max_lines=MAX_LINES_ONLINE)
 
     def _render_users(self, users: list):
-        try:
-            content: RichLog = self.query_one("#online-log", RichLog)
-        except Exception:
-            return
+        content: RichLog = self.query_one("#online-log", RichLog)
         content.clear()
-        content.write(f"{M_BOLD}在线 ({len(users)}){M_END}")
+        content.write(f"[b]在线 ({len(users)})[/b]")
         content.write("─" * 16)
         for u in users:
             if isinstance(u, dict):
-                content.write(u.get("name", str(u)))
+                name = u.get("name", str(u))
+                count = u.get("count", 1)
+                content.write(f"{name}({count})" if count > 1 else name)
             else:
                 content.write(str(u))
 

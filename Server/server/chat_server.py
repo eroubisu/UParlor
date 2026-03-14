@@ -124,14 +124,20 @@ class ChatServer(AuthMixin):
             pass
 
     def broadcast_online_users(self):
-        users = []
+        counts: dict[str, dict] = {}
         with self.lock:
             for info in self.clients.values():
                 if info.get('state') == 'playing' and info.get('name'):
-                    users.append({
-                        'name': info['name'],
-                        'channel': info.get('channel', 1)
-                    })
+                    name = info['name']
+                    if name in counts:
+                        counts[name]['count'] += 1
+                    else:
+                        counts[name] = {
+                            'name': name,
+                            'channel': info.get('channel', 1),
+                            'count': 1,
+                        }
+        users = list(counts.values())
         self.broadcast({'type': ONLINE_USERS, 'users': users})
 
     def handle_client(self, client_socket):
@@ -251,7 +257,7 @@ class ChatServer(AuthMixin):
 
         elif msg_type == 'chat':
             channel = msg.get('channel', 1)
-            display_name = f"[Lv.{player_data['level']}]{name}"
+            display_name = f"[{player_data['level']}]{name}"
             
             # 记录聊天统计并检查头衔
             maintenance.track_chat_message(name, player_data)
