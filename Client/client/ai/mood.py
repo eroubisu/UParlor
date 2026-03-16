@@ -17,6 +17,47 @@ MOODS = {
     "lonely":  "寂寞",
 }
 
+# 情绪行为指引：(低强度 <0.5, 高强度 >=0.5)
+# 情绪强 = 表达方式激烈，不等于话多
+_MOOD_BEHAVIOR = {
+    "calm": (
+        "状态平和，正常说话。",
+        "状态平和，正常说话。",
+    ),
+    "joyful": (
+        "语气轻快一点，偶尔嘴角上扬。",
+        "藏不住的开心，语气上扬，可能笑出来。动作变得轻快。",
+    ),
+    "excited": (
+        "比平时有精神，反应更快。",
+        "兴奋到坐不住，说话快，可能蹦出感叹词。",
+    ),
+    "shy": (
+        "说话稍微犹豫，偶尔避开目光。",
+        "结巴、声音很小、想躲。耳朵/尾巴暴露真实情绪。句子说一半就断。",
+    ),
+    "annoyed": (
+        "语气略带不耐烦，回答变短。",
+        "明显不爽，语气冲，不想多说话。",
+    ),
+    "anxious": (
+        "偶尔走神，回答略有犹豫。",
+        "坐立不安，说话断断续续，容易被吓到。",
+    ),
+    "sad": (
+        "话少一些，语气低沉。",
+        "声音低到听不见，不想说话。可能发呆或眼眶泛红。",
+    ),
+    "angry": (
+        "语气生硬，不敷衍。",
+        "说话带刺或干脆不说话。肢体紧绷，被骂后不装没事。",
+    ),
+    "lonely": (
+        "说话时有些心不在焉。",
+        "缩在角落，不主动说话。想靠近人但又犹豫。",
+    ),
+}
+
 # 衰减配置：(小时数, 衰减比例)
 _DECAY_POSITIVE = (2.0, 0.7)    # 正面情绪 2h 后衰减到 70%
 _DECAY_NEGATIVE = (4.0, 0.7)    # 一般负面 4h 后衰减
@@ -86,8 +127,9 @@ class MoodState:
 
     def set_mood(self, primary: str, intensity: float = 0.5,
                  secondary: str = "", source: str = ""):
-        if primary in MOODS:
-            self.primary = primary
+        if primary not in MOODS:
+            return
+        self.primary = primary
         self.intensity = max(0.0, min(1.0, intensity))
         self.secondary = secondary
         self.source = source
@@ -103,6 +145,10 @@ class MoodState:
             text += f"，内心其实有些{sec_label}"
         if self.source:
             text += f"，原因: {self.source}"
+        behavior = _MOOD_BEHAVIOR.get(self.primary)
+        if behavior:
+            desc = behavior[1] if self.intensity >= 0.5 else behavior[0]
+            text += f"\n表现方式: {desc}"
         return text
 
     # ── 显示 ──

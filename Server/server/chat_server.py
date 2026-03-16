@@ -2,12 +2,13 @@
 聊天服务器
 """
 
+import os
 import socket
 import threading
 import json
 from datetime import datetime
 
-from .config import HOST, PORT
+from .config import HOST, PORT, USERS_DIR
 from .player.manager import PlayerManager
 from .lobby.engine import LobbyEngine
 from .systems.titles import get_title_name
@@ -21,8 +22,8 @@ from .game.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    CHAT, CHAT_HISTORY, GAME, LOGIN_PROMPT, LOCATION_UPDATE,
-    ONLINE_USERS, STATUS,
+    ALL_USERS, CHAT, CHAT_HISTORY, FRIEND_LIST, FRIEND_REQUEST, GAME, LOGIN_PROMPT,
+    LOCATION_UPDATE, ONLINE_USERS, PRIVATE_CHAT, STATUS,
 )
 
 
@@ -140,6 +141,28 @@ class ChatServer(AuthMixin):
         users = list(counts.values())
         self.broadcast({'type': ONLINE_USERS, 'users': users})
 
+    def _send_friend_list(self, client_socket, player_data):
+        """向指定客户端发送好友列表"""
+        friends = player_data.get('friends', [])
+        self.send_to(client_socket, {'type': FRIEND_LIST, 'friends': friends})
+
+    def _send_all_users(self, client_socket):
+        """向指定客户端发送所有注册用户名"""
+        names = self._get_all_user_names()
+        self.send_to(client_socket, {'type': ALL_USERS, 'users': names})
+
+    def _get_all_user_names(self) -> list[str]:
+        """返回所有已注册用户名"""
+        names = []
+        if os.path.isdir(USERS_DIR):
+            for entry in os.listdir(USERS_DIR):
+                path = os.path.join(USERS_DIR, entry)
+                if os.path.isdir(path):
+                    names.append(entry)
+                elif entry.endswith('.json'):
+                    names.append(entry[:-5])
+        return sorted(set(names))
+
     def handle_client(self, client_socket):
         buffer = ""
 
@@ -255,6 +278,115 @@ class ChatServer(AuthMixin):
                     player_data['window_layout'] = layout
                     PlayerManager.save_player_data(name, player_data)
 
+        elif msg_type == 'ai_sync_up':
+            companions = msg.get('companions')
+            if isinstance(companions, dict):
+                player_data['ai_companions'] = companions
+                PlayerManager.save_player_data(name, player_data)
+
+        elif msg_type == 'ai_gift_consume':
+            item_id = msg.get('item_id', '')
+            qty = msg.get('qty', 1)
+            if isinstance(item_id, str) and item_id and isinstance(qty, int) and 0 < qty <= 99:
+                inventory = player_data.get('inventory', {})
+                cur = inventory.get(item_id, 0)
+                if cur >= qty:
+                    inventory[item_id] = cur - qty
+                    PlayerManager.save_player_data(name, player_data)
+                    self.send_player_status(client_socket, player_data)
+
+        elif msg_type == 'friend_request':
+            target = msg.get('name', '').strip()
+            if target and target != name and PlayerManager.player_exists(target):
+                # 检查是否已经是好友
+                friends = player_data.get('friends', [])
+                if target in friends:
+                    return
+                # 在目标玩家的 pending_friend_requests 中添加
+                target_data = PlayerManager.load_player_data(target)
+                if target_data:
+                    pending = target_data.setdefault('pending_friend_requests', [])
+                    if name not in pending:
+                        pending.append(name)
+                        PlayerManager.save_player_data(target, target_data)
+                    # 通知目标玩家（如果在线），同时同步内存缓存
+                    with self.lock:
+                        for client, info in self.clients.items():
+                            if info.get('name') == target and info.get('state') == 'playing':
+                                # 同步 pending 到内存缓存
+                                info['data'].setdefault('pending_friend_requests', [])
+                                if name not in info['data']['pending_friend_requests']:
+                                    info['data']['pending_friend_requests'].append(name)
+                                self.send_to(client, {
+                                    'type': FRIEND_REQUEST,
+                                    'from': name,
+                                    'pending': info['data'].get('pending_friend_requests', []),
+                                })
+
+        elif msg_type == 'friend_accept':
+            target = msg.get('name', '').strip()
+            if target and target != name:
+                # 从自己的 pending 中移除
+                pending = player_data.get('pending_friend_requests', [])
+                if target in pending:
+                    pending.remove(target)
+                    # 双方互加好友
+                    friends = player_data.setdefault('friends', [])
+                    if target not in friends:
+                        friends.append(target)
+                    PlayerManager.save_player_data(name, player_data)
+                    # 对方也加好友
+                    target_data = PlayerManager.load_player_data(target)
+                    if target_data:
+                        t_friends = target_data.setdefault('friends', [])
+                        if name not in t_friends:
+                            t_friends.append(name)
+                            PlayerManager.save_player_data(target, target_data)
+                        # 通知对方更新好友列表
+                        with self.lock:
+                            for client, info in self.clients.items():
+                                if info.get('name') == target and info.get('state') == 'playing':
+                                    self._send_friend_list(client, target_data)
+                self._send_friend_list(client_socket, player_data)
+                # 发送更新后的 pending 列表
+                self.send_to(client_socket, {
+                    'type': FRIEND_REQUEST,
+                    'pending': player_data.get('pending_friend_requests', []),
+                })
+
+        elif msg_type == 'friend_reject':
+            target = msg.get('name', '').strip()
+            if target:
+                pending = player_data.get('pending_friend_requests', [])
+                if target in pending:
+                    pending.remove(target)
+                    PlayerManager.save_player_data(name, player_data)
+                # 发送更新后的 pending 列表
+                self.send_to(client_socket, {
+                    'type': FRIEND_REQUEST,
+                    'pending': player_data.get('pending_friend_requests', []),
+                })
+
+        elif msg_type == 'friend_remove':
+            target = msg.get('name', '').strip()
+            friends = player_data.get('friends', [])
+            if target in friends:
+                friends.remove(target)
+                PlayerManager.save_player_data(name, player_data)
+                # 双向移除：从对方好友列表中也移除自己
+                target_data = PlayerManager.load_player_data(target)
+                if target_data:
+                    t_friends = target_data.get('friends', [])
+                    if name in t_friends:
+                        t_friends.remove(name)
+                        PlayerManager.save_player_data(target, target_data)
+                    # 通知对方更新好友列表
+                    with self.lock:
+                        for client, info in self.clients.items():
+                            if info.get('name') == target and info.get('state') == 'playing':
+                                self._send_friend_list(client, target_data)
+            self._send_friend_list(client_socket, player_data)
+
         elif msg_type == 'chat':
             channel = msg.get('channel', 1)
             display_name = f"[{player_data['level']}]{name}"
@@ -278,6 +410,29 @@ class ChatServer(AuthMixin):
             }
             self.broadcast(chat_msg, channel=channel)
             print(f"[CH{channel}][{name}] {text}")
+
+        elif msg_type == 'private_chat':
+            target = msg.get('target', '').strip()
+            if not target or not text:
+                return
+            display_name = f"[{player_data['level']}]{name}"
+            current_time = datetime.now().strftime('%H:%M')
+            dm_msg = {
+                'type': PRIVATE_CHAT,
+                'from': name,
+                'from_display': display_name,
+                'to': target,
+                'text': text,
+                'time': current_time,
+            }
+            # 发送给目标玩家的所有连接
+            with self.lock:
+                for client, info in self.clients.items():
+                    if info.get('name') == target and info.get('state') == 'playing':
+                        self.send_to(client, dm_msg)
+            # 回送给发送者自己（用于确认 + 显示）
+            self.send_to(client_socket, dm_msg)
+            print(f"[DM][{name} → {target}] {text}")
 
     def send_player_status(self, client_socket, player_data):
         """发送游戏大厅状态"""
@@ -305,6 +460,7 @@ class ChatServer(AuthMixin):
                         'count': count,
                         'name': info.get('name', item_id),
                         'desc': info.get('desc', ''),
+                        'category': info.get('category', ''),
                         'use_methods': info.get('use_methods', []),
                     }
             status_data['inventory'] = inv_enriched

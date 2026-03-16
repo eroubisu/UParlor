@@ -1,5 +1,9 @@
 """InventoryPanel — 物品栏面板
 
+标签页:
+  全部 — 所有物品
+  消耗品 / 道具 / 装备 / 材料 / 货币 / 特殊 — 按分类过滤
+
 状态机:
   BROWSE   — j/k 移动物品光标，Enter 打开操作菜单
   ACTION   — j/k 在四个固定操作间移动，Enter 执行
@@ -9,11 +13,12 @@
   GIFT     — 赠送物品时选择在线玩家
   CONFIRM  — 丢弃物品的确认提示
 
-导航: Backspace 返回上一级，Esc 直接回到 BROWSE
+导航: h/l 切换标签页，j/k 上下，Backspace 返回上一级，Esc 直接回到 BROWSE
 """
 
 from __future__ import annotations
 
+from rich.cells import cell_len
 from textual.app import ComposeResult
 from textual.widgets import Static
 from textual.widget import Widget
@@ -24,8 +29,10 @@ from ..config import (
     COLOR_FG_TERTIARY,
     COLOR_ACCENT,
     COLOR_BORDER_LIGHT,
+    COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
 )
 from ..state import ModuleStateManager
+from ..widgets.helpers import build_tab_overflow, _widget_width
 from ..widgets.input_bar import InputBar
 
 # 四个固定操作（每个物品都有）
@@ -44,6 +51,18 @@ _MODE_INPUT   = 'input'
 _MODE_GIFT    = 'gift'
 _MODE_CONFIRM = 'confirm'
 
+# 物品分类标签页
+_INV_TABS = ["all", "consumable", "prop", "equipment", "material", "currency", "special"]
+_INV_TAB_LABELS = {
+    "all": "全部",
+    "consumable": "消耗品",
+    "prop": "道具",
+    "equipment": "装备",
+    "material": "材料",
+    "currency": "货币",
+    "special": "特殊",
+}
+
 
 class InventoryPanel(Widget):
     """物品栏面板：Space 菜单打开，j/k 导航，Enter 操作，Esc 返回"""
@@ -52,8 +71,10 @@ class InventoryPanel(Widget):
         super().__init__(**kw)
         self._mode: str = _MODE_BROWSE
         self._cursor: int = 0
-        self._items: list[dict] = []
+        self._items: list[dict] = []        # 所有物品
+        self._filtered: list[dict] = []     # 当前标签页过滤后的物品
         self._gold: int = 0
+        self._tab: str = "all"
         # ACTION 模式
         self._action_cursor: int = 0
         # USE_SUB 模式
@@ -73,6 +94,7 @@ class InventoryPanel(Widget):
         self._state_mgr: ModuleStateManager | None = None
 
     def compose(self) -> ComposeResult:
+        yield Static(id="inventory-header", markup=True)
         yield Static(id="inventory-content")
         yield InputBar("inventory-prompt", id="inventory-input-bar")
 
@@ -83,12 +105,80 @@ class InventoryPanel(Widget):
         """keyboard mixin 在 nav_enter 后检查此属性，决定是否进入 INSERT 模式"""
         return self._wants_insert
 
+    # ── 标签页导航 ──
+
+    def _available_tabs(self) -> list[str]:
+        """返回有物品的分类标签（全部始终显示）"""
+        cats = {item.get('category', '') for item in self._items}
+        tabs = ["all"]
+        for t in _INV_TABS[1:]:
+            if t in cats:
+                tabs.append(t)
+        return tabs
+
+    def nav_tab_next(self):
+        tabs = self._available_tabs()
+        if len(tabs) <= 1:
+            return
+        idx = tabs.index(self._tab) if self._tab in tabs else 0
+        self._tab = tabs[(idx + 1) % len(tabs)]
+        self._apply_filter()
+        self._render_header()
+        self._refresh_content()
+
+    def nav_tab_prev(self):
+        tabs = self._available_tabs()
+        if len(tabs) <= 1:
+            return
+        idx = tabs.index(self._tab) if self._tab in tabs else 0
+        self._tab = tabs[(idx - 1) % len(tabs)]
+        self._apply_filter()
+        self._render_header()
+        self._refresh_content()
+
+    def _apply_filter(self):
+        """根据当前标签页过滤物品"""
+        if self._tab == "all":
+            self._filtered = list(self._items)
+        else:
+            self._filtered = [i for i in self._items if i.get('category') == self._tab]
+        if self._cursor >= len(self._filtered):
+            self._cursor = max(0, len(self._filtered) - 1)
+        self._mode = _MODE_BROWSE
+
+    def _render_header(self):
+        """渲染标签栏"""
+        tabs = self._available_tabs()
+        tab_parts = []
+        for t in tabs:
+            label = _INV_TAB_LABELS.get(t, t)
+            if t == self._tab:
+                plain = f"● {label}"
+                markup = f"[{COLOR_HINT_TAB_ACTIVE}]{plain}[/]"
+            else:
+                plain = f"  {label}"
+                markup = f"  [{COLOR_HINT_TAB_DIM}]{label}[/]"
+            tab_parts.append((markup, cell_len(plain)))
+
+        active_idx = tabs.index(self._tab) if self._tab in tabs else 0
+        avail = _widget_width(self, "inventory-header")
+        tab_line = build_tab_overflow(tab_parts, active_idx, avail, COLOR_FG_TERTIARY)
+
+        try:
+            header = self.query_one("#inventory-header", Static)
+            header.update(tab_line)
+        except Exception:
+            pass
+
+    def on_resize(self, event) -> None:
+        self._render_header()
+
     # ── 面板导航接口（keyboard mixin 调用）──
 
     def nav_down(self):
         if self._mode == _MODE_BROWSE:
-            if self._items:
-                self._cursor = (self._cursor + 1) % len(self._items)
+            if self._filtered:
+                self._cursor = (self._cursor + 1) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
             self._action_cursor = (self._action_cursor + 1) % len(_BASE_ACTIONS)
         elif self._mode == _MODE_USE_SUB:
@@ -102,8 +192,8 @@ class InventoryPanel(Widget):
 
     def nav_up(self):
         if self._mode == _MODE_BROWSE:
-            if self._items:
-                self._cursor = (self._cursor - 1) % len(self._items)
+            if self._filtered:
+                self._cursor = (self._cursor - 1) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
             self._action_cursor = (self._action_cursor - 1) % len(_BASE_ACTIONS)
         elif self._mode == _MODE_USE_SUB:
@@ -117,7 +207,7 @@ class InventoryPanel(Widget):
 
     def nav_enter(self):
         if self._mode == _MODE_BROWSE:
-            if self._items:
+            if self._filtered:
                 self._action_cursor = 0
                 self._mode = _MODE_ACTION
         elif self._mode == _MODE_ACTION:
@@ -172,9 +262,9 @@ class InventoryPanel(Widget):
     # ── 操作执行 ──
 
     def _execute_base_action(self):
-        if not self._items or self._cursor >= len(self._items):
+        if not self._filtered or self._cursor >= len(self._filtered):
             return
-        item = self._items[self._cursor]
+        item = self._filtered[self._cursor]
         action_id, _ = _BASE_ACTIONS[self._action_cursor]
 
         if action_id == 'use':
@@ -201,9 +291,9 @@ class InventoryPanel(Widget):
             self._mode = _MODE_CONFIRM
 
     def _execute_use_method(self):
-        if not self._use_methods or not self._items:
+        if not self._use_methods or not self._filtered:
             return
-        item = self._items[self._cursor]
+        item = self._filtered[self._cursor]
         method = self._use_methods[self._use_cursor]
         input_prompt = method.get('input_prompt')
         if input_prompt:
@@ -304,7 +394,7 @@ class InventoryPanel(Widget):
         except Exception:
             return
 
-        if not self._items:
+        if not self._filtered:
             content.update(
                 f"[{COLOR_FG_SECONDARY}]金币  {self._gold}G[/]\n\n"
                 f"[{COLOR_FG_TERTIARY}](背包空空如也)[/]"
@@ -316,7 +406,7 @@ class InventoryPanel(Widget):
             f"[{COLOR_BORDER_LIGHT}]{'─' * 20}[/]",
         ]
 
-        for i, item in enumerate(self._items):
+        for i, item in enumerate(self._filtered):
             selected = (i == self._cursor)
             name = item.get('name', item['id'])
             count = item.get('count', 0)
@@ -367,7 +457,6 @@ class InventoryPanel(Widget):
 
             elif self._mode == _MODE_CONFIRM:
                 lines.append(f"     [{COLOR_FG_SECONDARY}]{self._confirm_label}[/]")
-                lines.append(f"     [{COLOR_FG_TERTIARY}]Enter 确认 / Esc 取消[/]")
 
             elif self._mode == _MODE_DETAIL:
                 desc = item.get('desc') or '无描述'
@@ -386,10 +475,12 @@ class InventoryPanel(Widget):
         st = self._state
         self._items = list(st.items)
         self._gold = st.gold
-        if self._cursor >= len(self._items):
-            self._cursor = max(0, len(self._items) - 1)
-        self._mode = _MODE_BROWSE
-        self.call_after_refresh(self._refresh_content)
+        self._apply_filter()
+        self.call_after_refresh(self._refresh_all)
+
+    def _refresh_all(self):
+        self._render_header()
+        self._refresh_content()
 
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state

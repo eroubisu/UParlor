@@ -9,6 +9,7 @@ from .login import LoginPanel
 from .which_key import WhichKeyPanel
 from .inventory import InventoryPanel
 from .ai_chat import AIChatPanel
+from .notification import NotificationPanel
 
 from ..registry import register_module
 
@@ -16,13 +17,14 @@ register_module('login',      '登录',     LoginPanel)
 register_module('chat',       '聊天',     ChatPanel)
 register_module('cmd',        '指令',     CommandPanel)
 register_module('status',     '状态',     StatusPanel)
-register_module('online',     '在线用户', OnlineUsersPanel)
+register_module('online',     '用户', OnlineUsersPanel)
 register_module('game_board', '游戏',     GameBoardPanel, scope='game')
-register_module('inventory',  '物品栏',   InventoryPanel)
-register_module('ai',         '伙伴',     AIChatPanel)
+register_module('inventory',  '背包',   InventoryPanel)
+register_module('ai',         '旅伴',     AIChatPanel)
+register_module('notify',     '通知',     NotificationPanel)
 
 __all__ = [
     'ChatPanel', 'CommandPanel', 'CommandHintBar',
     'StatusPanel', 'OnlineUsersPanel', 'GameBoardPanel', 'LoginPanel',
-    'WhichKeyPanel', 'InventoryPanel', 'AIChatPanel',
+    'WhichKeyPanel', 'InventoryPanel', 'AIChatPanel', 'NotificationPanel',
 ]

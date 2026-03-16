@@ -37,18 +37,14 @@ class KeyboardMixin:
                 self._scroll_focused_top()
             return
 
-        # Space 菜单（仅大写 HJKL 导航）
+        # Space 菜单（jk 导航，Enter 进入子菜单，Backspace 返回）
         if self._wk.is_open:
             if key == "escape":
                 self._wk.close()
-            elif event.character == "J":
+            elif key == "j":
                 self._wk.nav_down()
-            elif event.character == "K":
+            elif key == "k":
                 self._wk.nav_up()
-            elif event.character == "H":
-                self._wk.nav_left()
-            elif event.character == "L":
-                self._wk.nav_right()
             elif key == "enter":
                 self._handle_space_enter()
             elif key == "backspace":

@@ -1,8 +1,8 @@
 """认证流程 Mixin — 登录、注册、密码验证"""
 
-from .player.manager import PlayerManager
-from .infra import maintenance
-from .msg_types import CHAT, LOGIN_PROMPT, LOGIN_SUCCESS
+from .manager import PlayerManager
+from ..infra import maintenance
+from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
 
 
 class AuthMixin:
@@ -91,8 +91,21 @@ class AuthMixin:
         self.lobby_engine.register_player(name, player_data)
         self._send_initial_location(client_socket, name)
         self._send_chat_history(client_socket, 1)
+        # 下发 AI 伙伴数据（不含 token 敏感信息）
+        ai_data = player_data.get('ai_companions', {})
+        if ai_data:
+            self.send_to(client_socket, {'type': AI_SYNC, 'companions': ai_data})
         online_msg = f'{name} 上线了'
         self.log_mgr.save(1, '[SYS]', online_msg)
         self.broadcast({'type': CHAT, 'name': '[SYS]', 'text': online_msg, 'channel': 1})
         self.broadcast_online_users()
+        self._send_friend_list(client_socket, player_data)
+        self._send_all_users(client_socket)
+        # 下发待处理的好友申请
+        pending = player_data.get('pending_friend_requests', [])
+        if pending:
+            self.send_to(client_socket, {
+                'type': FRIEND_REQUEST,
+                'pending': pending,
+            })
         print(f"[+] {name} {log_label}")

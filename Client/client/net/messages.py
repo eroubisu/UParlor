@@ -80,9 +80,34 @@ class GameEvent:
     data: dict = field(default_factory=dict)
 
 @dataclass
+class AISyncDown:
+    companions: dict = field(default_factory=dict)
+
+@dataclass
 class ActionCommand:
     action: str = ""
     raw: dict = field(default_factory=dict)
+
+@dataclass
+class FriendList:
+    friends: list = field(default_factory=list)
+
+@dataclass
+class AllUsers:
+    users: list = field(default_factory=list)
+
+@dataclass
+class PrivateChat:
+    from_name: str = ""
+    from_display: str = ""
+    to_name: str = ""
+    text: str = ""
+    time: str = ""
+
+@dataclass
+class FriendRequest:
+    from_name: str = ""
+    pending: list = field(default_factory=list)
 
 
 # ── 分发表 ──
@@ -108,7 +133,14 @@ _PARSERS = {
     'commands_update': lambda m: CommandsUpdate(commands=m.get('commands', [])),
     'game_event':     lambda m: GameEvent(game_type=m.get('game_type', ''), event=m.get('event', ''),
                                           data=m.get('data', {})),
+    'ai_sync':        lambda m: AISyncDown(companions=m.get('companions', {})),
     'action':         lambda m: ActionCommand(action=m.get('action', ''), raw=m),
+    'friend_list':    lambda m: FriendList(friends=m.get('friends', [])),
+    'all_users':      lambda m: AllUsers(users=m.get('users', [])),
+    'private_chat':   lambda m: PrivateChat(from_name=m.get('from', ''), from_display=m.get('from_display', ''),
+                                            to_name=m.get('to', ''), text=m.get('text', ''),
+                                            time=m.get('time', '')),
+    'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending', [])),
 }
 
 

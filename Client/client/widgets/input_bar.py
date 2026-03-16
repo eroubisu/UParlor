@@ -144,11 +144,13 @@ class InputBar(Vertical):
         ta = self._ta()
         if ta:
             ta.text = text
+            ta.move_cursor(ta.document.end)
 
     def update_prompt(self, text: str):
         ta = self._ta()
         if ta:
             ta.text = text
+            ta.move_cursor(ta.document.end)
 
     def hide_prompt(self):
         ta = self._ta()

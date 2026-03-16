@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
 from datetime import date
 from pathlib import Path
@@ -14,7 +16,7 @@ from .config import (
     load_stats, save_stats,
     load_json, save_json, load_text, save_text,
 )
-from .character import Character, load_character
+from .character import Character, load_character, _extract_json
 from .persona import character_to_system_text
 from .social import SocialState
 from .mood import MoodState
@@ -25,6 +27,8 @@ from .attention import (
     TOOLS, GEMINI_TOOLS, AwarenessSummary, AttentionBuffer,
 )
 from ..state import ModuleStateManager
+
+_log = logging.getLogger(__name__)
 
 # ── 常量 ──
 
@@ -62,6 +66,7 @@ class AIService:
         self._listener = None
         self._ready = False
         self._today_tokens = 0
+        self._consecutive_errors = 0
         self._attention = AttentionBuffer()
         self._display_from = 0  # _recent 中开始显示的索引
 
@@ -98,6 +103,29 @@ class AIService:
         self._client = None
         self._ready = False
 
+    def reset_memory(self):
+        """重置当前角色的所有记忆和状态，保留角色定义和 API 配置"""
+        if not self._char_id:
+            return
+        # 重置内存状态
+        self._social = SocialState()
+        self._mood = MoodState()
+        self._cognitive = CognitiveState()
+        self._impression = ImpressionState()
+        self._recent = []
+        self._summary = ""
+        self._display_from = 0
+        self._today_tokens = 0
+        self._attention = AttentionBuffer()
+        # 清除磁盘数据（保留 profile.json 和 api.json）
+        d = char_dir(self._char_id)
+        for name in ("status.json", "impression.json", "recent.json",
+                     "summary.txt", "memory.json", "stats.json"):
+            p = d / name
+            if p.exists():
+                p.unlink()
+        self._save_all()
+
     def _save_all(self):
         """保存所有状态到磁盘"""
         if not self._char_id:
@@ -113,6 +141,13 @@ class AIService:
         save_json(d / "impression.json", self._impression.to_dict())
         save_json(d / "recent.json", self._recent[-50:])
         save_text(d / "summary.txt", self._summary)
+        # 更新 profile 时间戳，供多设备同步判断新旧
+        profile_path = d / "profile.json"
+        profile = load_json(profile_path, {})
+        if profile:
+            from datetime import datetime, timezone
+            profile["updated_at"] = datetime.now(timezone.utc).isoformat()
+            save_json(profile_path, profile)
 
     def _init_client(self):
         key = self._api_config.get("api_key", "")
@@ -257,11 +292,19 @@ class AIService:
             max_output_tokens=max_tokens,
             temperature=temperature,
         )
-        resp = await self._client.aio.models.generate_content(
-            model=self.summary_model,
-            contents=contents,
-            config=config,
-        )
+        try:
+            resp = await self._client.aio.models.generate_content(
+                model=self.summary_model,
+                contents=contents,
+                config=config,
+            )
+        except Exception:
+            self._consecutive_errors += 1
+            raise
+        self._consecutive_errors = 0
+        usage = resp.usage_metadata
+        if usage and usage.total_token_count:
+            self._add_tokens(usage.total_token_count)
         return resp.text or ""
 
     async def _stream(self, messages: list[dict], *, max_tokens: int,
@@ -279,15 +322,24 @@ class AIService:
 
         max_tool_rounds = 3
         for _round in range(max_tool_rounds + 1):
-            response = await self._client.aio.models.generate_content_stream(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
+            try:
+                response = await self._client.aio.models.generate_content_stream(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception:
+                self._consecutive_errors += 1
+                raise
             text_buf = ""
             function_calls = []
+            last_usage = 0
 
             async for chunk in response:
+                # 记录最终 token 用量（流式最后一个 chunk 携带）
+                usage = chunk.usage_metadata
+                if usage and usage.total_token_count:
+                    last_usage = usage.total_token_count
                 if not chunk.candidates:
                     continue
                 for part in chunk.candidates[0].content.parts or []:
@@ -296,6 +348,10 @@ class AIService:
                         yield part.text
                     elif part.function_call:
                         function_calls.append(part.function_call)
+
+            if last_usage:
+                self._add_tokens(last_usage)
+            self._consecutive_errors = 0
 
             if not function_calls or not enable_tools:
                 return
@@ -307,7 +363,10 @@ class AIService:
             for fc in function_calls:
                 model_parts.append(types.Part(function_call=fc))
                 fn = TOOLS.get(fc.name)
-                result = fn(self._state, **(fc.args or {})) if fn else "未知工具"
+                try:
+                    result = fn(self._state, **(fc.args or {})) if fn else "未知工具"
+                except Exception as tool_err:
+                    result = f"工具执行失败: {tool_err}"
                 response_parts.append(types.Part(
                     function_response=types.FunctionResponse(
                         name=fc.name,
@@ -334,26 +393,14 @@ class AIService:
                 full_reply += chunk
                 yield chunk
 
-            prompt_tokens = sum(len(m["content"]) for m in messages) // 3
-            reply_tokens = len(full_reply) // 3
-            self._add_tokens(prompt_tokens + reply_tokens)
-
         except Exception as e:
             err = f"[AI 出错: {e}]"
             yield err
             full_reply = err
-
-        self._recent.append({"role": "assistant", "content": full_reply})
-        self._save_recent()
-        self._social.apply_gains("casual_chat")
-        self._notify("token_update", self.today_tokens_display)
-        self._notify("status_update")
-
-        if len(self._recent) >= _COMPRESS_THRESHOLD:
-            await self._compress()
-
-        # Phase 2: 异步反思
-        await self._reflect(user_text, full_reply)
+        finally:
+            self._recent.append({"role": "assistant", "content": full_reply})
+            self._save_recent()
+            self._schedule_post_chat(user_text, full_reply)
 
     async def validate_key(self, key: str) -> tuple[bool, str]:
         try:
@@ -403,8 +450,6 @@ class AIService:
 
     async def do_action(self, desc: str) -> AsyncIterator[str]:
         """执行互动动作（自由文本），返回 AI 回应流"""
-        self._social.apply_gains("action")
-
         self._recent.append({
             "role": "user",
             "content": f"[玩家对你做了一个动作: {desc}]",
@@ -430,17 +475,15 @@ class AIService:
                 full_reply += chunk
                 yield chunk
         except Exception as e:
-            yield f"[AI 出错: {e}]"
-            return
-
-        self._recent.append({"role": "assistant", "content": full_reply})
-        self._save_recent()
-        self._notify("status_update")
+            full_reply = f"[AI 出错: {e}]"
+            yield full_reply
+        finally:
+            self._recent.append({"role": "assistant", "content": full_reply})
+            self._save_recent()
+            self._schedule_post_chat(f"[动作: {desc}]", full_reply)
 
     async def give_gift(self, item_name: str, qty: int = 1) -> AsyncIterator[str]:
         """赠送礼物，返回 AI 反应流"""
-        self._social.apply_gains("gift")
-
         label = f"{item_name} x{qty}" if qty > 1 else item_name
         self._recent.append({
             "role": "user",
@@ -451,8 +494,9 @@ class AIService:
         messages.append({
             "role": "user",
             "content": (
-                f"玩家送了你{label}。"
-                "自然地回应，可以包含动作和语言。"
+                f"玩家送了你{label}。礼物已经给出，你已收下。"
+                "用你的性格自然地回应这份礼物，可以包含动作和语言。"
+                "不要拒绝或退还礼物——你已经收到了。"
                 "动作描述必须用第三人称，禁止用第一人称。"
             ),
         })
@@ -466,26 +510,55 @@ class AIService:
                 full_reply += chunk
                 yield chunk
         except Exception as e:
-            yield f"[AI 出错: {e}]"
-            return
-
-        self._recent.append({"role": "assistant", "content": full_reply})
-        self._save_recent()
-        self._notify("status_update")
+            full_reply = f"[AI 出错: {e}]"
+            yield full_reply
+        finally:
+            self._recent.append({"role": "assistant", "content": full_reply})
+            self._save_recent()
+            self._schedule_post_chat(f"[赠送: {label}]", full_reply)
 
     # ── Phase 2: 反思 ──
 
+    def _schedule_post_chat(self, context: str, reply: str):
+        """将压缩/反思/通知放到后台任务，避免阻塞生成器退出"""
+        async def _task():
+            try:
+                if len(self._recent) >= _COMPRESS_THRESHOLD:
+                    await self._compress()
+            except Exception:
+                _log.debug("compress failed in post_chat", exc_info=True)
+            try:
+                await self._reflect(context, reply)
+            except Exception:
+                _log.debug("reflect failed in post_chat", exc_info=True)
+            self._notify("token_update", self.today_tokens_display)
+            self._notify("status_update")
+        asyncio.create_task(_task())
+
     _REFLECT_PROMPT = (
-        '根据以下对话片段，评估 AI 角色的心理状态变化。\n'
+        '你是情感分析专家。根据对话内容，以角色的视角评估心理变化。\n'
+        '重点关注：玩家的话是否带有攻击性、亲昵、冷淡、夸奖、侮辱、关心等情绪色彩。\n'
+        '角色的情绪反应必须符合角色性格——害羞的角色被骂会害怕或难过，强势角色被骂会愤怒。\n'
+        '即使是日常对话，也要根据字面含义和潜台词判断情绪变化。不要轻易输出 calm。\n'
         '只输出 JSON，不要其他文字:\n'
         '{\n'
-        '  "mood": {"primary": "心情ID", "intensity": 0.5, "secondary": "", "source": "原因"},\n'
-        '  "cognitive": {"on_mind": "在想什么", "wants_to_say": "想说什么", "anticipating": "期待什么"},\n'
+        '  "mood": {"primary": "心情ID", "intensity": 0.5, "secondary": "", "source": "简短原因"},\n'
+        '  "cognitive": {"on_mind": "角色在想什么", "wants_to_say": "想说但没说出口的话", "anticipating": "期待什么"},\n'
         '  "social_delta": {"intimacy": 0.0, "trust": 0.0, "familiarity": 0.0},\n'
-        '  "impression_update": {"portrait": "", "patterns": []}\n'
+        '  "impression_update": {"portrait": "", "relationship_arc": "", "shared_references": [], "patterns": [], "concerns": []}\n'
         '}\n'
-        '心情ID可选: calm, joyful, excited, shy, annoyed, anxious, sad, angry, lonely\n'
-        '若无明显变化，该字段留空字符串或 0。只修改有变化的字段。'
+        '心情ID: calm, joyful, excited, shy, annoyed, anxious, sad, angry, lonely\n'
+        'intensity: 0.0~1.0，0.3=轻微 0.5=明显 0.7=强烈 0.9=极端\n'
+        'social_delta 是关系变化的唯一来源，必须准确反映本次互动的影响:\n'
+        '- 友好日常聊天: familiarity +0.2~0.5, trust +0.05~0.15, intimacy +0.05~0.1\n'
+        '- 关心/夸奖: intimacy +0.5~2.0, trust +0.3~1.0\n'
+        '- 辱骂/攻击: trust -1.0~-5.0, intimacy -0.5~-3.0\n'
+        '- 冷淡/敷衍: 各项接近0或略负\n'
+        '- 送礼: intimacy +0.5~2.0, familiarity +0.3~0.5\n'
+        '- 互动动作(拥抱等): intimacy +0.5~2.0; 攻击动作: trust -2.0~-5.0\n'
+        '范围-5.0~5.0。\n'
+        '必须给出mood.primary，禁止留空。如果真的没有变化就写calm。\n'
+        '所有文本字段尽量简短（10字以内），不要写长句。'
     )
 
     async def _reflect(self, user_text: str, ai_reply: str):
@@ -493,23 +566,33 @@ class AIService:
         if not self._client:
             return
         try:
+            # 构建角色人设摘要
+            persona = ""
+            if self._character:
+                persona = character_to_system_text(self._character)
+            user_content_parts = []
+            if persona:
+                user_content_parts.append(f"角色人设:\n{persona}")
+            user_content_parts.append(
+                f"角色当前状态:\n"
+                f"{self._social.to_prompt_text()}\n"
+                f"{self._mood.to_prompt_text()}"
+            )
+            user_content_parts.append(
+                f"玩家说: {user_text}\n"
+                f"AI 回复: {ai_reply}"
+            )
             messages = [
                 {"role": "system", "content": self._REFLECT_PROMPT},
-                {"role": "user", "content": (
-                    f"角色当前状态:\n"
-                    f"{self._social.to_prompt_text()}\n"
-                    f"{self._mood.to_prompt_text()}\n\n"
-                    f"玩家说: {user_text}\n"
-                    f"AI 回复: {ai_reply}"
-                )},
+                {"role": "user", "content": "\n\n".join(user_content_parts)},
             ]
             text = await self._generate(
-                messages, max_tokens=800, temperature=_SUMMARY_TEMPERATURE,
+                messages, max_tokens=4096, temperature=_SUMMARY_TEMPERATURE,
             )
             text = text.strip()
             if "{" not in text:
+                _log.warning("_reflect: no JSON in response")
                 return
-            from .character import _extract_json
             data = _extract_json(text)
 
             # 更新心情
@@ -540,7 +623,7 @@ class AIService:
             self._save_all()
             self._notify("status_update")
         except Exception:
-            pass
+            _log.warning("_reflect failed", exc_info=True)
 
     # ── 消息组装 ──
 
@@ -561,7 +644,11 @@ class AIService:
             "回复格式规则：说话的内容直接写；动作/表情/心理描述用 *星号* 包裹。"
             "动作描述必须用第三人称（她/他），禁止用第一人称「我」。"
             "例如：*她微微偏过头* 你干嘛呢？"
-            "如果不需要说话，只写 *动作描述* 即可。"
+            "如果不需要说话，只写 *动作描述* 即可。\n"
+            "重要：你的心情和关系状态会极大影响你的说话方式。"
+            "心情不好就不要强颜欢笑，被骂了就别装没事。"
+            "你和玩家的关系阶段决定你的态度底线——陌生人就保持距离，熟人才会有亲密举动。"
+            "情绪强不代表话多——生气时可能只有一个字，难过时也可以只有沉默。"
         )
 
         if self._character:
@@ -649,9 +736,16 @@ class AIService:
         removed = len(to_compress)
         self._recent = self._recent[-_COMPRESS_KEEP:]
         # 调整 display_from（被压缩的部分已移除）
+        orig_display_from = self._display_from
         self._display_from = max(0, self._display_from - removed)
 
-        mem.store_messages(self._char_id, to_compress)
+        try:
+            mem.store_messages(self._char_id, to_compress)
+        except Exception:
+            _log.debug("mem.store_messages() failed, rolling back", exc_info=True)
+            self._recent = to_compress + self._recent
+            self._display_from = orig_display_from
+            return
 
         conv_text = "\n".join(f"{m['role']}: {m['content']}" for m in to_compress)
         try:
@@ -660,12 +754,12 @@ class AIService:
                 {"role": "user", "content": f"已有摘要:\n{self._summary or '(无)'}\n\n新对话:\n{conv_text}"},
             ]
             new_summary = await self._generate(
-                messages, max_tokens=800, temperature=_SUMMARY_TEMPERATURE,
+                messages, max_tokens=4096, temperature=_SUMMARY_TEMPERATURE,
             )
             self._summary = new_summary.strip()
             save_text(char_dir(self._char_id) / "summary.txt", self._summary)
         except Exception:
-            pass
+            _log.debug("_compress() summary generation failed", exc_info=True)
 
         self._save_recent()
 
@@ -680,6 +774,9 @@ class AIService:
         cfg = self._api_config
         if not cfg.get("proactive_enabled", True):
             return None
+        # 连续出错时不主动搭话
+        if self._consecutive_errors >= 3:
+            return None
         now = time.time()
         cooldown = cfg.get("proactive_cooldown_minutes", 5) * 60
         if now - self._last_proactive < cooldown:
@@ -688,10 +785,6 @@ class AIService:
             event = self._event_queue.pop(0)
             self._last_proactive = now
             return event
-        # 认知驱动：如果角色有想说的话
-        if self._cognitive.has_something_to_say:
-            self._last_proactive = now
-            return f"角色想说: {self._cognitive.wants_to_say}"
         idle_limit = cfg.get("proactive_idle_minutes", 10) * 60
         if now - self._last_user_msg > idle_limit:
             self._last_proactive = now
@@ -723,15 +816,16 @@ class AIService:
                 full_reply += chunk
                 yield chunk
         except Exception:
-            pass
-
-        if full_reply:
+            _log.debug("proactive_chat() failed", exc_info=True)
+        finally:
+            # 清理预插入的系统消息
             if self._recent and "[系统:" in self._recent[-1].get("content", ""):
                 self._recent.pop()
-            self._recent.append({"role": "assistant", "content": full_reply})
-            self._save_recent()
-            self._notify("token_update", self.today_tokens_display)
-            self._notify("status_update")
+            if full_reply:
+                self._recent.append({"role": "assistant", "content": full_reply})
+                self._save_recent()
+                self._notify("token_update", self.today_tokens_display)
+                self._notify("status_update")
 
     # ── 退出清理 ──
 

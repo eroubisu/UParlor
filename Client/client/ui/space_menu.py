@@ -10,22 +10,26 @@ class SpaceMenuMixin:
     """GameScreen 的 Space 快捷菜单逻辑"""
 
     def _open_space_menu(self):
-        """构建标签页数据并打开 Space 菜单"""
-        tabs = []
+        """构建列表数据并打开 Space 菜单"""
         # 切换面板
         modules = get_module_names(scope='global')
         labels = get_module_labels(scope='global')
         mod_items = [(labels.get(m, m), "") for m in modules]
-        tabs.append(("面板", mod_items))
         # 游戏
-        tabs.append(("游戏", self._build_game_tab_items()))
+        game_items = self._build_game_tab_items()
         # 窗口
-        tabs.append(("窗口", [
+        win_items = [
             ("横分", ""),
             ("纵分", ""),
             ("关闭", "关闭当前窗格"),
-        ]))
-        self._wk.open(tabs)
+        ]
+        # 顶级列表：每个分类是带子菜单的项
+        items = [
+            ("面板", "", mod_items),
+            ("游戏", "", game_items),
+            ("窗口", "", win_items),
+        ]
+        self._wk.open(items)
 
     def _build_game_tab_items(self):
         """构建游戏标签页：按游戏分组，每个游戏是子菜单入口"""
@@ -49,9 +53,9 @@ class SpaceMenuMixin:
         return items
 
     def _refresh_game_tab(self):
-        """刷新游戏标签页的 ●/○ 状态"""
+        """刷新游戏分类的 ●/○ 状态"""
         items = self._build_game_tab_items()
-        self._wk.refresh_items(1, items)
+        self._wk.refresh_category_items("游戏", items)
 
     def _handle_space_enter(self):
         """处理 Space 菜单的 Enter 确认"""

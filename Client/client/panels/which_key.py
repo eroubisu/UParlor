@@ -1,4 +1,4 @@
-"""WhichKeyPanel — Space 菜单浮窗（标签页形式）"""
+"""WhichKeyPanel — Space 菜单浮窗（列表形式，Enter 进入子菜单）"""
 
 from __future__ import annotations
 
@@ -9,9 +9,12 @@ from ..widgets import TabMenuBase
 
 
 class WhichKeyPanel(TabMenuBase):
-    """Space 菜单：继承 TabMenuBase，items 为 tuple (name, desc[, sub_items])"""
+    """Space 菜单：继承 TabMenuBase，单列表 + 子菜单钻入。
 
-    _tabs_widget_id = "wk-tabs"
+    items 为 tuple (name, desc[, sub_items])
+    """
+
+    _tabs_widget_id = "wk-title"
     _content_widget_id = "wk-content"
 
     def __init__(self, **kw):
@@ -20,7 +23,7 @@ class WhichKeyPanel(TabMenuBase):
         self.border_title = "菜单"
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="wk-tabs", classes="hint-tabs")
+        yield Static("", id="wk-title")
         yield Static("", id="wk-content", classes="hint-content")
 
     # ── TabMenuBase 钩子 ──
@@ -39,15 +42,39 @@ class WhichKeyPanel(TabMenuBase):
     def _make_sub_tab(self, item) -> tuple[str, list]:
         return (item[0], item[2])
 
+    # ── 覆盖：根级隐藏标题栏，子菜单显示面包屑 ──
+
+    def _update_widgets(self, tab_text, content):
+        try:
+            title_w = self.query_one("#wk-title", Static)
+            if self._nav_stack:
+                title_w.update(tab_text)
+                title_w.display = True
+            else:
+                title_w.update("")
+                title_w.display = False
+        except Exception:
+            pass
+        try:
+            self.query_one("#wk-content", Static).update(content)
+        except Exception:
+            pass
+
+    # ── 禁用 h/l 切换标签 ──
+
+    def nav_left(self):
+        pass
+
+    def nav_right(self):
+        pass
+
     # ── 公共接口 ──
 
-    def open(self, tabs: list[tuple[str, list]]):
-        """打开菜单，设置顶级标签页"""
+    def open(self, items: list[tuple]):
+        """打开菜单，items 为顶级列表项（可含子菜单）"""
         self._visible = True
-        # 直接存储数据，不在隐藏状态下渲染（此时宽度为 0）
-        self._tabs = tabs
-        if self._active_tab >= len(tabs):
-            self._active_tab = 0
+        self._tabs = [("菜单", items)]
+        self._active_tab = 0
         self._selected_idx = 0
         self._scroll_offset = 0
         self._nav_stack = []
@@ -65,16 +92,10 @@ class WhichKeyPanel(TabMenuBase):
         return self._visible
 
     @property
-    def active_tab_name(self) -> str:
-        if self._tabs and self._active_tab < len(self._tabs):
-            return self._tabs[self._active_tab][0]
-        return ""
-
-    @property
     def selected_index(self) -> int:
         return self._selected_idx
 
-    # ── enter 覆盖：返回 (tab_name, item_index) 而非 item 对象 ──
+    # ── enter 覆盖：返回 (category_name, item_index) ──
 
     def enter(self) -> tuple[str, int] | None:
         items = self._current_items()
@@ -91,21 +112,16 @@ class WhichKeyPanel(TabMenuBase):
             self._scroll_offset = 0
             self._refresh_display()
             return None
-        tab_name = self._tabs[self._active_tab][0] if self._tabs else ""
-        return (tab_name, self._selected_idx)
+        # 叶子节点 — 返回当前所在分类名 + 项目索引
+        cat_name = self._tabs[0][0] if self._tabs else ""
+        return (cat_name, self._selected_idx)
 
     # ── 数据刷新 ──
 
-    def refresh_items(self, tab_idx: int, items: list[tuple[str, str]]):
-        """刷新指定标签页的项目列表"""
-        if 0 <= tab_idx < len(self._tabs):
-            name = self._tabs[tab_idx][0]
-            self._tabs[tab_idx] = (name, items)
-            self._refresh_display()
-
-    def refresh_current_items(self, items: list[tuple[str, str]]):
-        """刷新当前标签页的项目列表"""
-        if self._tabs and self._active_tab < len(self._tabs):
-            name = self._tabs[self._active_tab][0]
-            self._tabs[self._active_tab] = (name, items)
+    def refresh_category_items(self, cat_name: str, items: list[tuple[str, str]]):
+        """刷新指定分类的子菜单项目"""
+        if not self._nav_stack:
+            return
+        if self._tabs and self._tabs[0][0] == cat_name:
+            self._tabs[0] = (cat_name, items)
             self._refresh_display()

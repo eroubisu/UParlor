@@ -53,7 +53,10 @@ def load_character(char_id: str) -> Character | None:
 
 def save_character(char: Character):
     ensure_char_dir(char.id)
-    save_json(_profile_path(char.id), asdict(char))
+    data = asdict(char)
+    from datetime import datetime, timezone
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    save_json(_profile_path(char.id), data)
 
 
 def list_characters() -> list[CharacterSummary]:
@@ -67,6 +70,46 @@ def list_characters() -> list[CharacterSummary]:
 def generate_char_id() -> str:
     """生成唯一角色 ID"""
     return f"char_{int(time.time())}"
+
+
+def _extract_json(text: str) -> dict:
+    """从 LLM 文本响应中提取 JSON 对象"""
+    # 去除 markdown 代码块标记
+    text = text.strip()
+    if text.startswith("```"):
+        first_nl = text.find("\n")
+        if first_nl != -1:
+            text = text[first_nl + 1:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in text")
+    # 深度追踪大括号，正确处理字符串内的 {}
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if c == '\\':
+            if in_string:
+                escape_next = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    return json.loads(text[start:i + 1])
+    raise ValueError("Unmatched braces in JSON")
 
 
 # ── Gemini 结构化提取 ──
@@ -106,8 +149,8 @@ _CHAR_SCHEMA = {
 }
 
 
-async def structurize_description(desc: str, api_key: str) -> Character:
-    """调用 Gemini 将自由文本提取为结构化 Character"""
+async def structurize_description(desc: str, api_key: str) -> tuple[Character, int]:
+    """调用 Gemini 将自由文本提取为结构化 Character。返回 (角色, token用量)。"""
     from google import genai
     from google.genai import types
 
@@ -126,6 +169,8 @@ async def structurize_description(desc: str, api_key: str) -> Character:
     )
     _check_truncation(resp)
     data = json.loads(resp.text or "{}")
+    usage = resp.usage_metadata
+    tokens = usage.total_token_count if usage and usage.total_token_count else 0
 
     char_id = generate_char_id()
     return Character(
@@ -137,14 +182,14 @@ async def structurize_description(desc: str, api_key: str) -> Character:
         backstory=data.get("backstory", ""),
         custom_rules=data.get("custom_rules", []),
         created_at=time.time(),
-    )
+    ), tokens
 
 
 _REFINE_INSTRUCTION = "根据用户的修改意见调整角色设定，输出调整后的完整 JSON。保留未被修改的字段原值。"
 
 
-async def refine_character(char: Character, feedback: str, api_key: str) -> Character:
-    """根据用户反馈调整角色设定"""
+async def refine_character(char: Character, feedback: str, api_key: str) -> tuple[Character, int]:
+    """根据用户反馈调整角色设定。返回 (角色, token用量)。"""
     from google import genai
     from google.genai import types
 
@@ -173,6 +218,8 @@ async def refine_character(char: Character, feedback: str, api_key: str) -> Char
     )
     _check_truncation(resp)
     data = json.loads(resp.text or "{}")
+    usage = resp.usage_metadata
+    tokens = usage.total_token_count if usage and usage.total_token_count else 0
 
     char.name = data.get("name", char.name)
     char.personality = data.get("personality", char.personality)
@@ -180,4 +227,4 @@ async def refine_character(char: Character, feedback: str, api_key: str) -> Char
     char.appearance = data.get("appearance", char.appearance)
     char.backstory = data.get("backstory", char.backstory)
     char.custom_rules = data.get("custom_rules", char.custom_rules)
-    return char
+    return char, tokens

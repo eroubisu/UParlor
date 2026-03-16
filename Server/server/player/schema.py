@@ -77,6 +77,8 @@ def get_default_user_template(name="", password_hash=""):
             'invites_sent': 0,
         },
 
+        'friends': [],
+
         'game_stats': {
             'total_games': 0,
             'total_wins': 0,
@@ -94,6 +96,8 @@ def get_default_user_template(name="", password_hash=""):
         },
 
         'window_layout': None,
+
+        'ai_companions': {},
     }
 
     for game_id, defaults in _GAME_PLAYER_DEFAULTS.items():

@@ -164,8 +164,17 @@ InputTextArea:focus {
     overflow-y: auto;
 }
 
+/* ── 面板标签栏 ── */
+#chat-header, #online-header, #notify-header, #inventory-header {
+    height: auto;
+    dock: top;
+    background: transparent;
+    border: round $color-border;
+    padding: 0 1;
+}
+
 /* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar {
+#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar {
     height: auto;
     border: round $color-accent;
     border-title-color: $color-accent;
@@ -173,7 +182,7 @@ InputTextArea:focus {
     display: none;
 }
 
-#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible {
+#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible {
     display: block;
 }
 
@@ -259,7 +268,7 @@ InputTextArea:focus {
     display: block;
 }
 
-#wk-tabs {
+#wk-title {
     width: 100%;
     height: 1;
 }

@@ -182,6 +182,8 @@ class UParlorApp(App):
             panel = screen._get_module('ai')
             if not panel or not hasattr(panel, '_service'):
                 return
+            if not getattr(panel, '_panel_active', False):
+                return
             svc = panel._service
             if not svc:
                 return

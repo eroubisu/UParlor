@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 _MAX_CHAT_LINES = 15
 _MAX_ONLINE_USERS = 20
 _MAX_INVENTORY_ITEMS = 10
-_MAX_GAME_DESC = 200
+_MAX_GAME_DESC = 1500
 
 
 # ── 工具函数 ──
@@ -67,8 +67,7 @@ def look_inventory(state: ModuleStateManager, **_kw) -> str:
                  (f" - {it['desc']}" if it.get("desc") else "")
                  for it in inv.items[:_MAX_INVENTORY_ITEMS]]
         result = "\n".join(lines)
-        if inv.gold:
-            result += f"\n金币: {inv.gold}G"
+        result += f"\n金币: {inv.gold}G"
         return result
     except Exception:
         return "无法查看背包"
@@ -76,6 +75,7 @@ def look_inventory(state: ModuleStateManager, **_kw) -> str:
 
 def look_game_room(state: ModuleStateManager, **_kw) -> str:
     """返回当前游戏房间状态"""
+    import json
     try:
         rd = state.game_board.room_data
         if not rd:
@@ -97,23 +97,37 @@ def look_game_room(state: ModuleStateManager, **_kw) -> str:
         status = rd.get("state") or rd.get("status", "")
         if status:
             parts.append(f"状态: {status}")
+
         # 优先: 客户端 handler 的 ai_describe 方法
+        desc = None
         if game:
             from ..protocol.handler import get_handler
             handler = get_handler(game)
             if handler and hasattr(handler, 'ai_describe'):
                 try:
                     desc = handler.ai_describe(rd)
-                    if desc:
-                        parts.append(desc[:_MAX_GAME_DESC])
-                        return " | ".join(parts)
                 except Exception:
                     pass
         # 回退: 服务端 room_data 中的 ai_summary
-        ai_summary = rd.get("ai_summary")
-        if ai_summary:
-            parts.append(f"详情: {str(ai_summary)[:_MAX_GAME_DESC]}")
-        return " | ".join(parts) if parts else "游戏房间信息不完整"
+        if not desc:
+            desc = rd.get("ai_summary")
+        # 最终回退: 仅提取关键字段
+        if not desc:
+            brief = {k: rd[k] for k in ("game_type", "game", "state", "status",
+                                         "round", "turn", "phase")
+                     if k in rd}
+            try:
+                desc = json.dumps(brief, ensure_ascii=False, separators=(',', ':'))
+            except Exception:
+                desc = str(brief)
+        parts.append(desc[:_MAX_GAME_DESC])
+
+        # 附带最近事件缓冲
+        events = state.game_board.recent_events
+        if events:
+            parts.append("[最近事件] " + " / ".join(events[-5:]))
+
+        return " | ".join(parts)
     except Exception:
         return "无法查看游戏房间"
 

@@ -17,7 +17,10 @@ class StatusPanel(Widget):
         yield RichLog(id="status-content", wrap=True, highlight=True, markup=True, max_lines=MAX_LINES_STATUS)
 
     def _render_player_info(self, player_data: dict):
-        content: RichLog = self.query_one("#status-content", RichLog)
+        try:
+            content: RichLog = self.query_one("#status-content", RichLog)
+        except Exception:
+            return
         content.clear()
         name = player_data.get('name', '?')
         level = player_data.get('level', 1)
@@ -36,8 +39,11 @@ class StatusPanel(Widget):
             (player_data,) = args
             self._render_player_info(player_data)
         elif event == 'clear':
-            content: RichLog = self.query_one("#status-content", RichLog)
-            content.clear()
+            try:
+                content: RichLog = self.query_one("#status-content", RichLog)
+                content.clear()
+            except Exception:
+                pass
 
     def restore(self, state: ModuleStateManager):
         st = state.status

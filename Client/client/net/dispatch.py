@@ -13,7 +13,8 @@ from .messages import (
     SystemMessage, GameMessage, ChatMessage, ChatHistory,
     StatusUpdate, OnlineUsers, GameInvite,
     RoomUpdate, RoomLeave, GameQuit, LocationUpdate,
-    CommandsUpdate, GameEvent, ActionCommand,
+    CommandsUpdate, GameEvent, ActionCommand, AISyncDown,
+    FriendList, AllUsers, PrivateChat, FriendRequest,
 )
 from ..protocol.handler import GameHandlerContext, get_handler
 from ..panels import LoginPanel
@@ -27,7 +28,7 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
     """
     try:
         panel = screen._get_module('ai')
-        if panel and hasattr(panel, '_service') and panel._service:
+        if panel and getattr(panel, '_panel_active', False) and panel._service:
             svc = panel._service
             svc._attention.push(event)
             if high_priority:
@@ -80,12 +81,33 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
         layout_data = parsed.data.get('window_layout')
         if layout_data:
             app._saved_layout = layout_data
+        # 记录玩家名用于私聊
+        player_name = parsed.data.get('name', '')
+        if player_name:
+            st.chat.set_player_name(player_name)
         st.status.update_player_info(parsed.data)
         st.inventory.update_inventory(parsed.data)
 
     elif isinstance(parsed, OnlineUsers):
         st.online.update_users(parsed.users)
         st.chat.update_online_count(parsed.users)
+
+    elif isinstance(parsed, FriendList):
+        st.online.update_friends(parsed.friends)
+
+    elif isinstance(parsed, AllUsers):
+        st.online.update_all_users(parsed.users)
+
+    elif isinstance(parsed, PrivateChat):
+        st.chat.add_private_message(
+            parsed.from_name, parsed.to_name, parsed.text, parsed.time)
+
+    elif isinstance(parsed, FriendRequest):
+        # 服务端推送待处理好友申请列表
+        if parsed.pending:
+            st.notify.set_friend_requests(parsed.pending)
+        elif parsed.from_name:
+            st.notify.add_friend_request(parsed.from_name)
 
     elif isinstance(parsed, GameInvite):
         inv = parsed.raw
@@ -97,18 +119,23 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
     elif isinstance(parsed, RoomUpdate):
         if parsed.room_data:
             st.game_board.update_room(parsed.room_data)
-            # 推送房间状态变化给 AI（opt-in: room_data 需声明 ai_priority）
+            # 缓存带 ai_description 的房间更新
             rd = parsed.room_data
+            ai_desc = rd.get('ai_description')
+            if ai_desc:
+                st.game_board.push_event(str(ai_desc))
+            # 推送房间状态变化给 AI（opt-in: room_data 需声明 ai_priority）
             priority = rd.get('ai_priority')
             if priority:
                 game = rd.get('game_type') or rd.get('game', '')
                 room_state = rd.get('state') or rd.get('status', '')
-                desc = rd.get('ai_description', f"{game} {room_state}".strip())
+                desc = ai_desc or f"{game} {room_state}".strip()
                 _push_ai_event(screen, f"房间更新: {desc}", high_priority=(priority == 'high'))
         if parsed.message:
             st.cmd.add_line(parsed.message)
 
     elif isinstance(parsed, (RoomLeave, GameQuit)):
+        st.game_board.clear()
         if parsed.location:
             if hasattr(parsed, 'commands') and parsed.commands:
                 from ..protocol.commands import set_commands
@@ -142,12 +169,20 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
                 remove_panel=screen._remove_module_panel,
             )
             handler.handle_event(parsed.event, parsed.data, ctx)
-        # 推送游戏事件给 AI（opt-in: data 需声明 ai_priority）
+        # 缓存带 ai_description 的游戏事件
         d = parsed.data or {}
+        ai_desc = d.get('ai_description')
+        if ai_desc:
+            st.game_board.push_event(str(ai_desc))
+        # 推送游戏事件给 AI（opt-in: data 需声明 ai_priority）
         priority = d.get('ai_priority')
         if priority in ('high', 'normal'):
-            desc = d.get('ai_description', parsed.event)
+            desc = ai_desc or parsed.event
             _push_ai_event(screen, f"游戏事件: {desc}", high_priority=(priority == 'high'))
+
+    elif isinstance(parsed, AISyncDown):
+        from ..ai.config import import_all_chars
+        import_all_chars(parsed.companions)
 
     elif isinstance(parsed, ActionCommand):
         action = parsed.action

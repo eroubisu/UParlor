@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..panels import ChatPanel, CommandPanel
 from ..panels.inventory import InventoryPanel
 from ..panels.ai_chat import AIChatPanel
+from ..panels.online import OnlineUsersPanel
 
 
 class InputMixin:
@@ -26,6 +27,10 @@ class InputMixin:
                 inv = self._get_module('inventory')
                 if isinstance(inv, InventoryPanel):
                     inv.cancel_input()
+            elif self._input_target == 'online':
+                panel = self._get_module('online')
+                if isinstance(panel, OnlineUsersPanel):
+                    panel.on_input_submit("")
             return
 
         if self._input_target == 'login':
@@ -33,8 +38,14 @@ class InputMixin:
                 self._send_command(text)
         elif self._input_target == "chat":
             chat = self._get_module('chat')
-            ch = chat.current_channel if isinstance(chat, ChatPanel) else 1
-            self._send_chat(text, ch)
+            if isinstance(chat, ChatPanel):
+                if chat._active_tab != "global":
+                    # 私聊标签 → 发送私聊消息
+                    self._send_private_chat(text, chat._active_tab)
+                else:
+                    self._send_chat(text, chat.current_channel)
+            else:
+                self._send_chat(text, 1)
         elif self._input_target == 'inventory':
             inv = self._get_module('inventory')
             if isinstance(inv, InventoryPanel):
@@ -45,6 +56,10 @@ class InputMixin:
                 ai_panel.on_user_submit(text)
                 if ai_panel.wants_insert:
                     self._enter_insert()
+        elif self._input_target == 'online':
+            panel = self._get_module('online')
+            if isinstance(panel, OnlineUsersPanel):
+                panel.on_input_submit(text)
         else:
             if not text.startswith("/"):
                 text = "/" + text
@@ -65,10 +80,19 @@ class InputMixin:
     def _send_chat(self, text: str, channel: int):
         self.app.send_chat(text, channel)
 
+    def _send_private_chat(self, text: str, target: str):
+        self.app.network.send({"type": "private_chat", "target": target, "text": text})
+
     def _cycle_channel(self):
         chat = self._get_module('chat')
         if not isinstance(chat, ChatPanel):
             return
+        # 如果有多个标签页，Tab 切换标签
+        tabs = chat._tab_list()
+        if len(tabs) > 1:
+            chat.nav_tab_next()
+            return
+        # 否则切换世界/房间频道
         ch = chat.current_channel
         new_ch = 2 if ch == 1 else 1
         self.state.chat.switch_channel(new_ch)
@@ -112,6 +136,10 @@ class InputMixin:
             ai_panel = self._get_module('ai')
             if isinstance(ai_panel, AIChatPanel):
                 ai_panel.show_input_bar()
+        elif target == 'online':
+            panel = self._get_module('online')
+            if isinstance(panel, OnlineUsersPanel):
+                panel.show_input_bar()
 
     def _hide_input_bar(self):
         cmd = self._get_module('cmd')
@@ -123,6 +151,9 @@ class InputMixin:
         ai_panel = self._get_module('ai')
         if isinstance(ai_panel, AIChatPanel):
             ai_panel.hide_input_bar()
+        panel = self._get_module('online')
+        if isinstance(panel, OnlineUsersPanel):
+            panel.hide_input_bar()
 
     def _update_completion(self):
         if self._input_target != 'cmd':

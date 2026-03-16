@@ -7,7 +7,7 @@
         {"name": "exit",     "label": "退出",     "desc": "关闭程序",           "tab": "系统"},
         {"name": "use",      "label": "使用物品", "desc": "use <物品ID> [方式]", "tab": "物品", "scope": "inventory"},
         {"name": "gift",     "label": "赠送物品", "desc": "gift <物品ID>",      "tab": "物品", "scope": "inventory"},
-        {"name": "drop",     "label": "丢弃物品", "desc": "drop <物品ID>",      "tab": "物品", "scope": "inventory"}
+        {"name": "drop", "label": "丢弃物品", "desc": "drop <物品ID>",      "tab": "物品", "scope": "inventory"}
     ],
     "lobby": [
         {"name": "games",    "label": "游戏列表", "desc": "查看可用游戏",       "tab": "导航"},

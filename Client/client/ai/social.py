@@ -78,34 +78,76 @@ class SocialState:
                 return i
         return 0
 
-    # ── 增益 ──
+    # ── 增益（递减收益） ──
+
+    @staticmethod
+    def _diminish(current: float, gain: float, curve: float) -> float:
+        """正向增益递减；负向损失放大"""
+        if gain > 0:
+            ratio = max(0.0, current) / 100.0
+            return gain * (1.0 - ratio) ** curve
+        if gain < 0:
+            # 值越高时背叛越痛
+            amplifier = 1.0 + max(0.0, current) / 100.0
+            return gain * amplifier
+        return 0.0
 
     def apply_gains(self, interaction_type: str):
-        """根据互动类型应用增益"""
+        """根据互动类型应用增益（带递减）"""
         gains = _GAIN_TABLE.get(interaction_type)
         if not gains:
             return
-        self.intimacy = max(-100, min(100, self.intimacy + gains.get("intimacy", 0)))
-        self.trust = max(-50, min(100, self.trust + gains.get("trust", 0)))
-        self.familiarity = max(0, min(100, self.familiarity + gains.get("familiarity", 0)))
+        di = self._diminish(self.intimacy, gains.get("intimacy", 0), 1.5)
+        dt = self._diminish(self.trust, gains.get("trust", 0), 2.0)
+        df = self._diminish(self.familiarity, gains.get("familiarity", 0), 1.0)
+        self.intimacy = max(-100, min(100, self.intimacy + di))
+        self.trust = max(-50, min(100, self.trust + dt))
+        self.familiarity = max(0, min(100, self.familiarity + df))
         self.recalc_stage()
 
     def apply_delta(self, intimacy: float = 0, trust: float = 0, familiarity: float = 0):
-        """直接增减（Phase 2 反思结果）"""
-        self.intimacy = max(-100, min(100, self.intimacy + intimacy))
-        self.trust = max(-50, min(100, self.trust + trust))
-        self.familiarity = max(0, min(100, self.familiarity + familiarity))
+        """直接增减（Phase 2 反思结果，同样递减）"""
+        di = self._diminish(self.intimacy, intimacy, 1.5)
+        dt = self._diminish(self.trust, trust, 2.0)
+        df = self._diminish(self.familiarity, familiarity, 1.0)
+        self.intimacy = max(-100, min(100, self.intimacy + di))
+        self.trust = max(-50, min(100, self.trust + dt))
+        self.familiarity = max(0, min(100, self.familiarity + df))
         self.recalc_stage()
 
     # ── Prompt 注入 ──
 
     def to_prompt_text(self) -> str:
-        return (
+        text = (
             f"关系阶段: {self.stage_label}\n"
             f"亲密度: {self.intimacy:.0f}/100, "
             f"信任度: {self.trust:.0f}/100, "
             f"熟悉度: {self.familiarity:.0f}/100"
         )
+        text += f"\n{self._behavior_hint()}"
+        return text
+
+    def _behavior_hint(self) -> str:
+        """根据关系阶段和三值返回行为指引"""
+        stage = self._stage
+        hints = []
+        if stage == "stranger":
+            hints.append("你和玩家不熟。说话保持礼貌但有距离感，不要主动亲近，遇到冒犯可以直接拒绝。")
+        elif stage == "acquaintance":
+            hints.append("你和玩家刚认识。可以正常聊天但不会说心里话，也不会主动撒娇或发脾气。")
+        elif stage == "friend":
+            hints.append("你和玩家是朋友。可以开玩笑、偶尔吐槽、分享一些日常想法。")
+        elif stage == "close_friend":
+            hints.append("你和玩家很亲近。可以说心里话、撒娇、闹别扭。被欺负了会真的难过而不是回避。")
+        elif stage == "partner":
+            hints.append("你和玩家是最亲密的搭档。情绪反应最真实最强烈，可以任性、吃醋、担心。")
+        if self.trust < 10:
+            hints.append("你对玩家几乎没有信任，不会把弱点暴露给对方。")
+        elif self.trust < 30:
+            hints.append("你对玩家的信任不高，重要的事不会轻易说。")
+        if self.intimacy < 0:
+            hints.append("你对玩家有些反感，态度冷淡。")
+        return " ".join(hints)
 
     # ── 显示 ──
 

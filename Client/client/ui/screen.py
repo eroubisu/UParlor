@@ -23,6 +23,7 @@ from .layout import (
 )
 from ..panels import ChatPanel, CommandPanel, LoginPanel, AIChatPanel
 from ..panels.inventory import InventoryPanel
+from ..panels.online import OnlineUsersPanel
 from ..panels.which_key import WhichKeyPanel
 from .keyboard import KeyboardMixin
 from .input_handler import InputMixin
@@ -132,6 +133,9 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             if wrapper:
                 if p.pane_id == pane_id:
                     wrapper.add_class("--focused")
+                    w = wrapper.module_widget
+                    if w and hasattr(w, 'on_panel_focus'):
+                        w.on_panel_focus()
                 else:
                     wrapper.remove_class("--focused")
 
@@ -142,7 +146,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     @property
     def _input_target(self) -> str:
         mod = self._focused_module()
-        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai'):
+        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online'):
             return mod
         return ''
 
@@ -156,7 +160,16 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if target == 'ai':
             w = self._get_module('ai')
             if isinstance(w, AIChatPanel):
-                return w._view == "chat" or w.wants_insert
+                if w.wants_insert:
+                    return True
+                return w._view == "chat" and w._menu_tab in ("chat", "action")
+            return False
+        if target == 'online':
+            w = self._get_module('online')
+            if isinstance(w, OnlineUsersPanel):
+                if w.wants_insert:
+                    return True
+                return w._tab == "search"
             return False
         return False
 
@@ -175,9 +188,14 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             w = self._get_focused_widget()
             if w and hasattr(w, 'cancel_input'):
                 w.cancel_input()
-        self.vim.enter_normal()
-        self._update_mode_indicator()
-        self.set_focus(None)
+            self.vim.enter_normal()
+            self._update_mode_indicator()
+            self.set_focus(None)
+        else:
+            # 已在 NORMAL 模式 — ESC 委派给聚焦面板的 nav_escape
+            w = self._get_focused_widget()
+            if w and hasattr(w, 'nav_escape'):
+                w.nav_escape()
 
     def _enter_insert(self):
         if not self._can_input():
@@ -185,6 +203,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self._input_buffer = ""
         self.vim.enter_insert()
         self._update_mode_indicator()
+        # 搜索面板: 进入 INSERT 时标记 wants_insert
+        w = self._get_focused_widget()
+        if isinstance(w, OnlineUsersPanel):
+            w._wants_insert = True
         self._show_panel_prompt("")
         self._show_input_bar()
         self._focus_active_input()
@@ -208,6 +230,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if self.vim.mode == Mode.INSERT:
             self._input_buffer = event.text_area.text
             self._update_completion()
+            if self._input_target == 'online':
+                w = self._get_module('online')
+                if isinstance(w, OnlineUsersPanel):
+                    w.on_search_change(self._input_buffer)
 
     def on_input_text_area_submit(self, event) -> None:
         """Enter / Ctrl+Enter 提交"""
@@ -253,19 +279,19 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def _show_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
+        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
             widget.show_prompt(text)
 
     def _update_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
+        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
             widget.update_prompt(text)
 
     def _hide_panel_prompt(self):
-        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai'):
+        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online'):
             widget = self._get_module(mod)
-            if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel)):
+            if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
                 widget.hide_prompt()
 
     # ── Space 菜单由 SpaceMenuMixin 提供 ──

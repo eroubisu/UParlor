@@ -26,3 +26,16 @@ COMMANDS_UPDATE = 'commands_update'
 
 # ── 客户端动作 ──
 ACTION = 'action'
+
+# ── AI 同步 ──
+AI_SYNC = 'ai_sync'
+
+# ── 好友 ──
+FRIEND_LIST = 'friend_list'
+ALL_USERS = 'all_users'
+
+# ── 私聊 ──
+PRIVATE_CHAT = 'private_chat'
+
+# ── 通知 ──
+FRIEND_REQUEST = 'friend_request'

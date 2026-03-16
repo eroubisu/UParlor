@@ -154,13 +154,17 @@ class CommandHintBar(TabMenuBase):
 
     def show_prompt(self, text: str = ""):
         try:
-            self.query_one(f"#{self._prompt_id}", InputTextArea).text = text
+            ta = self.query_one(f"#{self._prompt_id}", InputTextArea)
+            ta.text = text
+            ta.move_cursor(ta.document.end)
         except Exception:
             pass
 
     def update_prompt(self, text: str):
         try:
-            self.query_one(f"#{self._prompt_id}", InputTextArea).text = text
+            ta = self.query_one(f"#{self._prompt_id}", InputTextArea)
+            ta.text = text
+            ta.move_cursor(ta.document.end)
         except Exception:
             pass
 

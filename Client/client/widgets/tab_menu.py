@@ -199,13 +199,8 @@ class TabMenuBase(Vertical):
 
         total_width = sum(w for _, w in tab_parts)
 
-        # 获取容器可用宽度（若无法获取则用较大默认值）
-        try:
-            avail = self.query_one(f"#{self._tabs_widget_id}").size.width
-        except Exception:
-            avail = 120
-        if avail <= 0:
-            avail = 120
+        from .helpers import _widget_width
+        avail = _widget_width(self, self._tabs_widget_id)
 
         # 全部放得下 → 直接拼接
         if total_width <= avail:
