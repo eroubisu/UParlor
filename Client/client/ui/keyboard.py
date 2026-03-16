@@ -30,6 +30,8 @@ class KeyboardMixin:
         event.prevent_default()
         event.stop()
         key = event.key
+        if key == "ctrl+left_square_bracket":
+            key = "escape"
 
         if vim.pending_key == "g":
             vim.pending_key = ""

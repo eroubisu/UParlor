@@ -29,11 +29,6 @@ from .keyboard import KeyboardMixin
 from .input_handler import InputMixin
 from .space_menu import SpaceMenuMixin
 
-try:
-    from ..config import VERSION
-except ImportError:
-    VERSION = None
-
 
 class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     BINDINGS = [Binding("escape", "enter_normal", "", show=False)]
@@ -60,7 +55,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         with Horizontal(id="footer-bar"):
             yield Static(" NORMAL ", id="mode-indicator")
             yield Static("大厅", id="location-indicator")
-            yield Static(f"v{VERSION}" if VERSION else "", id="connection-status")
+            yield Static("----", id="connection-status")
 
     def on_mount(self) -> None:
         panes = all_panes(self._layout_tree)

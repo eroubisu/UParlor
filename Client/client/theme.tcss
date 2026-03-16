@@ -102,10 +102,17 @@ AIChatPanel {
 }
 
 /* ── 登录面板 ── */
-#login-log {
+#login-doc {
     height: 1fr;
     width: 1fr;
     overflow-x: hidden;
+    scrollbar-size: 1 1;
+}
+
+#login-prompt-text {
+    height: auto;
+    width: 1fr;
+    padding: 0 1;
 }
 
 /* ── 面板内输入提示行 ── */
@@ -174,7 +181,7 @@ InputTextArea:focus {
 }
 
 /* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar {
+#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar {
     height: auto;
     border: round $color-accent;
     border-title-color: $color-accent;
@@ -182,7 +189,7 @@ InputTextArea:focus {
     display: none;
 }
 
-#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible {
+#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible {
     display: block;
 }
 

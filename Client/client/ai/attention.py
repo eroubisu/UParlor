@@ -169,6 +169,95 @@ def look_around(state: ModuleStateManager, **_kw) -> str:
     return "\n".join(parts) if parts else "周围没什么特别的"
 
 
+_MAX_FRIENDS = 30
+_MAX_DM_OVERVIEW = 10
+_MAX_DM_MESSAGES = 30
+
+
+def look_friends(state: ModuleStateManager, **_kw) -> str:
+    """返回好友列表和在线状态"""
+    try:
+        friends = state.online.friends
+        if not friends:
+            return "还没有好友"
+        # 获取在线用户名集合
+        online_names = set()
+        for u in state.online.users:
+            if isinstance(u, dict):
+                online_names.add(u.get('name', ''))
+            else:
+                online_names.add(str(u))
+        items = []
+        for f in friends[:_MAX_FRIENDS]:
+            tag = "在线" if f in online_names else "离线"
+            items.append(f"{f}({tag})")
+        result = f"好友 {len(friends)} 人: " + ", ".join(items)
+        if len(friends) > _MAX_FRIENDS:
+            result += f" ...等共{len(friends)}人"
+        # 附带好友申请详情
+        try:
+            reqs = state.notify.friend_requests
+            pending = [r for r in reqs if r.get('status') == 'pending']
+            if pending:
+                names = ", ".join(r['name'] for r in pending[:10])
+                result += f" | 待处理好友申请: {names}"
+        except Exception:
+            pass
+        return result
+    except Exception:
+        return "无法查看好友列表"
+
+
+def look_dm(state: ModuleStateManager, *, peer: str = "", count: int = 10, **_kw) -> str:
+    """返回私聊消息: 无 peer 返回概览，有 peer 返回详细消息"""
+    try:
+        chat = state.chat
+        if not peer:
+            # 概览模式: 列出所有私聊标签
+            tabs = chat.dm_tabs
+            if not tabs:
+                return "没有私聊对话"
+            lines = []
+            for t in tabs[:_MAX_DM_OVERVIEW]:
+                entries = chat.dm_entries.get(t, [])
+                unread = "未读" if t in chat.dm_unread else ""
+                if entries:
+                    last = entries[-1]
+                    preview = last[1][:20] + ("..." if len(last[1]) > 20 else "")
+                    tag = f"[{unread}]" if unread else ""
+                    lines.append(f"{t}{tag}: {last[0]}> {preview}")
+                else:
+                    lines.append(f"{t}: (无消息)")
+            result = f"私聊对话 {len(tabs)} 个:\n" + "\n".join(lines)
+            unread_count = len(chat.dm_unread)
+            if unread_count:
+                result += f"\n共 {unread_count} 个对话有未读消息"
+            return result
+        else:
+            # 详细模式: 返回与指定用户的最近 count 条消息
+            count = max(1, min(count, _MAX_DM_MESSAGES))
+            entries = chat.dm_entries.get(peer, [])
+            if not entries:
+                return f"与{peer}没有私聊记录"
+            recent = entries[-count:]
+            lines = [f"{from_name}> {text}" for from_name, text, _t in recent]
+            return f"与{peer}的私聊(最近{len(recent)}条):\n" + "\n".join(lines)
+    except Exception:
+        return "无法查看私聊"
+
+
+def look_notifications(state: ModuleStateManager, **_kw) -> str:
+    """返回系统通知列表"""
+    try:
+        notes = state.notify.system_notifications
+        if not notes:
+            return "没有系统通知"
+        recent = notes[-15:]
+        return f"系统通知(最近{len(recent)}条):\n" + "\n".join(recent)
+    except Exception:
+        return "无法查看系统通知"
+
+
 # ── 工具注册表 ──
 
 TOOLS = {
@@ -178,6 +267,9 @@ TOOLS = {
     "look_game_room": look_game_room,
     "look_player_status": look_player_status,
     "look_around": look_around,
+    "look_friends": look_friends,
+    "look_dm": look_dm,
+    "look_notifications": look_notifications,
 }
 
 # ── Gemini Function Declarations ──
@@ -211,6 +303,33 @@ TOOL_DECLARATIONS = [
     types.FunctionDeclaration(
         name="look_around",
         description="环顾四周，了解当前位置、在线用户和游戏房间情况",
+        parameters_json_schema={},
+    ),
+    types.FunctionDeclaration(
+        name="look_friends",
+        description="查看好友列表和在线状态，以及是否有待处理的好友申请",
+        parameters_json_schema={},
+    ),
+    types.FunctionDeclaration(
+        name="look_dm",
+        description="查看私聊消息。不指定 peer 时返回所有私聊对话概览，指定 peer 时返回与该用户的最近聊天记录",
+        parameters_json_schema={
+            "type": "object",
+            "properties": {
+                "peer": {
+                    "type": "string",
+                    "description": "对方用户名，留空则返回所有私聊概览"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "查看条数，默认10，最多30"
+                }
+            },
+        },
+    ),
+    types.FunctionDeclaration(
+        name="look_notifications",
+        description="查看系统通知（公告、维护提醒等）",
         parameters_json_schema={},
     ),
 ]
@@ -261,6 +380,43 @@ class AwarenessSummary:
                 rd = state.game_board.room_data
                 game = rd.get("game_type") or rd.get("game", "某游戏")
                 parts.append(f"在{game}房间中")
+        except Exception:
+            pass
+
+        # 好友
+        try:
+            friends = state.online.friends
+            if friends:
+                online_names = set()
+                for u in state.online.users:
+                    if isinstance(u, dict):
+                        online_names.add(u.get('name', ''))
+                    else:
+                        online_names.add(str(u))
+                online_friends = sum(1 for f in friends if f in online_names)
+                parts.append(f"{len(friends)}个好友({online_friends}人在线)")
+        except Exception:
+            pass
+
+        # 系统通知
+        try:
+            notes = state.notify.system_notifications
+            if notes:
+                parts.append(f"{len(notes)}条系统通知")
+        except Exception:
+            pass
+
+        # 私聊状态
+        try:
+            chat = state.chat
+            if chat.dm_tabs:
+                unread = len(chat.dm_unread)
+                if chat.active_tab != "global":
+                    parts.append(f"正在和{chat.active_tab}私聊")
+                elif unread:
+                    parts.append(f"{len(chat.dm_tabs)}个私聊对话, {unread}条未读")
+                else:
+                    parts.append(f"{len(chat.dm_tabs)}个私聊对话")
         except Exception:
             pass
 

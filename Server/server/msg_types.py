@@ -36,6 +36,7 @@ ALL_USERS = 'all_users'
 
 # ── 私聊 ──
 PRIVATE_CHAT = 'private_chat'
+DM_HISTORY = 'dm_history'
 
 # ── 通知 ──
 FRIEND_REQUEST = 'friend_request'

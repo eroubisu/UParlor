@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..panels import ChatPanel, CommandPanel
+from ..panels import ChatPanel, CommandPanel, LoginPanel
 from ..panels.inventory import InventoryPanel
 from ..panels.ai_chat import AIChatPanel
 from ..panels.online import OnlineUsersPanel
@@ -132,6 +132,10 @@ class InputMixin:
             chat = self._get_module('chat')
             if isinstance(chat, ChatPanel):
                 chat.show_input_bar()
+        elif target == 'login':
+            login = self._get_module('login')
+            if isinstance(login, LoginPanel):
+                login.show_input_bar()
         elif target == 'ai':
             ai_panel = self._get_module('ai')
             if isinstance(ai_panel, AIChatPanel):
@@ -148,6 +152,9 @@ class InputMixin:
         chat = self._get_module('chat')
         if isinstance(chat, ChatPanel):
             chat.hide_input_bar()
+        login = self._get_module('login')
+        if isinstance(login, LoginPanel):
+            login.hide_input_bar()
         ai_panel = self._get_module('ai')
         if isinstance(ai_panel, AIChatPanel):
             ai_panel.hide_input_bar()

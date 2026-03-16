@@ -44,7 +44,7 @@ class NotificationPanel(Widget):
 
     def __init__(self, **kw):
         super().__init__(**kw)
-        self._tab: str = "friend"
+        self._tab: str = "system"
         self._cursor: int = 0
         self._mode: str = _MODE_LIST
         self._action_cursor: int = 0

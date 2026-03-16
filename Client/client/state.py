@@ -69,6 +69,20 @@ class ChatState:
 
     # ── 私聊 ──
 
+    def set_dm_history(self, conversations: dict):
+        """批量填充私聊历史（登录时服务端下发）
+
+        conversations: {peer_name: [{from, text, time}, ...]}
+        """
+        for peer, msgs in conversations.items():
+            if peer not in self.dm_tabs:
+                self.dm_tabs.append(peer)
+            self.dm_entries[peer] = [
+                (m.get('from', ''), m.get('text', ''), m.get('time', ''))
+                for m in msgs
+            ]
+        self._notify('dm_history_loaded')
+
     def open_private_tab(self, peer_name: str):
         """打开（或切换到）一个私聊标签页"""
         if peer_name not in self.dm_tabs:

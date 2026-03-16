@@ -129,12 +129,12 @@ class OnlineUsersPanel(Widget):
             return []
         is_friend = name in st.online.friends
         actions = []
+        actions.append(('private_chat', '发起私聊'))
         if is_friend:
+            actions.append(('gift', '赠送礼物'))
             actions.append(('friend_remove', '删除好友'))
         else:
             actions.append(('friend_request', '申请好友'))
-        actions.append(('private_chat', '发起私聊'))
-        actions.append(('gift', '赠送礼物'))
         return actions
 
     def _get_gift_items(self) -> list[dict]:

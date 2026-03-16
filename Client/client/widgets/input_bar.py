@@ -64,8 +64,8 @@ class InputTextArea(TextArea):
             event.stop()
             self.replace(" ", *self.selection)
             return
-        # Escape → 通知 Screen 退出 INSERT
-        if event.key == "escape":
+        # Escape / Ctrl+[ → 通知 Screen 退出 INSERT
+        if event.key in ("escape", "ctrl+left_square_bracket"):
             event.prevent_default()
             event.stop()
             self.post_message(self.Escape())

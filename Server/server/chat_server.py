@@ -14,6 +14,7 @@ from .lobby.engine import LobbyEngine
 from .systems.titles import get_title_name
 from .systems.items import get_item_info
 from .infra.chat_log import ChatLogManager
+from .infra.dm_log import DMLogManager
 from .infra import maintenance
 from .player.auth import AuthMixin
 from .game.result_dispatcher import (
@@ -22,7 +23,7 @@ from .game.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    ALL_USERS, CHAT, CHAT_HISTORY, FRIEND_LIST, FRIEND_REQUEST, GAME, LOGIN_PROMPT,
+    ALL_USERS, CHAT, CHAT_HISTORY, DM_HISTORY, FRIEND_LIST, FRIEND_REQUEST, GAME, LOGIN_PROMPT,
     LOCATION_UPDATE, ONLINE_USERS, PRIVATE_CHAT, STATUS,
 )
 
@@ -50,6 +51,7 @@ class ChatServer(AuthMixin):
         
         self.running = False
         self.log_mgr = ChatLogManager()
+        self.dm_log_mgr = DMLogManager()
         self.maintenance_thread = None
     
     # ── Rich Result 通用分发器 → result_dispatcher.py ──
@@ -89,6 +91,15 @@ class ChatServer(AuthMixin):
             'channel': channel,
             'messages': self.log_mgr.get_history(channel)
         })
+
+    def _send_dm_history(self, client_socket, player_name):
+        """发送私聊历史（登录时下发所有对话）"""
+        conversations = self.dm_log_mgr.get_conversations(player_name)
+        if conversations:
+            self.send_to(client_socket, {
+                'type': DM_HISTORY,
+                'conversations': conversations,
+            })
 
     def get_local_ip(self):
         try:
@@ -201,6 +212,11 @@ class ChatServer(AuthMixin):
         self.remove_client(client_socket)
 
     def process_message(self, client_socket, msg):
+        # ping/pong 不需要认证，立即回复
+        if msg.get('type') == 'ping':
+            self.send_to(client_socket, {'type': 'pong', 't': msg.get('t', 0)})
+            return
+
         with self.lock:
             client_info = self.clients.get(client_socket)
         
@@ -425,13 +441,16 @@ class ChatServer(AuthMixin):
                 'text': text,
                 'time': current_time,
             }
-            # 发送给目标玩家的所有连接
+            # 持久化私聊消息（无论目标是否在线）
+            self.dm_log_mgr.save(name, target, text)
+            # 发送给目标玩家的所有连接 + 发送者的所有连接（多设备同步）
             with self.lock:
                 for client, info in self.clients.items():
-                    if info.get('name') == target and info.get('state') == 'playing':
+                    cname = info.get('name')
+                    if info.get('state') != 'playing':
+                        continue
+                    if cname == target or cname == name:
                         self.send_to(client, dm_msg)
-            # 回送给发送者自己（用于确认 + 显示）
-            self.send_to(client_socket, dm_msg)
             print(f"[DM][{name} → {target}] {text}")
 
     def send_player_status(self, client_socket, player_data):

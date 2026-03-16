@@ -106,6 +106,7 @@ class _ChatViewsMixin:
         if not self._service:
             return
         self._service.load_character(char_id)
+        self._service.set_sync_callback(self._upload_ai_sync)
 
         if self._state_mgr:
             self._state_mgr.ai_chat.current_char_id = char_id

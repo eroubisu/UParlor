@@ -166,7 +166,7 @@ def save_text(path: Path, text: str):
 # ── 多设备同步 ──
 
 # 需要同步的文件（不含 api.json / stats.json — 设备专属）
-_SYNC_FILES = ("profile.json", "status.json", "impression.json", "recent.json")
+_SYNC_FILES = ("profile.json", "status.json", "impression.json", "recent.json", "memory.json")
 _SYNC_TEXT = ("summary.txt",)
 
 

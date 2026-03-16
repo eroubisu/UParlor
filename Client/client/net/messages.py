@@ -109,6 +109,10 @@ class FriendRequest:
     from_name: str = ""
     pending: list = field(default_factory=list)
 
+@dataclass
+class DMHistory:
+    conversations: dict = field(default_factory=dict)
+
 
 # ── 分发表 ──
 
@@ -141,6 +145,7 @@ _PARSERS = {
                                             to_name=m.get('to', ''), text=m.get('text', ''),
                                             time=m.get('time', '')),
     'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending', [])),
+    'dm_history':     lambda m: DMHistory(conversations=m.get('conversations', {})),
 }
 
 

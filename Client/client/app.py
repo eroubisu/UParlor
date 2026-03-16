@@ -5,6 +5,7 @@ UParlorApp — 游戏大厅 TUI 主应用入口
 from __future__ import annotations
 
 import json
+import time
 
 from textual.app import App
 from textual.binding import Binding
@@ -22,11 +23,6 @@ from .ui.vim_mode import VimMode
 from .ui.screen import GameScreen
 from .panels import LoginPanel, CommandPanel
 from .net.dispatch import dispatch_server_message
-
-try:
-    from .config import VERSION
-except ImportError:
-    VERSION = None
 
 
 # ═══════════════════════════════════════════════════════
@@ -77,10 +73,12 @@ class UParlorApp(App):
         self._pending_messages: list[dict] = []
         self._current_channel = 1
         self._saved_layout: dict | None = None
+        self._ping_sent_at: float = 0.0
 
     def on_mount(self) -> None:
         self.push_screen(GameScreen())
         self.set_interval(60, self._ai_tick)
+        self.set_interval(4, self._send_ping)
 
     # ── 网络 ──
 
@@ -115,7 +113,10 @@ class UParlorApp(App):
                     if msg_str:
                         try:
                             msg = json.loads(msg_str)
-                            self.post_message(ServerMsg(msg))
+                            if msg.get('type') == 'pong':
+                                self._handle_pong(msg)
+                            else:
+                                self.post_message(ServerMsg(msg))
                         except Exception:
                             pass
             except Exception:
@@ -141,7 +142,29 @@ class UParlorApp(App):
                     cmd.add_message(f"{M_DIM}连接已断开{M_END}")
             try:
                 conn = screen.query_one("#connection-status", Static)
-                conn.update("已断开")
+                conn.update("----")
+            except Exception:
+                pass
+
+    # ── Ping ──
+
+    def _send_ping(self):
+        if self.network.connected:
+            self._ping_sent_at = time.monotonic()
+            self.network.send({"type": "ping", "t": self._ping_sent_at})
+
+    def _handle_pong(self, msg: dict):
+        if self._ping_sent_at > 0:
+            latency_ms = int((time.monotonic() - self._ping_sent_at) * 1000)
+            self._ping_sent_at = 0.0
+            self.call_from_thread(self._update_ping_display, latency_ms)
+
+    def _update_ping_display(self, ms: int):
+        screen = self.screen
+        if isinstance(screen, GameScreen):
+            try:
+                conn = screen.query_one("#connection-status", Static)
+                conn.update(f"{ms}ms")
             except Exception:
                 pass
 
@@ -208,6 +231,7 @@ class UParlorApp(App):
 
 def _check_version() -> bool:
     """检查是否最新版，返回 True 表示可以启动"""
+    from .config import VERSION
     current = VERSION or "0.0.0"
     print(f"uparlor v{current}")
     print("正在检查更新...")

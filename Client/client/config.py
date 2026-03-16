@@ -6,9 +6,11 @@ try:
 except Exception:
     VERSION = None
 
+import os as _os
+
 # 网络配置
 PORT = 5555
-DEFAULT_HOST = "112.126.80.53"
+DEFAULT_HOST = _os.environ.get("UPARLOR_HOST", "112.126.80.53")
 
 # Win11 风格配色
 # 背景色（透明继承终端背景）
@@ -55,7 +57,6 @@ MAX_LINES_CHAT = 500
 MAX_LINES_STATUS = 500
 MAX_LINES_GAME_BOARD = 500
 MAX_LINES_ONLINE = 200
-MAX_LINES_LOGIN = 100
 
 # ── 频道 ──
 CHANNEL_NAMES = {1: "世界", 2: "房间"}

@@ -69,6 +69,10 @@ class AIService:
         self._consecutive_errors = 0
         self._attention = AttentionBuffer()
         self._display_from = 0  # _recent 中开始显示的索引
+        self._sync_cb = None
+        self._last_sync: float = 0.0
+        self._pending_sync: bool = False
+        self._pending_reflect: dict | None = None
 
     # ── 角色切换 ──
 
@@ -98,6 +102,7 @@ class AIService:
         """卸载当前角色，保存状态"""
         if self._char_id:
             self._save_all()
+            self._force_sync()
         self._char_id = ""
         self._character = None
         self._client = None
@@ -148,6 +153,35 @@ class AIService:
             from datetime import datetime, timezone
             profile["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_json(profile_path, profile)
+        self._request_sync()
+
+    # ── 多端同步 ──
+
+    def set_sync_callback(self, cb):
+        """设置服务器同步回调（由面板注册）"""
+        self._sync_cb = cb
+
+    def _request_sync(self):
+        """请求服务器同步（防抖 30 秒）"""
+        now = time.time()
+        if now - self._last_sync < 30:
+            self._pending_sync = True
+            return
+        self._do_sync()
+
+    def _do_sync(self):
+        if self._sync_cb:
+            try:
+                self._sync_cb()
+            except Exception:
+                _log.debug("sync callback failed", exc_info=True)
+        self._last_sync = time.time()
+        self._pending_sync = False
+
+    def _force_sync(self):
+        """强制同步（退出/卸载时调用）"""
+        if self._pending_sync or time.time() - self._last_sync > 5:
+            self._do_sync()
 
     def _init_client(self):
         key = self._api_config.get("api_key", "")
@@ -385,7 +419,7 @@ class AIService:
         messages = self._build_messages(user_text)
         full_reply = ""
         try:
-            async for chunk in self._stream(
+            async for chunk in self._stream_and_reflect(
                 messages, max_tokens=_MAX_REPLY_TOKENS,
                 temperature=_CHAT_TEMPERATURE,
                 use_tools=True,
@@ -400,7 +434,10 @@ class AIService:
         finally:
             self._recent.append({"role": "assistant", "content": full_reply})
             self._save_recent()
-            self._schedule_post_chat(user_text, full_reply)
+            if self._pending_reflect:
+                self._apply_reflect_data(self._pending_reflect)
+                self._pending_reflect = None
+            self._schedule_post_chat()
 
     async def validate_key(self, key: str) -> tuple[bool, str]:
         try:
@@ -468,7 +505,7 @@ class AIService:
 
         full_reply = ""
         try:
-            async for chunk in self._stream(
+            async for chunk in self._stream_and_reflect(
                 messages, max_tokens=_MAX_REPLY_TOKENS,
                 temperature=_CHAT_TEMPERATURE,
             ):
@@ -480,7 +517,10 @@ class AIService:
         finally:
             self._recent.append({"role": "assistant", "content": full_reply})
             self._save_recent()
-            self._schedule_post_chat(f"[动作: {desc}]", full_reply)
+            if self._pending_reflect:
+                self._apply_reflect_data(self._pending_reflect)
+                self._pending_reflect = None
+            self._schedule_post_chat()
 
     async def give_gift(self, item_name: str, qty: int = 1) -> AsyncIterator[str]:
         """赠送礼物，返回 AI 反应流"""
@@ -503,7 +543,7 @@ class AIService:
 
         full_reply = ""
         try:
-            async for chunk in self._stream(
+            async for chunk in self._stream_and_reflect(
                 messages, max_tokens=_MAX_REPLY_TOKENS,
                 temperature=_CHAT_TEMPERATURE,
             ):
@@ -515,115 +555,24 @@ class AIService:
         finally:
             self._recent.append({"role": "assistant", "content": full_reply})
             self._save_recent()
-            self._schedule_post_chat(f"[赠送: {label}]", full_reply)
+            if self._pending_reflect:
+                self._apply_reflect_data(self._pending_reflect)
+                self._pending_reflect = None
+            self._schedule_post_chat()
 
     # ── Phase 2: 反思 ──
 
-    def _schedule_post_chat(self, context: str, reply: str):
-        """将压缩/反思/通知放到后台任务，避免阻塞生成器退出"""
+    def _schedule_post_chat(self):
+        """将压缩/通知放到后台任务，避免阻塞生成器退出"""
         async def _task():
             try:
                 if len(self._recent) >= _COMPRESS_THRESHOLD:
                     await self._compress()
             except Exception:
                 _log.debug("compress failed in post_chat", exc_info=True)
-            try:
-                await self._reflect(context, reply)
-            except Exception:
-                _log.debug("reflect failed in post_chat", exc_info=True)
             self._notify("token_update", self.today_tokens_display)
             self._notify("status_update")
         asyncio.create_task(_task())
-
-    _REFLECT_PROMPT = (
-        '你是情感分析专家。根据对话内容，以角色的视角评估心理变化。\n'
-        '重点关注：玩家的话是否带有攻击性、亲昵、冷淡、夸奖、侮辱、关心等情绪色彩。\n'
-        '角色的情绪反应必须符合角色性格——害羞的角色被骂会害怕或难过，强势角色被骂会愤怒。\n'
-        '即使是日常对话，也要根据字面含义和潜台词判断情绪变化。不要轻易输出 calm。\n'
-        '只输出 JSON，不要其他文字:\n'
-        '{\n'
-        '  "mood": {"primary": "心情ID", "intensity": 0.5, "secondary": "", "source": "简短原因"},\n'
-        '  "cognitive": {"on_mind": "角色在想什么", "wants_to_say": "想说但没说出口的话", "anticipating": "期待什么"},\n'
-        '  "social_delta": {"intimacy": 0.0, "trust": 0.0, "familiarity": 0.0},\n'
-        '  "impression_update": {"portrait": "", "relationship_arc": "", "shared_references": [], "patterns": [], "concerns": []}\n'
-        '}\n'
-        '心情ID: calm, joyful, excited, shy, annoyed, anxious, sad, angry, lonely\n'
-        'intensity: 0.0~1.0，0.3=轻微 0.5=明显 0.7=强烈 0.9=极端\n'
-        'social_delta 是关系变化的唯一来源，必须准确反映本次互动的影响:\n'
-        '- 友好日常聊天: familiarity +0.2~0.5, trust +0.05~0.15, intimacy +0.05~0.1\n'
-        '- 关心/夸奖: intimacy +0.5~2.0, trust +0.3~1.0\n'
-        '- 辱骂/攻击: trust -1.0~-5.0, intimacy -0.5~-3.0\n'
-        '- 冷淡/敷衍: 各项接近0或略负\n'
-        '- 送礼: intimacy +0.5~2.0, familiarity +0.3~0.5\n'
-        '- 互动动作(拥抱等): intimacy +0.5~2.0; 攻击动作: trust -2.0~-5.0\n'
-        '范围-5.0~5.0。\n'
-        '必须给出mood.primary，禁止留空。如果真的没有变化就写calm。\n'
-        '所有文本字段尽量简短（10字以内），不要写长句。'
-    )
-
-    async def _reflect(self, user_text: str, ai_reply: str):
-        """Phase 2: 异步反思，更新心理状态"""
-        if not self._client:
-            return
-        try:
-            # 构建角色人设摘要
-            persona = ""
-            if self._character:
-                persona = character_to_system_text(self._character)
-            user_content_parts = []
-            if persona:
-                user_content_parts.append(f"角色人设:\n{persona}")
-            user_content_parts.append(
-                f"角色当前状态:\n"
-                f"{self._social.to_prompt_text()}\n"
-                f"{self._mood.to_prompt_text()}"
-            )
-            user_content_parts.append(
-                f"玩家说: {user_text}\n"
-                f"AI 回复: {ai_reply}"
-            )
-            messages = [
-                {"role": "system", "content": self._REFLECT_PROMPT},
-                {"role": "user", "content": "\n\n".join(user_content_parts)},
-            ]
-            text = await self._generate(
-                messages, max_tokens=4096, temperature=_SUMMARY_TEMPERATURE,
-            )
-            text = text.strip()
-            if "{" not in text:
-                _log.warning("_reflect: no JSON in response")
-                return
-            data = _extract_json(text)
-
-            # 更新心情
-            mood_data = data.get("mood", {})
-            if mood_data.get("primary"):
-                self._mood.set_mood(
-                    mood_data["primary"],
-                    mood_data.get("intensity", 0.5),
-                    mood_data.get("secondary", ""),
-                    mood_data.get("source", ""),
-                )
-
-            # 更新认知
-            cog_data = data.get("cognitive", {})
-            if any(cog_data.values()):
-                self._cognitive.update(cog_data)
-
-            # 社交微调
-            sd = data.get("social_delta", {})
-            if any(v != 0 for v in sd.values()):
-                self._social.apply_delta(**sd)
-
-            # 印象更新
-            imp = data.get("impression_update", {})
-            if any(imp.values()):
-                self._impression.update(imp)
-
-            self._save_all()
-            self._notify("status_update")
-        except Exception:
-            _log.warning("_reflect failed", exc_info=True)
 
     # ── 消息组装 ──
 
@@ -707,6 +656,9 @@ class AIService:
                 "- look_game_room: 查看游戏房间\n"
                 "- look_player_status: 查看玩家详细状态\n"
                 "- look_around: 环顾四周\n"
+                "- look_friends: 查看好友列表和在线状态\n"
+                "- look_dm: 查看私聊消息（可看概览或指定人的对话）\n"
+                "- look_notifications: 查看系统通知\n"
                 + ("想了解什么就大胆用，多关注周围的变化。"
                    if level == "talkative" else
                    "不要每次都用，只在对话内容涉及时才使用。大多数闲聊不需要查看任何东西。")
@@ -722,7 +674,108 @@ class AIService:
             if related:
                 parts.append("# 相关旧对话\n" + "\n".join(related))
 
+        # 内联反思指令
+        parts.append(
+            "# 内心反馈（必须）\n"
+            "每次回复末尾必须附加隐藏标签，紧跟最后一个字符，不要换行。格式：\n"
+            '<!--REFLECT:{"mood":{"primary":"心情ID","intensity":0.5,"source":"原因"},'
+            '"cognitive":{"on_mind":"在想什么","wants_to_say":"","anticipating":""},'
+            '"social_delta":{"intimacy":0,"trust":0,"familiarity":0},'
+            '"impression_update":{"portrait":"","relationship_arc":""}}-->\n'
+            "心情ID: calm/joyful/excited/shy/annoyed/anxious/sad/angry/lonely\n"
+            "intensity: 0.0~1.0（0.3轻微 0.5明显 0.7强烈 0.9极端）\n"
+            "social_delta 范围-5.0~5.0:\n"
+            "- 友好日常: familiarity+0.2~0.5, trust+0.05~0.15, intimacy+0.05~0.1\n"
+            "- 关心/夸奖: intimacy+0.5~2, trust+0.3~1\n"
+            "- 辱骂/攻击: trust-1~-5, intimacy-0.5~-3\n"
+            "- 冷淡/敷衍: 各项接近0或略负\n"
+            "- 送礼: intimacy+0.5~2, familiarity+0.3~0.5\n"
+            "- 互动动作(拥抱等): intimacy+0.5~2; 攻击: trust-2~-5\n"
+            "根据角色性格真实反应，不要每次都calm。必须给出mood.primary。\n"
+            "所有文本字段尽量简短（10字以内）。"
+        )
+
         return "\n\n".join(parts)
+
+    # ── 内联反思流式处理 ──
+
+    _REFLECT_MARKER = "<!--REFLECT:"
+    _REFLECT_MARKER_LEN = len(_REFLECT_MARKER)
+
+    async def _stream_and_reflect(
+        self, messages: list[dict], *, max_tokens: int,
+        temperature: float, use_tools: bool = False,
+    ) -> AsyncIterator[str]:
+        """包装 _stream，实时检测并剥离 <!--REFLECT:...--> 标签。"""
+        pending = ""
+        self._pending_reflect = None
+        in_tag = False
+        tag_buf = ""
+
+        async for chunk in self._stream(
+            messages, max_tokens=max_tokens,
+            temperature=temperature, use_tools=use_tools,
+        ):
+            if in_tag:
+                tag_buf += chunk
+                continue
+
+            pending += chunk
+
+            marker_pos = pending.find(self._REFLECT_MARKER)
+            if marker_pos != -1:
+                before = pending[:marker_pos].rstrip("\n")
+                if before:
+                    yield before
+                tag_buf = pending[marker_pos:]
+                in_tag = True
+                pending = ""
+                continue
+
+            # 保留尾部可能是标签开头的部分（最多 MARKER_LEN-1 字符）
+            safe = len(pending) - self._REFLECT_MARKER_LEN + 1
+            if safe > 0:
+                yield pending[:safe]
+                pending = pending[safe:]
+
+        # 流结束
+        if in_tag and tag_buf:
+            end = tag_buf.find("-->")
+            if end != -1:
+                json_str = tag_buf[self._REFLECT_MARKER_LEN:end]
+                try:
+                    self._pending_reflect = _extract_json(json_str)
+                except Exception:
+                    _log.debug("Failed to parse inline reflect JSON")
+                after = tag_buf[end + 3:].strip()
+                if after:
+                    yield after
+            else:
+                yield tag_buf
+        elif pending:
+            yield pending
+
+    def _apply_reflect_data(self, data: dict):
+        """将内联反思数据应用到心理状态。"""
+        mood_data = data.get("mood", {})
+        if mood_data.get("primary"):
+            self._mood.set_mood(
+                mood_data["primary"],
+                mood_data.get("intensity", 0.5),
+                mood_data.get("secondary", ""),
+                mood_data.get("source", ""),
+            )
+        cog_data = data.get("cognitive", {})
+        if any(cog_data.values()):
+            self._cognitive.update(cog_data)
+        sd = data.get("social_delta", {})
+        if any(v != 0 for v in sd.values()):
+            self._social.apply_delta(**sd)
+        imp = data.get("impression_update", {})
+        if any(imp.values()):
+            self._impression.update(imp)
+        self._save_all()
+        self._notify("status_update")
 
     # ── 记忆管理 ──
 
@@ -808,7 +861,7 @@ class AIService:
 
         full_reply = ""
         try:
-            async for chunk in self._stream(
+            async for chunk in self._stream_and_reflect(
                 messages, max_tokens=_MAX_REPLY_TOKENS,
                 temperature=_CHAT_TEMPERATURE,
                 use_tools=True,
@@ -824,6 +877,9 @@ class AIService:
             if full_reply:
                 self._recent.append({"role": "assistant", "content": full_reply})
                 self._save_recent()
+                if self._pending_reflect:
+                    self._apply_reflect_data(self._pending_reflect)
+                    self._pending_reflect = None
                 self._notify("token_update", self.today_tokens_display)
                 self._notify("status_update")
 
@@ -831,4 +887,5 @@ class AIService:
 
     def on_exit(self):
         self._save_all()
+        self._force_sync()
         self._ready = False

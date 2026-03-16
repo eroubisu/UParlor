@@ -71,4 +71,5 @@ def do_maintenance(server):
     for client in clients_to_close:
         server.remove_client(client)
     server.log_mgr.archive()
+    server.dm_log_mgr.archive()
     print("[维护] 系统维护完成，服务器继续运行")

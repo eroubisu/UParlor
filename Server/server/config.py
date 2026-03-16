@@ -28,6 +28,8 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 USERS_DIR = os.path.join(DATA_DIR, 'users')
 CHAT_LOG_DIR = os.path.join(DATA_DIR, 'chat_logs')
 CHAT_HISTORY_DIR = os.path.join(CHAT_LOG_DIR, 'history')
+DM_LOG_DIR = os.path.join(DATA_DIR, 'dm_logs')
+DM_HISTORY_DIR = os.path.join(DM_LOG_DIR, 'history')
 
 # 系统维护时间（北京时间凌晨4点）
 MAINTENANCE_HOUR = 4

@@ -277,6 +277,11 @@ class ChatPanel(Widget):
                     log.clear()
                 log.write(_chat_text(f"{from_name}> {text}"))
 
+        elif event == 'dm_history_loaded':
+            # 私聊历史批量加载完毕，刷新标签栏和当前视图
+            self._render_header()
+            self._replay_tab()
+
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         st = state.chat

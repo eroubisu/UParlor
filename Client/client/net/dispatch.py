@@ -14,7 +14,7 @@ from .messages import (
     StatusUpdate, OnlineUsers, GameInvite,
     RoomUpdate, RoomLeave, GameQuit, LocationUpdate,
     CommandsUpdate, GameEvent, ActionCommand, AISyncDown,
-    FriendList, AllUsers, PrivateChat, FriendRequest,
+    FriendList, AllUsers, PrivateChat, FriendRequest, DMHistory,
 )
 from ..protocol.handler import GameHandlerContext, get_handler
 from ..panels import LoginPanel
@@ -35,6 +35,17 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
                 svc.push_event(event)
     except Exception:
         pass
+
+
+def _get_ai_attention_level(screen) -> str:
+    """获取 AI 当前的 attention_level（quiet/normal/talkative）"""
+    try:
+        panel = screen._get_module('ai')
+        if panel and getattr(panel, '_panel_active', False) and panel._service:
+            return panel._service.attention_level
+    except Exception:
+        pass
+    return "quiet"
 
 
 def dispatch_server_message(app, screen, raw: dict) -> None:
@@ -93,7 +104,17 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
         st.chat.update_online_count(parsed.users)
 
     elif isinstance(parsed, FriendList):
+        old_friends = set(st.online.friends)
         st.online.update_friends(parsed.friends)
+        new_friends = set(parsed.friends)
+        # 好友列表变化时推送被动感知
+        if old_friends and new_friends != old_friends:
+            added = new_friends - old_friends
+            removed = old_friends - new_friends
+            if added:
+                _push_ai_event(screen, f"新好友: {', '.join(added)}", high_priority=False)
+            if removed:
+                _push_ai_event(screen, f"好友删除: {', '.join(removed)}", high_priority=False)
 
     elif isinstance(parsed, AllUsers):
         st.online.update_all_users(parsed.users)
@@ -101,6 +122,17 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
     elif isinstance(parsed, PrivateChat):
         st.chat.add_private_message(
             parsed.from_name, parsed.to_name, parsed.text, parsed.time)
+        # 私聊消息推送给 AI（仅对方发来的，排除自己的回显）
+        my_name = st.chat._my_name
+        if parsed.from_name and parsed.from_name != my_name:
+            level = _get_ai_attention_level(screen)
+            if level == 'talkative':
+                _push_ai_event(screen, f"收到{parsed.from_name}的私信", high_priority=True)
+            elif level == 'normal':
+                _push_ai_event(screen, f"收到{parsed.from_name}的私信", high_priority=False)
+
+    elif isinstance(parsed, DMHistory):
+        st.chat.set_dm_history(parsed.conversations)
 
     elif isinstance(parsed, FriendRequest):
         # 服务端推送待处理好友申请列表
@@ -108,6 +140,8 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             st.notify.set_friend_requests(parsed.pending)
         elif parsed.from_name:
             st.notify.add_friend_request(parsed.from_name)
+            # 好友申请是重要社交事件，始终推送给 AI
+            _push_ai_event(screen, f"{parsed.from_name}想加你为好友", high_priority=True)
 
     elif isinstance(parsed, GameInvite):
         inv = parsed.raw
