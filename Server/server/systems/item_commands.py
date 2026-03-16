@@ -132,12 +132,17 @@ register_use_handler('rename_card', _use_rename_card)
 
 def _use_exp_potion(lobby, player_name, player_data, method_id):
     """经验药水 — 从 items.json effect.value 读取经验值"""
+    from .leveling import check_level_up
     info = get_item_info('exp_potion') or {}
     value = info.get('effect', {}).get('value', 50)
     inventory = player_data.get('inventory', {})
     inventory['exp_potion'] = inventory.get('exp_potion', 0) - 1
     player_data['exp'] = player_data.get('exp', 0) + value
-    return f"饮下经验药水，获得 {value} 点经验值！"
+    msg = f"饮下经验药水，获得 {value} 点经验值！"
+    leveled = check_level_up(player_data)
+    if leveled:
+        msg += f"\n升级了！当前等级: {leveled[-1]}"
+    return msg
 
 
 register_use_handler('exp_potion', _use_exp_potion)

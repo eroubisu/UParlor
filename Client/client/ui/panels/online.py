@@ -253,10 +253,10 @@ class OnlineUsersPanel(Widget):
                     f"{M_DIM}无匹配用户{M_END}"))
             elif self._tab == "friends":
                 log.write(RichText.from_markup(
-                    f"{M_DIM}还没有好友{M_END}"))
+                    f"{M_DIM}暂无好友{M_END}"))
             else:
                 log.write(RichText.from_markup(
-                    f"{M_DIM}(空){M_END}"))
+                    f"{M_DIM}暂无用户{M_END}"))
             return
 
         if self._cursor >= len(items):

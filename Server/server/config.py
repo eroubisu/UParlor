@@ -37,8 +37,7 @@ MAINTENANCE_HOUR = 4
 # 位置层级定义（基础层级 + 游戏自动注入）
 # 格式: {位置: (显示名称, 父位置)}
 LOCATION_HIERARCHY = {
-    'lobby': ('游戏大厅', None),
-    'profile': ('个人资料', 'lobby'),
+    'lobby': ('HOME', None),
 }
 
 

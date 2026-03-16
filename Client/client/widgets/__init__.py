@@ -6,15 +6,18 @@
 
 from .helpers import _set_pane_subtitle
 from .scrollbar import RoundedScrollBarRender  # noqa: F401 — 触发全局渲染器替换
-from .prompt import PromptMixin
+from .prompt import InputBarMixin
 from .input_bar import InputBar, InputTextArea
 from .tab_menu import TabMenuBase
+from .menu_nav import MenuNav, render_menu_lines
 
 __all__ = [
     '_set_pane_subtitle',
     'RoundedScrollBarRender',
-    'PromptMixin',
+    'InputBarMixin',
     'InputBar',
     'InputTextArea',
     'TabMenuBase',
+    'MenuNav',
+    'render_menu_lines',
 ]

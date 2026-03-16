@@ -8,6 +8,7 @@ from textual.widgets import Static
 from textual.widget import Widget
 
 from ..widgets.input_bar import InputBar, InputTextArea
+from ..widgets.prompt import InputBarMixin
 from ..state import ModuleStateManager
 
 _WELCOME_DOC = """\
@@ -22,7 +23,7 @@ _WELCOME_DOC = """\
 [dim]操作指南[/dim]
   [bold]i[/bold]            打开输入窗口
   [bold]Backspace[/bold]    返回上一级
-  [bold]Esc / Ctrl+[[/bold] 退出输入 / 关闭浮窗
+  [bold]Esc / Ctrl+\[[/bold] 退出输入 / 关闭浮窗
   [bold]Enter[/bold]        确定
   [bold]Tab[/bold]          补全指令
   [bold]Space[/bold]        打开浮窗菜单
@@ -37,44 +38,16 @@ _WELCOME_DOC = """\
 """
 
 
-class LoginPanel(Widget):
+class LoginPanel(InputBarMixin, Widget):
     """登录面板：欢迎文档 + 登录提示"""
+
+    _input_bar_id = "login-input-bar"
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="login-doc"):
             yield Static(_WELCOME_DOC, markup=True)
         yield Static("", id="login-prompt-text", markup=True)
         yield InputBar(prompt_id="login-prompt", id="login-input-bar")
-
-    def show_prompt(self, text: str = ""):
-        try:
-            self.query_one("#login-input-bar", InputBar).show_prompt(text)
-        except Exception:
-            pass
-
-    def update_prompt(self, text: str):
-        try:
-            self.query_one("#login-input-bar", InputBar).update_prompt(text)
-        except Exception:
-            pass
-
-    def hide_prompt(self):
-        try:
-            self.query_one("#login-input-bar", InputBar).hide_prompt()
-        except Exception:
-            pass
-
-    def show_input_bar(self):
-        try:
-            self.query_one("#login-input-bar", InputBar).add_class("visible")
-        except Exception:
-            pass
-
-    def hide_input_bar(self):
-        try:
-            self.query_one("#login-input-bar", InputBar).remove_class("visible")
-        except Exception:
-            pass
 
     def add_message(self, text: str):
         try:

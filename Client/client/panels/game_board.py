@@ -18,7 +18,7 @@ class GameBoardPanel(Widget):
 
     def on_mount(self) -> None:
         log: RichLog = self.query_one("#game-board-log", RichLog)
-        log.write(f"{M_DIM}进入游戏后将在此显示游戏画面{M_END}")
+        log.write(f"{M_DIM}暂无游戏画面{M_END}")
 
     def _render_room(self, room_data: dict):
         from ..protocol.renderer import get_renderer

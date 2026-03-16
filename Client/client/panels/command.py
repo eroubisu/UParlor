@@ -90,7 +90,7 @@ class CommandHintBar(TabMenuBase):
                 content = self._render_items()
             else:
                 from ..config import COLOR_HINT_TAB_DIM
-                content = f"[{COLOR_HINT_TAB_DIM}]  无匹配指令[/]"
+                content = f"[{COLOR_HINT_TAB_DIM}]  暂无匹配指令[/]"
             self._update_widgets(tab_text, content)
             return
         super()._refresh_display()

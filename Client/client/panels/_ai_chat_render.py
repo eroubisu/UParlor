@@ -40,7 +40,7 @@ class _ChatRenderMixin:
     def _render_model_list(self) -> list[str]:
         """渲染模型列表，溢出时右侧显示滚动条"""
         if not self._setup_models:
-            return [f"{M_DIM}无可用模型{M_END}"]
+            return [f"{M_DIM}暂无可用模型{M_END}"]
         total = len(self._setup_models)
         offset = self._model_scroll_offset
         visible = self._setup_models[offset:offset + _MAX_MODEL_VISIBLE]
@@ -264,7 +264,7 @@ class _ChatRenderMixin:
         self._sync_gift_items()
         lines = []
         if not self._gift_items:
-            lines.append(f"[{COLOR_FG_TERTIARY}](背包空空如也){M_END}")
+            lines.append(f"[{COLOR_FG_TERTIARY}]暂无物品{M_END}")
             return lines
         for i, item in enumerate(self._gift_items):
             name = item.get("name", "?")

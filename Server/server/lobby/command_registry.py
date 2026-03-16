@@ -10,8 +10,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config import SERVER_VERSION
-from .profile import get_profile
-from ..systems.title_commands import cmd_mytitle, cmd_alltitle, cmd_title
+from ..systems.title_commands import cmd_alltitle, cmd_title
 
 
 # ══════════════════════════════════════════════════
@@ -95,23 +94,31 @@ def _exit_sub_builder(lobby, player_data):
     ]
 
 
-def _handle_profile(lobby, player_name, player_data, args, location):
-    return get_profile(lobby, player_data)
-
-
-def _handle_mytitle(lobby, player_name, player_data, args, location):
-    return cmd_mytitle(player_data)
-
-
-def _handle_alltitle(lobby, player_name, player_data, args, location):
+def _handle_title(lobby, player_name, player_data, args, location):
     return cmd_alltitle(player_data, args)
 
 
-def _handle_title(lobby, player_name, player_data, args, location):
+def _handle_settitle(lobby, player_name, player_data, args, location):
     return cmd_title(player_name, player_data, args)
 
 
+def _handle_passwd(lobby, player_name, player_data, args, location):
+    lobby.pending_confirms[player_name] = {'type': 'password_start'}
+    return '请输入新密码（6-20个字符）：'
+
+
 # ── 注册 ──
+
+def _handle_delete(lobby, player_name, player_data, args, location):
+    lobby.pending_confirms[player_name] = {'type': 'delete_start'}
+    return '警告：注销账号将永久删除所有数据，不可恢复！\n请输入你的用户名以确认：'
+
+
+def _delete_sub_builder(lobby, player_data):
+    return [
+        {'name': 'delete', 'label': '开始注销', 'desc': '永久删除账号'},
+    ]
+
 
 register_global('help', _handle_help)
 register_global('games', _handle_games)
@@ -119,9 +126,8 @@ register_global('clear', _handle_clear)
 register_global('version', _handle_version)
 register_global('exit', _handle_exit)
 register_sub_builder('exit', _exit_sub_builder)
-register_global('profile', _handle_profile)
-
-
-register_global('mytitle', _handle_mytitle)
-register_global('alltitle', _handle_alltitle)
+register_global('delete', _handle_delete)
+register_sub_builder('delete', _delete_sub_builder)
+register_global('passwd', _handle_passwd)
 register_global('title', _handle_title)
+register_global('settitle', _handle_settitle)

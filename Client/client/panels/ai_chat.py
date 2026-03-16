@@ -15,6 +15,7 @@ from ..config import M_DIM, M_END, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY
 from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets import _set_pane_subtitle
+from ..widgets.prompt import InputBarMixin
 from ._ai_chat_render import _ChatRenderMixin, _TABS
 from ._ai_chat_views import (
     _ChatViewsMixin,
@@ -22,8 +23,10 @@ from ._ai_chat_views import (
 )
 
 
-class AIChatPanel(_ChatViewsMixin, _ChatRenderMixin, Widget):
+class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
     """AI 面板：选择角色 → 创建角色 → 聊天（菜单 + 状态栏）"""
+
+    _input_bar_id = "ai-input-bar"
 
     class RequestInsert(Message):
         """面板请求 Screen 进入 INSERT 模式"""
@@ -90,24 +93,6 @@ class AIChatPanel(_ChatViewsMixin, _ChatRenderMixin, Widget):
 
     # ── InputBar 标准接口 ──
 
-    def show_prompt(self, text: str = ""):
-        try:
-            self.query_one("#ai-input-bar", InputBar).show_prompt(text)
-        except Exception:
-            pass
-
-    def update_prompt(self, text: str):
-        try:
-            self.query_one("#ai-input-bar", InputBar).update_prompt(text)
-        except Exception:
-            pass
-
-    def hide_prompt(self):
-        try:
-            self.query_one("#ai-input-bar", InputBar).hide_prompt()
-        except Exception:
-            pass
-
     def show_input_bar(self):
         try:
             self.query_one("#ai-input-bar", InputBar).add_class("visible")
@@ -126,13 +111,10 @@ class AIChatPanel(_ChatViewsMixin, _ChatRenderMixin, Widget):
         except Exception:
             pass
 
-    def hide_input_bar(self):
-        try:
-            self.query_one("#ai-input-bar", InputBar).remove_class("visible")
-        except Exception:
-            pass
-
     def cancel_input(self):
+        # SETUP/CREATE 视图中必须保持输入状态
+        if self._view in (_VIEW_SETUP, _VIEW_CREATE):
+            return
         self._wants_insert = False
 
     # ── 属性 ──
@@ -508,6 +490,16 @@ class AIChatPanel(_ChatViewsMixin, _ChatRenderMixin, Widget):
             if self._create_status and not self._create_char and self._create_step == "desc":
                 self._create_status = "窗口操作中断了上次请求，请重新提交"
                 self._wants_insert = True
+            # SETUP model 步骤丢失了模型列表 → 重新获取
+            if st.view == _VIEW_SETUP and self._setup_step == "model" and not self._setup_models:
+                self._create_status = "正在获取可用模型..."
+                self._wants_insert = False
+                self._show_static()
+                self._refresh_content()
+                import asyncio
+                asyncio.get_event_loop().call_soon(
+                    lambda: asyncio.ensure_future(self._do_fetch_models_for_setup()))
+                return
             self._show_static()
             self._refresh_content()
             if self._wants_insert:

@@ -54,7 +54,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         yield WhichKeyPanel()
         with Horizontal(id="footer-bar"):
             yield Static(" NORMAL ", id="mode-indicator")
-            yield Static("大厅", id="location-indicator")
+            yield Static("HOME", id="location-indicator")
             yield Static("----", id="connection-status")
 
     def on_mount(self) -> None:

@@ -397,7 +397,7 @@ class InventoryPanel(Widget):
         if not self._filtered:
             content.update(
                 f"[{COLOR_FG_SECONDARY}]金币  {self._gold}G[/]\n\n"
-                f"[{COLOR_FG_TERTIARY}](背包空空如也)[/]"
+                f"[{COLOR_FG_TERTIARY}]暂无物品[/]"
             )
             return
 
@@ -447,7 +447,7 @@ class InventoryPanel(Widget):
             elif self._mode == _MODE_GIFT:
                 players = self._get_online_players()
                 if not players:
-                    lines.append(f"     [{COLOR_FG_TERTIARY}]无在线玩家[/]")
+                    lines.append(f"     [{COLOR_FG_TERTIARY}]暂无在线玩家[/]")
                 else:
                     for pi, pname in enumerate(players):
                         if pi == self._gift_cursor:
@@ -459,7 +459,7 @@ class InventoryPanel(Widget):
                 lines.append(f"     [{COLOR_FG_SECONDARY}]{self._confirm_label}[/]")
 
             elif self._mode == _MODE_DETAIL:
-                desc = item.get('desc') or '无描述'
+                desc = item.get('desc') or '暂无描述'
                 lines.append(f"     [{COLOR_FG_SECONDARY}]{desc}[/]")
 
         content.update("\n".join(lines))

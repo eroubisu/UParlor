@@ -17,7 +17,7 @@ _COMPAT: dict[str, str] = {
 
 
 def register_module(name: str, label: str, widget_class: type,
-                    scope: str = 'global') -> None:
+                    scope: str = 'global', desc: str = '') -> None:
     """注册一个面板模块类型
 
     scope: 'global' = 通用模块, 'game' = 游戏模块
@@ -26,6 +26,7 @@ def register_module(name: str, label: str, widget_class: type,
         'label': label,
         'class': widget_class,
         'scope': scope,
+        'desc': desc,
     }
 
 
@@ -41,6 +42,14 @@ def get_module_labels(scope: str | None = None) -> dict[str, str]:
     if scope is None:
         return {k: v['label'] for k, v in _REGISTRY.items()}
     return {k: v['label'] for k, v in _REGISTRY.items()
+            if v.get('scope') == scope}
+
+
+def get_module_descs(scope: str | None = None) -> dict[str, str]:
+    """返回 {模块名: 描述} 字典，可按 scope 过滤"""
+    if scope is None:
+        return {k: v.get('desc', '') for k, v in _REGISTRY.items()}
+    return {k: v.get('desc', '') for k, v in _REGISTRY.items()
             if v.get('scope') == scope}
 
 

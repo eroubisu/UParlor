@@ -3,7 +3,6 @@
 from ..config import COMMAND_TABLE, LOCATION_HIERARCHY, SERVER_VERSION
 from .confirmation import handle_lobby_pending
 from .command_registry import find_global_handler
-from .profile import handle_profile_command
 from . import help as lobby_help
 from ..games import get_game, get_all_games, GAMES
 
@@ -105,7 +104,7 @@ class LobbyEngine:
         path.reverse()
         path_keys.reverse()
         if not path:
-            return '游戏大厅'
+            return 'HOME'
         # 附加房间号到"房间"层级
         if player_name and location and ('_room' in location or '_playing' in location):
             game_id = self._get_game_for_location(location)
@@ -138,7 +137,7 @@ class LobbyEngine:
         未实现则 fallback 到静态 COMMAND_TABLE。
         """
         import copy
-        commands = copy.deepcopy(COMMAND_TABLE.get('*', []))
+        global_cmds = copy.deepcopy(COMMAND_TABLE.get('*', []))
 
         # 尝试引擎动态指令
         game_id = self._get_game_for_location(location)
@@ -150,9 +149,15 @@ class LobbyEngine:
                     self, location, player_data.get('name', ''), player_data)
 
         if dynamic is not None:
-            commands.extend(dynamic)
+            game_cmds = dynamic
         else:
-            commands.extend(copy.deepcopy(COMMAND_TABLE.get(location, [])))
+            game_cmds = copy.deepcopy(COMMAND_TABLE.get(location, []))
+
+        # 在游戏中时，游戏标签页在前；大厅中时，全局在前
+        if game_id:
+            commands = game_cmds + global_cmds
+        else:
+            commands = global_cmds + game_cmds
 
         if player_data:
             self._inject_sub_menus(commands, player_data)
@@ -170,7 +175,7 @@ class LobbyEngine:
 
     def _get_game_for_location(self, location):
         """根据位置确定玩家在哪个游戏中"""
-        if location in ('lobby', 'profile'):
+        if location in ('lobby',):
             return None
         for game_id, module in GAMES.items():
             info = getattr(module, 'GAME_INFO', {})
@@ -222,11 +227,6 @@ class LobbyEngine:
     def get_games_list(self):
         return lobby_help.get_games_list()
 
-    # ── 个人资料 ──  → profile_commands.py
-
-    def _handle_profile_command(self, player_name, player_data, cmd, args):
-        return handle_profile_command(self, player_name, player_data, cmd, args)
-
     # ══════════════════════════════════════════════════
     #  核心指令处理
     # ══════════════════════════════════════════════════
@@ -256,17 +256,10 @@ class LobbyEngine:
         if cmd in ('/back', '/home'):
             return self._handle_navigation(player_name, player_data, cmd, location)
 
-        # ── 4. 个人资料页面 ──
-        if location == 'profile':
-            result = self._handle_profile_command(
-                player_name, player_data, cmd, args)
-            if result is not None:
-                return result
-
-        # ── 5. 进入游戏 ──
+        # ── 4. 进入游戏 ──
         if cmd == '/play':
-            if location not in ('lobby', 'profile'):
-                return '请先返回大厅再进入其他游戏。'
+            if location not in ('lobby',):
+                return '请先返回 HOME 再进入其他游戏。'
             if not args:
                 return '用法: play <游戏ID>'
             return self._enter_game(player_name, player_data, args.lower().strip())
@@ -284,8 +277,6 @@ class LobbyEngine:
             return '未知指令。'
 
         if not cmd.startswith('/'):
-            if location == 'profile':
-                return '请输入头衔编号。'
             return None
 
         return '未知指令。'
@@ -295,7 +286,7 @@ class LobbyEngine:
     def _handle_navigation(self, player_name, player_data, cmd, location):
         """统一处理 /back 和 /home 导航"""
         if location == 'lobby':
-            return '你已经在大厅了。'
+            return '你已经在 HOME 了。'
 
         # 游戏内：委托引擎处理（引擎可能需要清理房间等）
         game_id = self._get_game_for_location(location)

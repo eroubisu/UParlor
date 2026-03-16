@@ -268,8 +268,8 @@ class TabMenuBase(Vertical):
             box=None, expand=True, padding=(0, 0), pad_edge=False,
         )
         table.add_column(width=2, no_wrap=True)
-        table.add_column(no_wrap=True)
-        table.add_column(justify="right", style=COLOR_HINT_TAB_DIM, ratio=1, no_wrap=True)
+        table.add_column(no_wrap=True, ratio=2, overflow="ellipsis")
+        table.add_column(justify="right", style=COLOR_HINT_TAB_DIM, ratio=1, no_wrap=True, overflow="ellipsis")
         if need_sb:
             table.add_column(width=1, no_wrap=True)
             max_off = max(1, total - MAX_TAB_VISIBLE)

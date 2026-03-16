@@ -193,6 +193,7 @@ class _ChatViewsMixin:
         if self._view != _VIEW_SETUP:
             return
         if ok:
+            self._save_api_key(key)
             self._create_status = "正在获取可用模型..."
             self._refresh_content()
             try:
@@ -444,6 +445,12 @@ class _ChatViewsMixin:
                 self._reset_confirming = True
         elif idx == 6:
             self._reset_confirming = False
+            # 手动切回角色选择 → 取消自动启动
+            from ..ai.config import load_global_config, save_global_config
+            cfg = load_global_config()
+            if cfg.get('auto_start', False):
+                cfg['auto_start'] = False
+                save_global_config(cfg)
             if self._service:
                 self._service.unload_character()
             self._set_view(_VIEW_SELECT)
@@ -488,6 +495,38 @@ class _ChatViewsMixin:
             self._create_status = ""
             self._log(f"{M_DIM}>>> 获取模型列表失败: {e}{M_END}")
             self._refresh_content()
+
+    async def _do_fetch_models_for_setup(self):
+        """SETUP model 步骤恢复时重新获取模型列表"""
+        try:
+            from ..ai.service import AIService
+            key = self._get_api_key()
+            if not key:
+                self._setup_step = "api_key"
+                self._create_status = ""
+                self._wants_insert = True
+                self._refresh_content()
+                self.post_message(self.RequestInsert())
+                return
+            models = await AIService.list_models(key)
+            if self._view != _VIEW_SETUP:
+                return
+            self._setup_models = models
+            self._setup_model_cursor = 0
+            self._model_scroll_offset = 0
+            for i, m in enumerate(models):
+                if m["name"] == "gemini-2.5-flash":
+                    self._setup_model_cursor = i
+                    break
+            self._adjust_model_scroll()
+            self._create_status = ""
+            self._refresh_content()
+        except Exception as e:
+            self._create_status = f"获取模型列表失败: {e}"
+            self._setup_step = "api_key"
+            self._wants_insert = True
+            self._refresh_content()
+            self.post_message(self.RequestInsert())
 
     # ── 流式聊天 ──
 

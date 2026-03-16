@@ -14,7 +14,7 @@ from .layout import (
     split_pane, close_pane, navigate, next_pane_id, resize_pane,
 )
 from ..widgets import (
-    RoundedScrollBarRender, PromptMixin, InputBar,
+    RoundedScrollBarRender, InputBarMixin, InputBar,
 )
 
 # 导入 panels 触发 register_module 注册
@@ -27,5 +27,5 @@ __all__ = [
     'serialize', 'deserialize',
     'all_panes', 'find_pane', 'find_module_pane',
     'split_pane', 'close_pane', 'navigate', 'next_pane_id', 'resize_pane',
-    'RoundedScrollBarRender', 'PromptMixin', 'InputBar',
+    'RoundedScrollBarRender', 'InputBarMixin', 'InputBar',
 ]

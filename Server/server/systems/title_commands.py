@@ -31,7 +31,7 @@ def cmd_item(player_data, args):
             text += "\n"
 
     if not has_items:
-        text += "(背包空空如也)\n"
+        text += "暂无物品\n"
     return text
 
 
@@ -59,9 +59,9 @@ def cmd_mytitle(player_data):
 
     total_titles = len(TITLE_LIBRARY)
     text += f"\n已收集: {len(owned)}/{total_titles}"
-    text += "\n\n/title <编号> - 切换显示（最多3个）"
-    text += "\n/title clear - 清除所有显示"
-    text += "\n/alltitle - 查看头衔图鉴"
+    text += "\n\n/settitle <编号> - 切换显示（最多3个）"
+    text += "\n/settitle clear - 清除所有显示"
+    text += "\n/title - 查看头衔图鉴"
     return text
 
 
@@ -76,7 +76,7 @@ def cmd_alltitle(player_data, args):
         text = "可用的筛选类别:\n"
         for src, name in TITLE_SOURCES.items():
             count = sum(1 for t in TITLE_LIBRARY.values() if t.get('source') == src)
-            text += f"  alltitle {src}  {name} ({count}个头衔)\n"
+            text += f"  title {src}  {name} ({count}个头衔)\n"
         return text
 
     text = "【头衔图鉴】\n"

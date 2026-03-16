@@ -20,15 +20,24 @@ from ..protocol.handler import GameHandlerContext, get_handler
 from ..panels import LoginPanel
 
 
+def _is_ai_chatting(panel) -> bool:
+    """AI 面板是否处于聊天视图（仅此时算"已启动"）"""
+    return (
+        getattr(panel, '_panel_active', False)
+        and panel._service
+        and getattr(panel, '_view', '') == 'chat'
+    )
+
+
 def _push_ai_event(screen, event: str, *, high_priority: bool = False):
-    """如果 AI 面板在线，推送事件
+    """如果 AI 面板处于聊天视图，推送事件
 
     high_priority=True : AttentionBuffer + event_queue（感知 + 主动搭话）
     high_priority=False : AttentionBuffer only（被动感知，不触发搭话）
     """
     try:
         panel = screen._get_module('ai')
-        if panel and getattr(panel, '_panel_active', False) and panel._service:
+        if panel and _is_ai_chatting(panel):
             svc = panel._service
             svc._attention.push(event)
             if high_priority:
@@ -41,7 +50,7 @@ def _get_ai_attention_level(screen) -> str:
     """获取 AI 当前的 attention_level（quiet/normal/talkative）"""
     try:
         panel = screen._get_module('ai')
-        if panel and getattr(panel, '_panel_active', False) and panel._service:
+        if panel and _is_ai_chatting(panel):
             return panel._service.attention_level
     except Exception:
         pass

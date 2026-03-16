@@ -179,7 +179,7 @@ def look_friends(state: ModuleStateManager, **_kw) -> str:
     try:
         friends = state.online.friends
         if not friends:
-            return "还没有好友"
+            return "暂无好友"
         # 获取在线用户名集合
         online_names = set()
         for u in state.online.users:
@@ -420,7 +420,7 @@ class AwarenessSummary:
         except Exception:
             pass
 
-        summary = " | ".join(parts) if parts else "大厅"
+        summary = " | ".join(parts) if parts else "HOME"
 
         # 事件缓冲
         if buffer:

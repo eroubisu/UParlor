@@ -10,7 +10,8 @@ from textual.app import ComposeResult
 from textual.widgets import RichLog, Static
 from textual.widget import Widget
 
-from ..widgets import InputBar, _set_pane_subtitle
+from ..widgets import InputBar, _set_pane_subtitle, MenuNav, render_menu_lines
+from ..widgets.prompt import InputBarMixin
 from ..widgets.helpers import build_tab_overflow, _widget_width
 from ..config import (
     MAX_LINES_CHAT, CHANNEL_NAMES, M_DIM, M_BOLD, M_END,
@@ -25,62 +26,46 @@ def _chat_text(markup: str) -> RichText:
     return RichText.from_markup(markup, overflow="fold")
 
 
-class ChatPanel(Widget):
-    """聊天面板：标签页（全局 + 私聊）+ 消息日志 + 输入框"""
+def _fmt_msg(name: str, text: str, time_str: str = "") -> str:
+    """格式化一条聊天消息 markup: [HH:MM] name> text"""
+    t = time_str[:5] if time_str else ""
+    if t:
+        return f"{M_DIM}{t}{M_END} {name}> {text}"
+    return f"{name}> {text}"
+
+
+_SETTINGS_TAB_ACTIONS = ["关闭标签页", "清空标签页"]
+
+
+class ChatPanel(InputBarMixin, Widget):
+    """聊天面板：标签页（全局 + 私聊 + 设置）+ 消息日志 + 输入框"""
+
+    _input_bar_id = "chat-input-bar"
+    _scroll_target_id = "chat-log"
 
     def __init__(self, **kw):
         super().__init__(**kw)
         self.current_channel = 1
-        self._active_tab: str = "global"  # "global" | peer_name
+        self._active_tab: str = "global"  # "global" | peer_name | "settings"
         self._state_mgr: ModuleStateManager | None = None
+        self._settings_nav = MenuNav([])
+        self._settings_target: str | None = None
+        self._settings_action: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="chat-header", markup=True)
-        yield RichLog(id="chat-log", wrap=True, highlight=True, markup=True, max_lines=MAX_LINES_CHAT)
+        yield RichLog(id="chat-log", wrap=True, highlight=True, markup=True, max_lines=MAX_LINES_CHAT, min_width=0)
         yield InputBar(prompt_id="chat-prompt", id="chat-input-bar")
-
-    def show_prompt(self, text: str = ""):
-        try:
-            self.query_one("#chat-input-bar", InputBar).show_prompt(text)
-        except Exception:
-            pass
-
-    def update_prompt(self, text: str):
-        try:
-            self.query_one("#chat-input-bar", InputBar).update_prompt(text)
-        except Exception:
-            pass
-
-    def hide_prompt(self):
-        try:
-            self.query_one("#chat-input-bar", InputBar).hide_prompt()
-        except Exception:
-            pass
-
-    def show_input_bar(self):
-        try:
-            self.query_one("#chat-input-bar", InputBar).add_class("visible")
-        except Exception:
-            pass
-        try:
-            self.query_one("#chat-log", RichLog).scroll_end(animate=False)
-        except Exception:
-            pass
-
-    def hide_input_bar(self):
-        try:
-            self.query_one("#chat-input-bar", InputBar).remove_class("visible")
-        except Exception:
-            pass
 
     # ── 标签页导航 ──
 
     def _tab_list(self) -> list[str]:
-        """返回当前所有标签: ["global", peer1, peer2, ...]"""
+        """返回当前所有标签: ["global", peer1, peer2, ..., "settings"]"""
         tabs = ["global"]
         st = self._state_mgr
         if st:
             tabs.extend(st.chat.dm_tabs)
+        tabs.append("settings")
         return tabs
 
     def nav_tab_next(self):
@@ -99,6 +84,86 @@ class ChatPanel(Widget):
         self._active_tab = tabs[(idx - 1) % len(tabs)]
         self._sync_active_tab()
 
+    def nav_down(self):
+        if self._active_tab == "settings":
+            self._settings_nav.nav_down()
+            self._replay_tab()
+            return
+        try:
+            log: RichLog = self.query_one("#chat-log", RichLog)
+            log.scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def nav_up(self):
+        if self._active_tab == "settings":
+            self._settings_nav.nav_up()
+            self._replay_tab()
+            return
+        try:
+            log: RichLog = self.query_one("#chat-log", RichLog)
+            log.scroll_up(animate=False)
+        except Exception:
+            pass
+
+    def nav_enter(self):
+        if self._active_tab != "settings":
+            return
+        nav = self._settings_nav
+        if nav.depth == 0:
+            # 选定某个私聊标签
+            items = self._settings_items()
+            if not items:
+                return
+            self._settings_target = nav.selected
+            nav.push(_SETTINGS_TAB_ACTIONS)
+        elif nav.depth == 1:
+            # 选择操作（关闭/清空）
+            self._settings_action = nav.selected
+            nav.push(["确认", "取消"])
+        elif nav.depth == 2:
+            if nav.cursor == 0:  # 确认
+                peer = self._settings_target
+                action = self._settings_action
+                st = self._state_mgr
+                if st and peer:
+                    if action == "关闭标签页":
+                        st.chat.close_private_tab(peer)
+                    elif action == "清空标签页":
+                        st.chat.clear_private_tab(peer)
+                self._settings_target = None
+                self._settings_action = None
+                nav.reset(self._settings_items())
+                self._render_header()
+            else:  # 取消
+                nav.pop()
+                self._settings_action = None
+        self._replay_tab()
+
+    def nav_back(self) -> bool:
+        if self._active_tab != "settings":
+            return False
+        nav = self._settings_nav
+        if nav.pop():
+            if nav.depth < 2:
+                self._settings_action = None
+            if nav.depth < 1:
+                self._settings_target = None
+            self._replay_tab()
+            return True
+        self._active_tab = "global"
+        self._sync_active_tab()
+        return True
+
+    nav_escape = nav_back
+
+    def _settings_items(self) -> list[str]:
+        """设置页可关闭的私聊标签列表"""
+        st = self._state_mgr
+        if not st:
+            return []
+        return list(st.chat.dm_tabs)
+
     def switch_channel(self, channel_id: int):
         """全局频道切换（由 _cycle_channel 调用）— 保持兼容"""
         self.current_channel = channel_id
@@ -106,9 +171,13 @@ class ChatPanel(Widget):
     def _sync_active_tab(self):
         """切换标签后同步 state 并重新渲染"""
         st = self._state_mgr
-        if st:
+        if st and self._active_tab != "settings":
             st.chat.active_tab = self._active_tab
             st.chat.dm_unread.discard(self._active_tab)
+        if self._active_tab == "settings":
+            self._settings_nav.reset(self._settings_items())
+            self._settings_target = None
+            self._settings_action = None
         self._render_header()
         self._replay_tab()
 
@@ -121,8 +190,13 @@ class ChatPanel(Widget):
         unread = st.chat.dm_unread if st else set()
         tab_parts = []
         for t in tabs:
-            label = "全局" if t == "global" else t
-            has_unread = t != "global" and t in unread
+            if t == "global":
+                label = "全局"
+            elif t == "settings":
+                label = "设置"
+            else:
+                label = t
+            has_unread = t not in ("global", "settings") and t in unread
             if has_unread:
                 label = f"{label}*"
             if t == self._active_tab:
@@ -169,7 +243,7 @@ class ChatPanel(Widget):
                     if channel == self.current_channel:
                         if name == '[SYS]' and ('上线了' in text or '下线了' in text):
                             continue
-                        log.write(_chat_text(f"{name}> {text}"))
+                        log.write(_chat_text(_fmt_msg(name, text, time_str)))
                 elif entry[0] == SYS:
                     log.write(_chat_text(f"{M_DIM}>>> {entry[1]}{M_END}"))
                 elif entry[0] == HISTORY:
@@ -181,7 +255,29 @@ class ChatPanel(Widget):
                             mt = m.get('text', '')
                             if mn == '[SYS]' and ('上线了' in mt or '下线了' in mt):
                                 continue
-                            log.write(_chat_text(f"{mn}> {mt}"))
+                            log.write(_chat_text(_fmt_msg(mn, mt, m.get('time', ''))))
+        elif self._active_tab == "settings":
+            nav = self._settings_nav
+            if nav.depth == 0:
+                if not nav.items:
+                    log.write(_chat_text(f"{M_DIM}暂无私聊标签页{M_END}"))
+                    return
+                labels = nav.items
+            elif nav.depth == 1:
+                peer = self._settings_target or "?"
+                log.write(_chat_text(
+                    f"{M_DIM}{peer}{M_END}"))
+                labels = nav.items
+            else:
+                peer = self._settings_target or "?"
+                action = self._settings_action or "?"
+                log.write(_chat_text(
+                    f"{M_DIM}{action} [{COLOR_FG_PRIMARY}]{peer}[/]？{M_END}"))
+                labels = ["确认", "取消"]
+            for line in render_menu_lines(
+                    labels, nav.cursor,
+                    COLOR_ACCENT, COLOR_FG_PRIMARY, COLOR_FG_SECONDARY):
+                log.write(_chat_text(line))
         else:
             # 私聊标签
             peer = self._active_tab
@@ -190,7 +286,7 @@ class ChatPanel(Widget):
                 log.write(_chat_text(f"{M_DIM}暂无消息{M_END}"))
                 return
             for from_name, text, time_str in entries:
-                log.write(_chat_text(f"{from_name}> {text}"))
+                log.write(_chat_text(_fmt_msg(from_name, text, time_str)))
 
         try:
             log.scroll_end(animate=False)
@@ -214,7 +310,7 @@ class ChatPanel(Widget):
                 return
             if name == '[SYS]' and ('上线了' in text or '下线了' in text):
                 return
-            log.write(_chat_text(f"{name}> {text}"))
+            log.write(_chat_text(_fmt_msg(name, text, time_str)))
 
         elif event == 'add_system_message':
             if self._active_tab != "global":
@@ -234,7 +330,7 @@ class ChatPanel(Widget):
                 mt = m.get('text', '')
                 if mn == '[SYS]' and ('上线了' in mt or '下线了' in mt):
                     continue
-                log.write(_chat_text(f"{mn}> {mt}"))
+                log.write(_chat_text(_fmt_msg(mn, mt, m.get('time', ''))))
 
         elif event == 'switch_channel':
             (channel_id,) = args
@@ -275,7 +371,7 @@ class ChatPanel(Widget):
                 # 首条消息时清除"暂无消息"占位
                 if st and len(st.chat.dm_entries.get(peer, [])) == 1:
                     log.clear()
-                log.write(_chat_text(f"{from_name}> {text}"))
+                log.write(_chat_text(_fmt_msg(from_name, text, time_str)))
 
         elif event == 'dm_history_loaded':
             # 私聊历史批量加载完毕，刷新标签栏和当前视图

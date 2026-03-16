@@ -100,6 +100,12 @@ class ChatState:
             self.active_tab = "global"
         self._notify('close_private_tab', peer_name)
 
+    def clear_private_tab(self, peer_name: str):
+        """清空一个私聊标签页的消息"""
+        if peer_name in self.dm_entries:
+            self.dm_entries[peer_name] = []
+        self._notify('switch_tab', peer_name)
+
     def switch_tab(self, tab_name: str):
         """切换标签页: "global" 或 peer_name"""
         self.active_tab = tab_name

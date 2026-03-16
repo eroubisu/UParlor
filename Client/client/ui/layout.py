@@ -244,36 +244,77 @@ def _path_to_pane(root: LayoutNode, pane_id: str) -> list[tuple[SplitNode, int]]
     return None
 
 
+def _compute_pane_rects(root: LayoutNode) -> dict[str, tuple[float, float, float, float]]:
+    """计算每个窗格的归一化矩形 {pane_id: (x, y, w, h)}"""
+    result: dict[str, tuple[float, float, float, float]] = {}
+    _layout_rects(root, 0.0, 0.0, 1.0, 1.0, result)
+    return result
+
+
+def _layout_rects(node: LayoutNode, x: float, y: float, w: float, h: float,
+                  out: dict[str, tuple[float, float, float, float]]):
+    if isinstance(node, PaneNode):
+        out[node.pane_id] = (x, y, w, h)
+        return
+    total_weight = sum(node.weights) or 1.0
+    offset = 0.0
+    for child, weight in zip(node.children, node.weights):
+        ratio = weight / total_weight
+        if node.direction == 'h':
+            cw = w * ratio
+            _layout_rects(child, x + offset, y, cw, h, out)
+            offset += cw
+        else:
+            ch = h * ratio
+            _layout_rects(child, x, y + offset, w, ch, out)
+            offset += ch
+
+
+def _overlap_len(a0: float, a1: float, b0: float, b1: float) -> float:
+    return max(0.0, min(a1, b1) - max(a0, b0))
+
+
 def navigate(root: LayoutNode, current_id: str, direction: str) -> str:
     """空间导航: h=左, l=右, j=下, k=上
 
-    沿布局树向上查找匹配方向的 SplitNode，
-    移动到相邻子树（不环绕，到边界后继续向上找父节点）。
+    基于归一化坐标，找到目标方向上邻接且重叠最多的窗格。
     """
-    panes = all_panes(root)
-    if not panes:
-        return current_id
-    ids = [p.pane_id for p in panes]
-    if current_id not in ids:
-        return ids[0]
+    rects = _compute_pane_rects(root)
+    if current_id not in rects:
+        panes = all_panes(root)
+        return panes[0].pane_id if panes else current_id
 
-    target_split_dir = 'h' if direction in ('h', 'l') else 'v'
-    delta = -1 if direction in ('h', 'k') else 1
+    cx, cy, cw, ch = rects[current_id]
+    eps = 1e-6
+    best_id = current_id
+    best_dist = float('inf')
+    best_overlap = -1.0
 
-    path = _path_to_pane(root, current_id)
-    for i in range(len(path) - 1, -1, -1):
-        parent, child_idx = path[i]
-        if parent.direction == target_split_dir:
-            new_idx = child_idx + delta
-            # 不环绕：超出边界则继续向上查找
-            if new_idx < 0 or new_idx >= len(parent.children):
-                continue
-            target_child = parent.children[new_idx]
-            child_panes = all_panes(target_child)
-            if child_panes:
-                return child_panes[0].pane_id if delta > 0 else child_panes[-1].pane_id
+    for pid, (px, py, pw, ph) in rects.items():
+        if pid == current_id:
+            continue
+        if direction == 'l':       # 右
+            dist = px - (cx + cw)
+            overlap = _overlap_len(cy, cy + ch, py, py + ph)
+        elif direction == 'h':     # 左
+            dist = cx - (px + pw)
+            overlap = _overlap_len(cy, cy + ch, py, py + ph)
+        elif direction == 'j':     # 下
+            dist = py - (cy + ch)
+            overlap = _overlap_len(cx, cx + cw, px, px + pw)
+        elif direction == 'k':     # 上
+            dist = cy - (py + ph)
+            overlap = _overlap_len(cx, cx + cw, px, px + pw)
+        else:
+            continue
+        if dist < -eps or overlap <= eps:
+            continue
+        if dist < best_dist - eps or (abs(dist - best_dist) < eps and overlap > best_overlap):
+            best_dist = dist
+            best_overlap = overlap
+            best_id = pid
 
-    return current_id
+    return best_id
 
 
 def resize_pane(root: LayoutNode, pane_id: str, delta: float, direction: str = 'h') -> bool:

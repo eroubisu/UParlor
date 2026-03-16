@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..registry import get_module_names, get_module_labels
+from ..registry import get_module_names, get_module_labels, get_module_descs
 from .layout import find_module_pane, find_pane
 
 
@@ -14,20 +14,21 @@ class SpaceMenuMixin:
         # 切换面板
         modules = get_module_names(scope='global')
         labels = get_module_labels(scope='global')
-        mod_items = [(labels.get(m, m), "") for m in modules]
+        descs = get_module_descs(scope='global')
+        mod_items = [(labels.get(m, m), descs.get(m, '')) for m in modules]
         # 游戏
         game_items = self._build_game_tab_items()
         # 窗口
         win_items = [
-            ("横分", ""),
-            ("纵分", ""),
+            ("横分", "水平分割当前窗格"),
+            ("纵分", "垂直分割当前窗格"),
             ("关闭", "关闭当前窗格"),
         ]
         # 顶级列表：每个分类是带子菜单的项
         items = [
-            ("面板", "", mod_items),
-            ("游戏", "", game_items),
-            ("窗口", "", win_items),
+            ("面板", "替换当前窗格内容", mod_items),
+            ("游戏", "游戏面板开关", game_items),
+            ("窗口", "分割与关闭窗格", win_items),
         ]
         self._wk.open(items)
 
@@ -35,19 +36,20 @@ class SpaceMenuMixin:
         """构建游戏标签页：按游戏分组，每个游戏是子菜单入口"""
         game_mods = get_module_names(scope='game')
         if not game_mods:
-            from ..config import M_DIM, M_END
-            return [(f"{M_DIM}暂无游戏{M_END}", "")]
+            return [("暂无游戏", "")]
         from ..config import COLOR_ACCENT, COLOR_FG_TERTIARY, M_END
         game_labels = get_module_labels(scope='game')
+        game_descs = get_module_descs(scope='game')
         items = []
         for m in game_mods:
             label = game_labels.get(m, m)
+            desc = game_descs.get(m, '')
             opened = find_module_pane(self._layout_tree, m) is not None
             if opened:
                 mark = f"[{COLOR_ACCENT}]●{M_END}"
             else:
                 mark = f"[{COLOR_FG_TERTIARY}]○{M_END}"
-            items.append((f"{mark} {label}", ""))
+            items.append((f"{mark} {label}", desc))
         if len(game_mods) > 1:
             items.append(("全选/取消", ""))
         return items

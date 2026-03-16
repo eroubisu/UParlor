@@ -25,6 +25,7 @@ from ..state import ModuleStateManager
 from ..widgets import _set_pane_subtitle
 from ..widgets.helpers import build_tab_overflow, _widget_width
 from ..widgets.input_bar import InputBar
+from ..widgets.prompt import InputBarMixin
 
 
 _TABS = ["friends", "all", "online", "search"]
@@ -36,8 +37,27 @@ _MODE_CONFIRM = 'confirm'
 _MODE_GIFT = 'gift'
 
 
-class OnlineUsersPanel(Widget):
+def _truncate_name(name: str, max_width: int) -> str:
+    """将名字截断到 max_width 显示列内，溢出时末尾加 ~"""
+    if max_width < 1:
+        return "~"
+    w = 0
+    for i, ch in enumerate(name):
+        cw = cell_len(ch)
+        if w + cw > max_width:
+            # 回退一格放 ~
+            if w > 0:
+                return name[:i] + "~" if w + 1 <= max_width + 1 else name[:i]
+            return "~"
+        w += cw
+    return name
+
+
+class OnlineUsersPanel(InputBarMixin, Widget):
     """在线用户列表面板 — 四标签页 + 操作菜单"""
+
+    _input_bar_id = "online-input-bar"
+    _scroll_target_id = "online-log"
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -69,41 +89,6 @@ class OnlineUsersPanel(Widget):
             pass
 
     # ── InputBar 标准接口 ──
-
-    def show_prompt(self, text: str = ""):
-        try:
-            self.query_one("#online-input-bar", InputBar).show_prompt(text)
-        except Exception:
-            pass
-
-    def update_prompt(self, text: str):
-        try:
-            self.query_one("#online-input-bar", InputBar).update_prompt(text)
-        except Exception:
-            pass
-
-    def hide_prompt(self):
-        try:
-            self.query_one("#online-input-bar", InputBar).hide_prompt()
-        except Exception:
-            pass
-
-    def show_input_bar(self):
-        try:
-            self.query_one("#online-input-bar", InputBar).add_class("visible")
-        except Exception:
-            pass
-        try:
-            log = self.query_one("#online-log", RichLog)
-            log.scroll_end(animate=False)
-        except Exception:
-            pass
-
-    def hide_input_bar(self):
-        try:
-            self.query_one("#online-input-bar", InputBar).remove_class("visible")
-        except Exception:
-            pass
 
     def cancel_input(self):
         self._wants_insert = False
@@ -217,9 +202,9 @@ class OnlineUsersPanel(Widget):
                 return
             # friend_request / friend_remove → 进入确认
             if action_id == 'friend_request':
-                self._confirm_label = f"确定向 {name} 发送好友申请？"
+                self._confirm_label = f"确认向 {name} 发送好友申请？"
             else:
-                self._confirm_label = f"确定删除好友 {name}？"
+                self._confirm_label = f"确认删除好友 {name}？"
             self._confirm_action = action_id
             self._confirm_target = name
             self._mode = _MODE_CONFIRM
@@ -379,7 +364,7 @@ class OnlineUsersPanel(Widget):
             pass
 
     def on_resize(self, event) -> None:
-        self._render_header()
+        self._render_all()
 
     def _render_list(self):
         try:
@@ -399,32 +384,24 @@ class OnlineUsersPanel(Widget):
                     f"{M_DIM}无匹配用户{M_END}"))
             elif self._tab == "friends":
                 log.write(RichText.from_markup(
-                    f"{M_DIM}还没有好友{M_END}"))
+                    f"{M_DIM}暂无好友{M_END}"))
             else:
                 log.write(RichText.from_markup(
-                    f"{M_DIM}(空){M_END}"))
+                    f"{M_DIM}暂无用户{M_END}"))
             return
 
         if self._cursor >= len(items):
             self._cursor = len(items) - 1
+
+        avail = _widget_width(self, "online-log")
 
         for i, name in enumerate(items):
             is_friend = name in friends
             is_online = name in online_names
             sel = i == self._cursor
 
-            # 右侧状态标记
-            markers = []
-            if is_online:
-                markers.append("在线")
-            if is_friend and self._tab != "friends":
-                markers.append("好友")
-            suffix = f"  [{COLOR_FG_TERTIARY}]{', '.join(markers)}{M_END}" if markers else ""
-
-            if sel:
-                line = f" [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{name}[/]{suffix}"
-            else:
-                line = f"   [{COLOR_FG_SECONDARY}]{name}[/]{suffix}"
+            line = self._format_user_line(
+                name, is_online, is_friend, sel, avail)
             log.write(RichText.from_markup(line))
 
             # 选中项下方展开子内容
@@ -445,7 +422,7 @@ class OnlineUsersPanel(Widget):
                 gift_items = self._get_gift_items()
                 if not gift_items:
                     log.write(RichText.from_markup(
-                        f"     {M_DIM}没有可赠送的物品{M_END}"))
+                        f"     {M_DIM}暂无可赠送的物品{M_END}"))
                 else:
                     for gi, gitem in enumerate(gift_items):
                         gname = gitem.get('name', gitem.get('id', '?'))
@@ -467,6 +444,59 @@ class OnlineUsersPanel(Widget):
             _set_pane_subtitle(self, f"在线({online_count})")
         else:
             _set_pane_subtitle(self, "")
+
+    def _format_user_line(self, name, is_online, is_friend, selected, avail):
+        """格式化用户行：名字左对齐，状态右对齐，名字可截断
+
+        好友面板：仅显示在线状态 ■/□
+        在线面板：仅显示好友状态 ■/□
+        其他面板：双方块 左=好友 右=在线
+        """
+        if self._tab == "friends":
+            # 好友面板：仅显示在线状态
+            char = '■' if is_online else '□'
+            color = COLOR_ACCENT if is_online else COLOR_FG_TERTIARY
+            status_markup = f"[{color}]{char}[/]"
+            status_plain_w = 1
+        elif self._tab == "online":
+            # 在线面板：仅显示好友状态
+            char = '■' if is_friend else '□'
+            color = COLOR_ACCENT if is_friend else COLOR_FG_TERTIARY
+            status_markup = f"[{color}]{char}[/]"
+            status_plain_w = 1
+        else:
+            # all / search：双方块
+            friend_char = '■' if is_friend else '□'
+            online_char = '■' if is_online else '□'
+            if is_friend or is_online:
+                fc = COLOR_ACCENT if is_friend else COLOR_FG_TERTIARY
+                oc = COLOR_ACCENT if is_online else COLOR_FG_TERTIARY
+                status_markup = f"[{fc}]{friend_char}[/][{oc}]{online_char}[/]"
+            else:
+                status_markup = f"[{COLOR_FG_TERTIARY}]□□[/]"
+            status_plain_w = 2
+
+        # 左侧前缀宽度: " ● " 或 "   " = 3
+        prefix_w = 3
+        # 右侧: 至少 1 格间距 + status
+        right_w = 1 + status_plain_w
+
+        # 名字可用宽度
+        name_max = avail - prefix_w - right_w
+        display_name = name
+        name_w = cell_len(name)
+        if name_w > name_max and name_max >= 2:
+            display_name = _truncate_name(name, name_max)
+            name_w = cell_len(display_name)
+
+        pad = max(1, avail - prefix_w - name_w - status_plain_w)
+
+        if selected:
+            left = f" [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{display_name}[/]"
+        else:
+            left = f"   [{COLOR_FG_SECONDARY}]{display_name}[/]"
+
+        return f"{left}{' ' * pad}{status_markup}"
 
     # ── State listener ──
 

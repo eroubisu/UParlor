@@ -18,15 +18,16 @@ def _widget_width(widget, widget_id: str = "") -> int:
     """获取 widget 内容可用宽度，获取不到时返回 fallback。"""
     if widget_id:
         try:
-            w = widget.query_one(f"#{widget_id}").size.width
-            if w > 0:
-                return w
+            w = widget.query_one(f"#{widget_id}")
+            scr = w.scrollable_content_region.width
+            if scr > 0:
+                return scr
         except Exception:
             pass
     try:
-        w = widget.content_size.width
-        if w > 0:
-            return w
+        scr = widget.scrollable_content_region.width
+        if scr > 0:
+            return scr
     except Exception:
         pass
     return _AVAIL_FALLBACK
