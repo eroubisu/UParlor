@@ -70,11 +70,38 @@ def _action_firework(server, client_socket, name, player_data, result):
     server.send_player_status(client_socket, player_data)
 
 
+def _action_gift_success(server, client_socket, name, player_data, result):
+    """赠送成功 — 通知发送者和接收者"""
+    server.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})
+    PlayerManager.save_player_data(name, player_data)
+    server.send_player_status(client_socket, player_data)
+    # 通知接收者刷新物品栏
+    target_name = result.get('target_name', '')
+    item_name = result.get('item_name', '')
+    if target_name:
+        # 发送文字提示
+        server.send_to_player(target_name, {
+            'type': GAME, 'text': f"你收到了 {name} 赠送的 {item_name} x1！"})
+        # 让接收者客户端刷新状态（物品栏）
+        with server.lock:
+            for cs, info in server.clients.items():
+                if info.get('name') == target_name and info.get('state') == 'playing':
+                    target_data = info.get('data')
+                    if target_data:
+                        # 同步磁盘数据到内存
+                        fresh = PlayerManager.load_player_data(target_name)
+                        if fresh:
+                            target_data['inventory'] = fresh.get('inventory', {})
+                            server.send_player_status(cs, target_data)
+                    break
+
+
 register_action('clear', _action_clear)
 register_action('version', _action_version)
 register_action('confirm_prompt', _action_confirm_prompt)
 register_action('exit', _action_exit)
 register_action('firework', _action_firework)
+register_action('gift_success', _action_gift_success)
 register_action('rename_success', _action_rename_success)
 register_action('account_deleted', _action_account_deleted)
 

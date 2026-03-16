@@ -298,16 +298,28 @@ class ChatServer(AuthMixin):
             companions = msg.get('companions')
             if isinstance(companions, dict):
                 player_data['ai_companions'] = companions
-                PlayerManager.save_player_data(name, player_data)
+            token_stats = msg.get('token_stats')
+            if isinstance(token_stats, dict):
+                # 取本地与服务端同日的较大值
+                saved = player_data.get('ai_token_stats', {})
+                if token_stats.get('today') == saved.get('today', ''):
+                    token_stats['tokens'] = max(
+                        token_stats.get('tokens', 0),
+                        saved.get('tokens', 0),
+                    )
+                player_data['ai_token_stats'] = token_stats
+            PlayerManager.save_player_data(name, player_data)
 
         elif msg_type == 'ai_gift_consume':
             item_id = msg.get('item_id', '')
             qty = msg.get('qty', 1)
+            quality = msg.get('quality', 0)
             if isinstance(item_id, str) and item_id and isinstance(qty, int) and 0 < qty <= 99:
+                from server.systems.items import inv_get, inv_sub
                 inventory = player_data.get('inventory', {})
-                cur = inventory.get(item_id, 0)
+                cur = inv_get(inventory, item_id, quality)
                 if cur >= qty:
-                    inventory[item_id] = cur - qty
+                    inv_sub(inventory, item_id, quality, qty)
                     PlayerManager.save_player_data(name, player_data)
                     self.send_player_status(client_socket, player_data)
 
@@ -471,18 +483,34 @@ class ChatServer(AuthMixin):
             }
             # 附带富物品信息供客户端直接渲染
             inv_raw = player_data.get('inventory', {})
-            inv_enriched = {}
-            for item_id, count in inv_raw.items():
-                if count > 0:
-                    info = get_item_info(item_id) or {}
-                    inv_enriched[item_id] = {
-                        'count': count,
-                        'name': info.get('name', item_id),
-                        'desc': info.get('desc', ''),
-                        'category': info.get('category', ''),
-                        'use_methods': info.get('use_methods', []),
-                    }
-            status_data['inventory'] = inv_enriched
+            inv_list = []
+            for item_id, val in inv_raw.items():
+                info = get_item_info(item_id) or {}
+                if isinstance(val, int):
+                    # 兼容旧格式: 纯数量 → quality 0
+                    if val > 0:
+                        inv_list.append({
+                            'id': item_id,
+                            'quality': 0,
+                            'count': val,
+                            'name': info.get('name', item_id),
+                            'desc': info.get('desc', ''),
+                            'category': info.get('category', ''),
+                            'use_methods': info.get('use_methods', []),
+                        })
+                elif isinstance(val, dict):
+                    for q_str, count in sorted(val.items()):
+                        if isinstance(count, int) and count > 0:
+                            inv_list.append({
+                                'id': item_id,
+                                'quality': int(q_str),
+                                'count': count,
+                                'name': info.get('name', item_id),
+                                'desc': info.get('desc', ''),
+                                'category': info.get('category', ''),
+                                'use_methods': info.get('use_methods', []),
+                            })
+            status_data['inventory'] = inv_list
 
             # 全局游戏统计
             gs = player_data.get('game_stats')

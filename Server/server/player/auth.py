@@ -1,8 +1,21 @@
 """认证流程 Mixin — 登录、注册、密码验证"""
 
+import re
+
 from .manager import PlayerManager
 from ..infra import maintenance
 from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
+
+_NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
+
+
+def validate_username(name: str) -> str | None:
+    """校验用户名，返回错误信息或 None（合法）"""
+    if len(name) < 2 or len(name) > 12:
+        return '用户名长度需要在2-12个字符之间。'
+    if not _NAME_RE.match(name):
+        return '用户名只能包含英文字母和数字。'
+    return None
 
 
 class AuthMixin:
@@ -15,6 +28,13 @@ class AuthMixin:
 
         name = text
         exists = PlayerManager.player_exists(name)
+
+        # 新用户注册时校验格式（已有用户允许登录以保持兼容）
+        if not exists:
+            err = validate_username(name)
+            if err:
+                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': f'{err}\n请重新输入用户名：'})
+                return
 
         with self.lock:
             self.clients[client_socket]['name'] = name
@@ -91,10 +111,15 @@ class AuthMixin:
         self.lobby_engine.register_player(name, player_data)
         self._send_initial_location(client_socket, name)
         self._send_chat_history(client_socket, 1)
-        # 下发 AI 伙伴数据（不含 token 敏感信息）
+        # 下发 AI 伙伴数据和 token 统计
         ai_data = player_data.get('ai_companions', {})
-        if ai_data:
-            self.send_to(client_socket, {'type': AI_SYNC, 'companions': ai_data})
+        token_stats = player_data.get('ai_token_stats', {})
+        if ai_data or token_stats:
+            self.send_to(client_socket, {
+                'type': AI_SYNC,
+                'companions': ai_data,
+                'token_stats': token_stats,
+            })
         online_msg = f'{name} 上线了'
         self.log_mgr.save(1, '[SYS]', online_msg)
         self.broadcast({'type': CHAT, 'name': '[SYS]', 'text': online_msg, 'channel': 1})

@@ -29,8 +29,11 @@ class StatusPanel(Widget):
         content.write(f"{M_BOLD}{name}{M_END}")
         if title:
             content.write(f"称号  {title}")
-        content.write(f"等级  Lv.{level}")
         content.write(f"金币  {gold}G")
+        try:
+            self.parent.border_subtitle = f"Lv.{level}"
+        except Exception:
+            pass
 
     # ── State listener ──
 

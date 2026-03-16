@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING
 
-from google.genai import types
-
 if TYPE_CHECKING:
     from ..state import ModuleStateManager
 
@@ -271,70 +269,6 @@ TOOLS = {
     "look_dm": look_dm,
     "look_notifications": look_notifications,
 }
-
-# ── Gemini Function Declarations ──
-
-TOOL_DECLARATIONS = [
-    types.FunctionDeclaration(
-        name="look_chat",
-        description="查看聊天室最近的公共聊天消息",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_online",
-        description="查看当前在线的用户列表",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_inventory",
-        description="查看玩家的背包物品和金币",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_game_room",
-        description="查看当前游戏房间的状态、玩家和进度",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_player_status",
-        description="查看玩家的详细状态信息（等级、金币、段位等）",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_around",
-        description="环顾四周，了解当前位置、在线用户和游戏房间情况",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_friends",
-        description="查看好友列表和在线状态，以及是否有待处理的好友申请",
-        parameters_json_schema={},
-    ),
-    types.FunctionDeclaration(
-        name="look_dm",
-        description="查看私聊消息。不指定 peer 时返回所有私聊对话概览，指定 peer 时返回与该用户的最近聊天记录",
-        parameters_json_schema={
-            "type": "object",
-            "properties": {
-                "peer": {
-                    "type": "string",
-                    "description": "对方用户名，留空则返回所有私聊概览"
-                },
-                "count": {
-                    "type": "integer",
-                    "description": "查看条数，默认10，最多30"
-                }
-            },
-        },
-    ),
-    types.FunctionDeclaration(
-        name="look_notifications",
-        description="查看系统通知（公告、维护提醒等）",
-        parameters_json_schema={},
-    ),
-]
-
-GEMINI_TOOLS = [types.Tool(function_declarations=TOOL_DECLARATIONS)]
 
 
 # ── 感知摘要 ──

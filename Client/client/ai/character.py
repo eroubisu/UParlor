@@ -149,28 +149,24 @@ _CHAR_SCHEMA = {
 }
 
 
-async def structurize_description(desc: str, api_key: str) -> tuple[Character, int]:
-    """调用 Gemini 将自由文本提取为结构化 Character。返回 (角色, token用量)。"""
-    from google import genai
-    from google.genai import types
+async def structurize_description(desc: str, api_key: str,
+                                  provider_name: str = "google",
+                                  **provider_kwargs) -> tuple[Character, int]:
+    """调用 AI 将自由文本提取为结构化 Character。返回 (角色, token用量)。"""
+    messages = [
+        {"role": "system", "content": _STRUCTURIZE_INSTRUCTION +
+         "\n\n请输出 JSON 格式，包含字段: name, personality, speech_style, appearance, backstory, custom_rules(数组)"},
+        {"role": "user", "content": f"请从以下描述中提取完整角色设定，所有细节都要保留：\n\n{desc}"},
+    ]
 
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(
-        system_instruction=_STRUCTURIZE_INSTRUCTION,
-        max_output_tokens=4000,
-        temperature=0.2,
-        response_mime_type="application/json",
-        response_schema=_CHAR_SCHEMA,
+    from .provider import create_provider
+    provider = create_provider(provider_name)
+    provider.init_client(api_key, **provider_kwargs)
+    text, tokens = await provider.generate(
+        messages, model=provider_kwargs.get("model", "gemini-2.5-flash"),
+        max_tokens=4000, temperature=0.2,
     )
-    resp = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"请从以下描述中提取完整角色设定，所有细节都要保留：\n\n{desc}",
-        config=config,
-    )
-    _check_truncation(resp)
-    data = json.loads(resp.text or "{}")
-    usage = resp.usage_metadata
-    tokens = usage.total_token_count if usage and usage.total_token_count else 0
+    data = _extract_json(text) or {}
 
     char_id = generate_char_id()
     return Character(
@@ -188,11 +184,10 @@ async def structurize_description(desc: str, api_key: str) -> tuple[Character, i
 _REFINE_INSTRUCTION = "根据用户的修改意见调整角色设定，输出调整后的完整 JSON。保留未被修改的字段原值。"
 
 
-async def refine_character(char: Character, feedback: str, api_key: str) -> tuple[Character, int]:
+async def refine_character(char: Character, feedback: str, api_key: str,
+                           provider_name: str = "google",
+                           **provider_kwargs) -> tuple[Character, int]:
     """根据用户反馈调整角色设定。返回 (角色, token用量)。"""
-    from google import genai
-    from google.genai import types
-
     current = json.dumps({
         "name": char.name,
         "personality": char.personality,
@@ -201,25 +196,21 @@ async def refine_character(char: Character, feedback: str, api_key: str) -> tupl
         "backstory": char.backstory,
         "custom_rules": char.custom_rules,
     }, ensure_ascii=False, indent=2)
-    prompt = f"当前角色设定:\n{current}\n\n用户的修改意见: {feedback}"
 
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(
-        system_instruction=_REFINE_INSTRUCTION,
-        max_output_tokens=4000,
-        temperature=0.2,
-        response_mime_type="application/json",
-        response_schema=_CHAR_SCHEMA,
+    messages = [
+        {"role": "system", "content": _REFINE_INSTRUCTION +
+         "\n\n请输出 JSON 格式，包含字段: name, personality, speech_style, appearance, backstory, custom_rules(数组)"},
+        {"role": "user", "content": f"当前角色设定:\n{current}\n\n用户的修改意见: {feedback}"},
+    ]
+
+    from .provider import create_provider
+    provider = create_provider(provider_name)
+    provider.init_client(api_key, **provider_kwargs)
+    text, tokens = await provider.generate(
+        messages, model=provider_kwargs.get("model", "gemini-2.5-flash"),
+        max_tokens=4000, temperature=0.2,
     )
-    resp = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=config,
-    )
-    _check_truncation(resp)
-    data = json.loads(resp.text or "{}")
-    usage = resp.usage_metadata
-    tokens = usage.total_token_count if usage and usage.total_token_count else 0
+    data = _extract_json(text) or {}
 
     char.name = data.get("name", char.name)
     char.personality = data.get("personality", char.personality)

@@ -1,22 +1,23 @@
 """账号操作工具函数（rename / password / delete）"""
 
 from ..player.manager import PlayerManager
+from ..systems.items import inv_get, inv_sub
 
 
-def do_rename(lobby, player_name, player_data, new_name):
+def do_rename(lobby, player_name, player_data, new_name, quality=0):
     """执行改名"""
     if PlayerManager.player_exists(new_name):
         return f"用户名 '{new_name}' 已被使用。"
 
     inventory = player_data.get('inventory', {})
-    rename_cards = inventory.get('rename_card', 0)
+    rename_cards = inv_get(inventory, 'rename_card', quality)
 
     old_name = player_name
     success = PlayerManager.rename_player(old_name, new_name)
     if not success:
         return '改名失败，请稍后重试。'
 
-    inventory['rename_card'] = rename_cards - 1
+    inv_sub(inventory, 'rename_card', quality)
     player_data['inventory'] = inventory
     player_data['name'] = new_name
 
@@ -27,11 +28,12 @@ def do_rename(lobby, player_name, player_data, new_name):
 
     PlayerManager.save_player_data(new_name, player_data)
 
+    remaining = inv_get(inventory, 'rename_card', quality)
     return {
         'action': 'rename_success',
         'old_name': old_name,
         'new_name': new_name,
-        'message': f"用户名已改为 '{new_name}'！\n剩余改名卡: {rename_cards - 1}张"
+        'message': f"用户名已改为 '{new_name}'！\n剩余改名卡: {remaining}张"
     }
 
 

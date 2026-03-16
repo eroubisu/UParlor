@@ -5,6 +5,8 @@ Vim 模式状态机
 
 from enum import Enum, auto
 
+from . import ime
+
 
 class Mode(Enum):
     NORMAL = auto()
@@ -33,11 +35,13 @@ class VimMode:
     def enter_normal(self):
         self.mode = Mode.NORMAL
         self.pending_key = ""
+        ime.on_enter_normal()
         if self._on_mode_change:
             self._on_mode_change(self.mode)
 
     def enter_insert(self):
         self.mode = Mode.INSERT
         self.pending_key = ""
+        ime.on_enter_insert()
         if self._on_mode_change:
             self._on_mode_change(self.mode)

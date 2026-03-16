@@ -82,6 +82,7 @@ class GameEvent:
 @dataclass
 class AISyncDown:
     companions: dict = field(default_factory=dict)
+    token_stats: dict = field(default_factory=dict)
 
 @dataclass
 class ActionCommand:
@@ -137,7 +138,7 @@ _PARSERS = {
     'commands_update': lambda m: CommandsUpdate(commands=m.get('commands', [])),
     'game_event':     lambda m: GameEvent(game_type=m.get('game_type', ''), event=m.get('event', ''),
                                           data=m.get('data', {})),
-    'ai_sync':        lambda m: AISyncDown(companions=m.get('companions', {})),
+    'ai_sync':        lambda m: AISyncDown(companions=m.get('companions', {}), token_stats=m.get('token_stats', {})),
     'action':         lambda m: ActionCommand(action=m.get('action', ''), raw=m),
     'friend_list':    lambda m: FriendList(friends=m.get('friends', [])),
     'all_users':      lambda m: AllUsers(users=m.get('users', [])),

@@ -12,7 +12,7 @@ from typing import AsyncIterator
 
 from .config import (
     char_dir, ensure_char_dir,
-    load_api_config, save_api_config,
+    load_api_config,
     load_stats, save_stats,
     load_json, save_json, load_text, save_text,
 )
@@ -23,8 +23,9 @@ from .mood import MoodState
 from .cognitive import CognitiveState
 from .impression import ImpressionState
 from . import memory as mem
-from .attention import (
-    TOOLS, GEMINI_TOOLS, AwarenessSummary, AttentionBuffer,
+from .attention import TOOLS, AwarenessSummary, AttentionBuffer
+from .provider import (
+    TOOL_SCHEMAS, create_provider, AIProvider, PROVIDER_NAMES,
 )
 from ..state import ModuleStateManager
 
@@ -59,7 +60,7 @@ class AIService:
         self._impression = ImpressionState()
         self._recent: list[dict] = []
         self._summary: str = ""
-        self._client = None
+        self._provider: AIProvider | None = None
         self._last_user_msg: float = time.time()
         self._last_proactive: float = 0.0
         self._event_queue: list[str] = []
@@ -95,7 +96,7 @@ class AIService:
         self._summary = load_text(d / "summary.txt")
         self._load_today_tokens()
         self._mood.decay()
-        self._init_client()
+        self._init_provider()
         self._ready = True
 
     def unload_character(self):
@@ -105,7 +106,7 @@ class AIService:
             self._force_sync()
         self._char_id = ""
         self._character = None
-        self._client = None
+        self._provider = None
         self._ready = False
 
     def reset_memory(self):
@@ -183,21 +184,23 @@ class AIService:
         if self._pending_sync or time.time() - self._last_sync > 5:
             self._do_sync()
 
-    def _init_client(self):
-        key = self._api_config.get("api_key", "")
-        if not key:
-            from .config import load_global_config
-            key = load_global_config().get("api_key", "")
+    def _init_provider(self):
+        key = self.api_key
         if not key:
             return
+        provider_name = self.provider_name
         try:
-            from google import genai
-            self._client = genai.Client(api_key=key)
+            self._provider = create_provider(provider_name)
+            kwargs = {}
+            base_url = self._resolve_config("base_url", "")
+            if base_url:
+                kwargs["base_url"] = base_url
+            self._provider.init_client(key, **kwargs)
         except Exception:
-            self._client = None
+            self._provider = None
 
     def _load_today_tokens(self):
-        stats = load_stats(self._char_id)
+        stats = load_stats()
         today = date.today().isoformat()
         if stats.get("today") == today:
             self._today_tokens = stats.get("tokens", 0)
@@ -206,7 +209,7 @@ class AIService:
 
     def _add_tokens(self, count: int):
         self._today_tokens += count
-        save_stats(self._char_id, {
+        save_stats({
             "today": date.today().isoformat(),
             "tokens": self._today_tokens,
         })
@@ -223,27 +226,32 @@ class AIService:
 
     @property
     def api_key(self) -> str:
-        key = self._api_config.get("api_key", "")
-        if not key:
-            from .config import load_global_config
-            key = load_global_config().get("api_key", "")
-        return key
+        from .config import load_global_config
+        return load_global_config().get("api_key", "")
+
+    @property
+    def provider_name(self) -> str:
+        return self._resolve_config("provider", "google")
 
     @property
     def model(self) -> str:
-        m = self._api_config.get("model", "")
-        if not m:
-            from .config import load_global_config
-            m = load_global_config().get("model", "gemini-2.5-flash")
+        m = self._resolve_config("model", "gemini-2.5-flash")
         return _strip_model(m)
 
     @property
     def summary_model(self) -> str:
         m = self._api_config.get("summary_model", "")
         if not m:
-            from .config import load_global_config
-            m = load_global_config().get("model", "gemini-2.5-flash")
+            m = self._resolve_config("model", "gemini-2.5-flash")
         return _strip_model(m)
+
+    def _resolve_config(self, key: str, default: str = "") -> str:
+        """角色级 → 全局级 配置瀑布查询"""
+        val = self._api_config.get(key, "")
+        if not val:
+            from .config import load_global_config
+            val = load_global_config().get(key, default)
+        return val or default
 
     @property
     def today_tokens_display(self) -> str:
@@ -281,18 +289,18 @@ class AIService:
         self._display_from = len(self._recent)
 
     def set_api_key(self, key: str):
-        self._api_config["api_key"] = key
-        save_api_config(self._char_id, self._api_config)
-        try:
-            from google import genai
-            self._client = genai.Client(api_key=key)
-        except Exception:
-            self._client = None
+        from .config import load_global_config, save_global_config
+        cfg = load_global_config()
+        cfg["api_key"] = key
+        save_global_config(cfg)
+        self._init_provider()
 
     def clear_api_key(self):
-        self._api_config["api_key"] = ""
-        save_api_config(self._char_id, self._api_config)
-        self._client = None
+        from .config import load_global_config, save_global_config
+        cfg = load_global_config()
+        cfg["api_key"] = ""
+        save_global_config(cfg)
+        self._provider = None
 
     def set_listener(self, cb):
         self._listener = cb
@@ -301,114 +309,57 @@ class AIService:
         if self._listener:
             self._listener(event, *args)
 
-    # ── Gemini 调用封装 ──
+    # ── API 调用封装 ──
 
-    def _to_gemini_contents(self, messages: list[dict]) -> tuple[str, list[dict]]:
-        system = ""
-        contents = []
-        for m in messages:
-            role = m["role"]
-            text = m["content"]
-            if role == "system":
-                system = text
-            elif role == "user":
-                contents.append({"role": "user", "parts": [{"text": text}]})
-            elif role == "assistant":
-                contents.append({"role": "model", "parts": [{"text": text}]})
-        return system, contents
+    def _execute_tool(self, name: str, args: dict) -> str:
+        """执行工具调用"""
+        fn = TOOLS.get(name)
+        try:
+            return fn(self._state, **args) if fn else "未知工具"
+        except Exception as e:
+            return f"工具执行失败: {e}"
 
     async def _generate(self, messages: list[dict], *, max_tokens: int,
                         temperature: float) -> str:
-        from google.genai import types
-        system, contents = self._to_gemini_contents(messages)
-        config = types.GenerateContentConfig(
-            system_instruction=system or None,
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        )
         try:
-            resp = await self._client.aio.models.generate_content(
-                model=self.summary_model,
-                contents=contents,
-                config=config,
+            text, tokens = await self._provider.generate(
+                messages, model=self.summary_model,
+                max_tokens=max_tokens, temperature=temperature,
             )
         except Exception:
             self._consecutive_errors += 1
             raise
         self._consecutive_errors = 0
-        usage = resp.usage_metadata
-        if usage and usage.total_token_count:
-            self._add_tokens(usage.total_token_count)
-        return resp.text or ""
+        if tokens:
+            self._add_tokens(tokens)
+        return text
+
+    _TOKEN_PREFIX = "\x00TOKENS:"
 
     async def _stream(self, messages: list[dict], *, max_tokens: int,
                       temperature: float,
                       use_tools: bool = False) -> AsyncIterator[str]:
-        from google.genai import types
-        system, contents = self._to_gemini_contents(messages)
         enable_tools = use_tools and self.attention_level != "quiet"
-        config = types.GenerateContentConfig(
-            system_instruction=system or None,
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-            tools=GEMINI_TOOLS if enable_tools else None,
-        )
-
-        max_tool_rounds = 3
-        for _round in range(max_tool_rounds + 1):
-            try:
-                response = await self._client.aio.models.generate_content_stream(
-                    model=self.model,
-                    contents=contents,
-                    config=config,
-                )
-            except Exception:
-                self._consecutive_errors += 1
-                raise
-            text_buf = ""
-            function_calls = []
-            last_usage = 0
-
-            async for chunk in response:
-                # 记录最终 token 用量（流式最后一个 chunk 携带）
-                usage = chunk.usage_metadata
-                if usage and usage.total_token_count:
-                    last_usage = usage.total_token_count
-                if not chunk.candidates:
-                    continue
-                for part in chunk.candidates[0].content.parts or []:
-                    if part.text:
-                        text_buf += part.text
-                        yield part.text
-                    elif part.function_call:
-                        function_calls.append(part.function_call)
-
-            if last_usage:
-                self._add_tokens(last_usage)
-            self._consecutive_errors = 0
-
-            if not function_calls or not enable_tools:
-                return
-
-            # 执行工具调用，构建 FunctionResponse 回传
-            # 先追加 model 的 function_call 内容
-            model_parts = []
-            response_parts = []
-            for fc in function_calls:
-                model_parts.append(types.Part(function_call=fc))
-                fn = TOOLS.get(fc.name)
-                try:
-                    result = fn(self._state, **(fc.args or {})) if fn else "未知工具"
-                except Exception as tool_err:
-                    result = f"工具执行失败: {tool_err}"
-                response_parts.append(types.Part(
-                    function_response=types.FunctionResponse(
-                        name=fc.name,
-                        response={"output": result},
-                    )
-                ))
-            contents.append(types.Content(role="model", parts=model_parts))
-            contents.append(types.Content(role="user", parts=response_parts))
+        tools = TOOL_SCHEMAS if enable_tools else None
+        try:
+            gen = self._provider.stream_with_tools(
+                messages, model=self.model,
+                max_tokens=max_tokens, temperature=temperature,
+                tools=tools, execute_tool=self._execute_tool,
+            )
+            async for chunk in gen:
+                if isinstance(chunk, str) and chunk.startswith(self._TOKEN_PREFIX):
+                    try:
+                        count = int(chunk[len(self._TOKEN_PREFIX):])
+                        self._add_tokens(count)
+                    except ValueError:
+                        pass
+                else:
+                    yield chunk
+        except Exception:
+            self._consecutive_errors += 1
+            raise
+        self._consecutive_errors = 0
 
     # ── 核心聊天 ──
 
@@ -440,48 +391,24 @@ class AIService:
             self._schedule_post_chat()
 
     async def validate_key(self, key: str) -> tuple[bool, str]:
-        try:
-            from google import genai
-            client = genai.Client(api_key=key)
-            await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
-                contents="hi",
-            )
-            return (True, "")
-        except Exception as e:
-            msg = str(e)
-            # 429 = 配额耗尽，key 本身有效
-            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                return (True, "")
-            return (False, msg)
+        provider = create_provider(self.provider_name)
+        kwargs: dict = {}
+        base_url = self._resolve_config("base_url", "")
+        if base_url:
+            kwargs["base_url"] = base_url
+        model = self.model
+        if model:
+            kwargs["model"] = model
+        return await provider.validate_key(key, **kwargs)
 
-    @staticmethod
-    async def list_models(api_key: str) -> list[dict]:
-        """列出可用的 Gemini 聊天模型"""
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        result = await client.aio.models.list()
-        skip = {"embedding", "tts", "audio", "robotics", "image", "computer-use", "customtools"}
-        models = []
-        for m in result:
-            name = m.name or ""
-            lower = name.lower()
-            if "gemini" not in lower:
-                continue
-            actions = getattr(m, "supported_actions", []) or []
-            if "generateContent" not in actions:
-                continue
-            if any(k in lower for k in skip):
-                continue
-            short = name.removeprefix("models/")
-            display = getattr(m, "display_name", "") or short
-            desc = (getattr(m, "description", "") or "").split(".")[0].strip()
-            inp = getattr(m, "input_token_limit", 0) or 0
-            out = getattr(m, "output_token_limit", 0) or 0
-            info = f"in:{inp // 1024}K out:{out // 1024}K" if inp else ""
-            models.append({"name": short, "display": display, "desc": desc, "info": info})
-        models.sort(key=lambda x: x["name"], reverse=True)
-        return models
+    async def list_models(self, api_key: str) -> list[dict]:
+        """列出可用模型"""
+        provider = create_provider(self.provider_name)
+        kwargs: dict = {}
+        base_url = self._resolve_config("base_url", "")
+        if base_url:
+            kwargs["base_url"] = base_url
+        return await provider.list_models(api_key, **kwargs)
 
     # ── 互动动作 ──
 

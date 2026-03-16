@@ -47,9 +47,12 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         self._char_list: list = []
         self._select_cursor: int = 0
 
-        # SETUP 视图
-        self._setup_step: str = "api_key"  # api_key | model
+        # SETUP 视图（全程暂存，完成时才写入全局配置）
+        self._setup_step: str = "provider"  # provider | base_url | api_key | model
         self._setup_key: str = ""
+        self._setup_provider: str = ""   # 暂存供应商选择
+        self._setup_base_url: str = ""   # 暂存 base_url
+        self._setup_provider_cursor: int = 0  # 供应商选择光标
         self._setup_models: list[dict] = []
         self._setup_model_cursor: int = 0
         self._model_scroll_offset: int = 0
@@ -69,6 +72,8 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         self._settings_cursor: int = 0
         self._model_picking: bool = False  # 设置中选模型
         self._reset_confirming: bool = False  # 重置记忆确认中
+        self._editing_base_url: bool = False  # 编辑 Base URL 中
+        self._deleting_character: bool = False  # 删除角色确认中
         self._has_unread: bool = False     # 未读 AI 消息
 
     def compose(self) -> ComposeResult:
@@ -146,19 +151,25 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         st.create_status = self._create_status
         st.setup_step = self._setup_step
         st.setup_key = self._setup_key
+        st.setup_provider = self._setup_provider
+        st.setup_base_url = self._setup_base_url
         st.wants_insert = self._wants_insert
 
     # ── 导航协议 ──
 
     def nav_down(self):
         if self._view == _VIEW_SETUP:
-            if self._setup_step == "model" and self._setup_models:
+            if self._setup_step == "provider":
+                from ..ai.provider import PROVIDER_NAMES
+                total = len(PROVIDER_NAMES)
+                self._setup_provider_cursor = (self._setup_provider_cursor + 1) % total
+                self._refresh_content()
+            elif self._setup_step == "model" and self._setup_models:
                 self._setup_model_cursor = (self._setup_model_cursor + 1) % len(self._setup_models)
                 self._adjust_model_scroll()
                 self._refresh_content()
         elif self._view == _VIEW_SELECT:
-            if self._char_list:
-                self._select_cursor = (self._select_cursor + 1) % (len(self._char_list) + 1)
+            self._select_cursor = (self._select_cursor + 1) % (len(self._char_list) + 2)
             self._refresh_content()
         elif self._view == _VIEW_CREATE:
             try:
@@ -180,8 +191,9 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                     self._setup_model_cursor = (self._setup_model_cursor + 1) % len(self._setup_models)
                     self._adjust_model_scroll()
                 else:
-                    self._settings_cursor = (self._settings_cursor + 1) % 8
+                    self._settings_cursor = (self._settings_cursor + 1) % 10
                     self._reset_confirming = False
+                    self._deleting_character = False
                 self._refresh_content()
             else:
                 try:
@@ -191,13 +203,17 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     def nav_up(self):
         if self._view == _VIEW_SETUP:
-            if self._setup_step == "model" and self._setup_models:
+            if self._setup_step == "provider":
+                from ..ai.provider import PROVIDER_NAMES
+                total = len(PROVIDER_NAMES)
+                self._setup_provider_cursor = (self._setup_provider_cursor - 1) % total
+                self._refresh_content()
+            elif self._setup_step == "model" and self._setup_models:
                 self._setup_model_cursor = (self._setup_model_cursor - 1) % len(self._setup_models)
                 self._adjust_model_scroll()
                 self._refresh_content()
         elif self._view == _VIEW_SELECT:
-            if self._char_list:
-                self._select_cursor = (self._select_cursor - 1) % (len(self._char_list) + 1)
+            self._select_cursor = (self._select_cursor - 1) % (len(self._char_list) + 2)
             self._refresh_content()
         elif self._view == _VIEW_CREATE:
             try:
@@ -221,8 +237,9 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                     self._setup_model_cursor = (self._setup_model_cursor - 1) % len(self._setup_models)
                     self._adjust_model_scroll()
                 else:
-                    self._settings_cursor = (self._settings_cursor - 1) % 8
+                    self._settings_cursor = (self._settings_cursor - 1) % 10
                     self._reset_confirming = False
+                    self._deleting_character = False
                 self._refresh_content()
             else:
                 try:
@@ -232,7 +249,9 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     def nav_enter(self):
         if self._view == _VIEW_SETUP:
-            if self._setup_step == "model":
+            if self._setup_step == "provider":
+                self._on_setup_provider_enter()
+            elif self._setup_step == "model":
                 self._on_setup_model_enter()
             return
         if self._view == _VIEW_SELECT:
@@ -272,7 +291,10 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         if self._view == _VIEW_SELECT:
             return False
         if self._view == _VIEW_SETUP:
-            return False
+            self._set_view(_VIEW_SELECT)
+            self._refresh_content()
+            self._show_static()
+            return True
         return False
 
     def nav_escape(self) -> bool:
@@ -284,14 +306,21 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
             self._model_picking = False
             self._refresh_content()
             return True
+        if self._view == _VIEW_CREATE:
+            if self._wants_insert:
+                self._wants_insert = False
+                self.hide_input_bar()
+            self._set_view(_VIEW_SELECT)
+            self._refresh_content()
+            self._show_static()
+            return True
         if self._wants_insert:
             self._wants_insert = False
+            self._deleting_character = False
             self.hide_input_bar()
             self._refresh_content()
             return True
         if self._view == _VIEW_SETUP:
-            return False
-        if self._view == _VIEW_CREATE:
             self._set_view(_VIEW_SELECT)
             self._refresh_content()
             self._show_static()
@@ -485,6 +514,8 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
             self._create_status = st.create_status
             self._setup_step = st.setup_step
             self._setup_key = st.setup_key
+            self._setup_provider = st.setup_provider
+            self._setup_base_url = st.setup_base_url
             self._wants_insert = st.wants_insert
             # 异步任务在 rebuild 中丢失：如果处于等待状态则恢复为可输入
             if self._create_status and not self._create_char and self._create_step == "desc":
@@ -511,15 +542,17 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         cfg = load_global_config()
         if not cfg.get("api_key", ""):
             self._set_view(_VIEW_SETUP)
-            self._setup_step = "api_key"
+            self._setup_step = "provider"
+            self._setup_provider_cursor = 0
             self._setup_key = ""
+            self._setup_provider = ""
+            self._setup_base_url = ""
             self._setup_models = []
             self._setup_model_cursor = 0
             self._create_status = ""
-            self._wants_insert = True
+            self._wants_insert = False
             self._show_static()
             self._refresh_content()
-            self.post_message(self.RequestInsert())
             return
 
         # 根据状态恢复视图
@@ -550,7 +583,7 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
             self._service = AIService(self._state_mgr)
             self._service.set_listener(self._on_service_event)
         except ImportError:
-            self._log(f"{M_DIM}>>> AI 依赖未安装 (pip install google-genai){M_END}")
+            self._log(f"{M_DIM}>>> AI 依赖未安装{M_END}")
 
     # ── 用户提交 ──
 
@@ -567,7 +600,7 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
             return
 
         if self._view == _VIEW_CHAT:
-            # Settings Tab: 仅允许修改 API Key
+            # Settings Tab: 文本输入处理
             if self._menu_tab == "settings":
                 if self._settings_cursor == 0:
                     key = text.strip()
@@ -578,6 +611,47 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                         asyncio.create_task(self._check_key(key))
                     self._wants_insert = False
                     self.hide_input_bar()
+                elif getattr(self, "_editing_base_url", False):
+                    from ..ai.config import load_global_config, save_global_config
+                    cfg = load_global_config()
+                    url = text.strip().rstrip("/")
+                    if url and not url.startswith("http"):
+                        url = "https://" + url
+                    for suffix in ("/chat/completions", "/completions", "/models"):
+                        if url.endswith(suffix):
+                            url = url[:-len(suffix)]
+                            break
+                    cfg["base_url"] = url
+                    save_global_config(cfg)
+                    if self._service:
+                        self._service._api_config["base_url"] = url
+                        self._service._init_provider()
+                    label = url if url else "(默认)"
+                    self._log(f"{M_DIM}>>> Base URL 已设为 {label}{M_END}")
+                    self._editing_base_url = False
+                    self._wants_insert = False
+                    self.hide_input_bar()
+                    self._refresh_content()
+                elif getattr(self, "_deleting_character", False):
+                    typed = text.strip()
+                    name = ""
+                    if self._service and self._service.character:
+                        name = self._service.character.name or ""
+                    if typed == name:
+                        from ..ai.config import delete_character
+                        cid = self._service.char_id
+                        self._service.unload_character()
+                        delete_character(cid)
+                        self._log(f"{M_DIM}>>> 角色已删除{M_END}")
+                        self._set_view(_VIEW_SELECT)
+                        self._refresh_char_list()
+                        self._show_static()
+                    else:
+                        self._log(f"{M_DIM}>>> 名称不匹配，删除已取消{M_END}")
+                    self._deleting_character = False
+                    self._wants_insert = False
+                    self.hide_input_bar()
+                    self._refresh_content()
                 return
 
             # Gift Tab 不接受文本输入

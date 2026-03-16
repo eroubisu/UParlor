@@ -34,7 +34,6 @@ _TAB_LABELS = {"friends": "好友", "all": "所有", "online": "在线", "search
 _MODE_LIST = 'list'
 _MODE_ACTION = 'action'
 _MODE_CONFIRM = 'confirm'
-_MODE_GIFT = 'gift'
 
 
 def _truncate_name(name: str, max_width: int) -> str:
@@ -68,8 +67,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         self._confirm_label: str = ""
         self._confirm_action: str = ""  # 'friend_request' | 'friend_remove'
         self._confirm_target: str = ""
-        self._gift_cursor: int = 0
-        self._gift_target: str = ""
+        self._scroll_offset: int = 0
         self._wants_insert: bool = False
         self._search_query: str = ""
         self._state_mgr: ModuleStateManager | None = None
@@ -116,20 +114,40 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         actions = []
         actions.append(('private_chat', '发起私聊'))
         if is_friend:
-            actions.append(('gift', '赠送礼物'))
             actions.append(('friend_remove', '删除好友'))
         else:
             actions.append(('friend_request', '申请好友'))
         return actions
 
-    def _get_gift_items(self) -> list[dict]:
-        """获取可赠送的物品"""
-        st = self._state_mgr
-        if not st:
-            return []
-        return [item for item in st.inventory.items if item.get('count', 0) > 0]
-
     # ── 导航协议 ──
+
+    def _visible_height(self) -> int:
+        """RichLog 可见行数"""
+        try:
+            log = self.query_one("#online-log", RichLog)
+            h = log.scrollable_content_region.height
+            return h if h > 0 else 10
+        except Exception:
+            return 10
+
+    def _ensure_scroll(self):
+        items = self._current_items()
+        if not items:
+            return
+        vh = self._visible_height()
+        # 计算光标行需要的额外展开行数
+        extra = 0
+        if self._mode == _MODE_ACTION:
+            extra = len(self._actions_for_user(items[self._cursor])) if self._cursor < len(items) else 0
+        elif self._mode == _MODE_CONFIRM:
+            extra = 1
+        # 保证光标及展开内容在视口内
+        need = 1 + extra
+        if self._cursor < self._scroll_offset:
+            self._scroll_offset = self._cursor
+        elif self._cursor + need > self._scroll_offset + vh:
+            self._scroll_offset = self._cursor + need - vh
+        self._scroll_offset = max(0, self._scroll_offset)
 
     def nav_down(self):
         if self._mode == _MODE_LIST:
@@ -142,10 +160,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 actions = self._actions_for_user(items[self._cursor])
                 if actions:
                     self._action_cursor = (self._action_cursor + 1) % len(actions)
-        elif self._mode == _MODE_GIFT:
-            gift_items = self._get_gift_items()
-            if gift_items:
-                self._gift_cursor = (self._gift_cursor + 1) % len(gift_items)
+        self._ensure_scroll()
         self._render_list()
 
     def nav_up(self):
@@ -159,10 +174,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 actions = self._actions_for_user(items[self._cursor])
                 if actions:
                     self._action_cursor = (self._action_cursor - 1) % len(actions)
-        elif self._mode == _MODE_GIFT:
-            gift_items = self._get_gift_items()
-            if gift_items:
-                self._gift_cursor = (self._gift_cursor - 1) % len(gift_items)
+        self._ensure_scroll()
         self._render_list()
 
     def nav_enter(self):
@@ -194,12 +206,6 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 self._mode = _MODE_LIST
                 self._render_list()
                 return
-            if action_id == 'gift':
-                self._gift_target = name
-                self._gift_cursor = 0
-                self._mode = _MODE_GIFT
-                self._render_list()
-                return
             # friend_request / friend_remove → 进入确认
             if action_id == 'friend_request':
                 self._confirm_label = f"确认向 {name} 发送好友申请？"
@@ -208,23 +214,6 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             self._confirm_action = action_id
             self._confirm_target = name
             self._mode = _MODE_CONFIRM
-            self._render_list()
-            return
-
-        if self._mode == _MODE_GIFT:
-            gift_items = self._get_gift_items()
-            if not gift_items:
-                self._mode = _MODE_ACTION
-                self._render_list()
-                return
-            item = gift_items[self._gift_cursor]
-            # 执行赠送
-            try:
-                self.app.send_command(f"/gift {item['id']}")
-                self.app.send_command(self._gift_target)
-            except Exception:
-                pass
-            self._mode = _MODE_LIST
             self._render_list()
             return
 
@@ -244,10 +233,6 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             self._mode = _MODE_ACTION
             self._render_list()
             return True
-        if self._mode == _MODE_GIFT:
-            self._mode = _MODE_ACTION
-            self._render_list()
-            return True
         if self._mode == _MODE_ACTION:
             self._mode = _MODE_LIST
             self._render_list()
@@ -255,6 +240,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         if self._tab != "friends":
             self._tab = "friends"
             self._cursor = 0
+            self._scroll_offset = 0
             self._mode = _MODE_LIST
             self._render_all()
             return True
@@ -277,6 +263,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         idx = _TABS.index(self._tab) if self._tab in _TABS else 0
         self._tab = _TABS[(idx + 1) % len(_TABS)]
         self._cursor = 0
+        self._scroll_offset = 0
         self._mode = _MODE_LIST
         self._render_all()
 
@@ -286,6 +273,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         idx = _TABS.index(self._tab) if self._tab in _TABS else 0
         self._tab = _TABS[(idx - 1) % len(_TABS)]
         self._cursor = 0
+        self._scroll_offset = 0
         self._mode = _MODE_LIST
         self._render_all()
 
@@ -294,11 +282,13 @@ class OnlineUsersPanel(InputBarMixin, Widget):
     def on_search_change(self, text: str):
         self._search_query = text.strip().lower()
         self._cursor = 0
+        self._scroll_offset = 0
         self._render_list()
 
     def on_input_submit(self, text: str):
         self._search_query = text.strip().lower()
         self._cursor = 0
+        self._scroll_offset = 0
         self._wants_insert = False
         self.hide_input_bar()
         self._render_list()
@@ -393,15 +383,22 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         if self._cursor >= len(items):
             self._cursor = len(items) - 1
 
+        self._ensure_scroll()
         avail = _widget_width(self, "online-log")
+        vh = self._visible_height()
+        end = min(len(items), self._scroll_offset + vh + 5)  # 多渲染几行留余量
+        start = self._scroll_offset
 
-        for i, name in enumerate(items):
+        need_sb = len(items) > vh
+
+        for i in range(start, end):
+            name = items[i]
             is_friend = name in friends
             is_online = name in online_names
             sel = i == self._cursor
 
             line = self._format_user_line(
-                name, is_online, is_friend, sel, avail)
+                name, is_online, is_friend, sel, avail, need_sb)
             log.write(RichText.from_markup(line))
 
             # 选中项下方展开子内容
@@ -413,39 +410,44 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 for ai, (_, label) in enumerate(actions):
                     if ai == self._action_cursor:
                         log.write(RichText.from_markup(
-                            f"     [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{label}[/]"))
+                            f"     [{COLOR_ACCENT}]\u25cf[/] [bold {COLOR_FG_PRIMARY}]{label}[/]"))
                     else:
                         log.write(RichText.from_markup(
                             f"       [{COLOR_FG_SECONDARY}]{label}[/]"))
-
-            elif self._mode == _MODE_GIFT:
-                gift_items = self._get_gift_items()
-                if not gift_items:
-                    log.write(RichText.from_markup(
-                        f"     {M_DIM}暂无可赠送的物品{M_END}"))
-                else:
-                    for gi, gitem in enumerate(gift_items):
-                        gname = gitem.get('name', gitem.get('id', '?'))
-                        gcount = gitem.get('count', 0)
-                        if gi == self._gift_cursor:
-                            log.write(RichText.from_markup(
-                                f"     [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{gname}[/] [{COLOR_FG_TERTIARY}]x{gcount}[/]"))
-                        else:
-                            log.write(RichText.from_markup(
-                                f"       [{COLOR_FG_SECONDARY}]{gname}[/] [{COLOR_FG_TERTIARY}]x{gcount}[/]"))
 
             elif self._mode == _MODE_CONFIRM:
                 log.write(RichText.from_markup(
                     f"     [{COLOR_FG_SECONDARY}]{self._confirm_label}[/]"))
 
-        # 更新面板副标题显示在线人数
-        online_count = len(online_names)
-        if online_count:
-            _set_pane_subtitle(self, f"在线({online_count})")
-        else:
-            _set_pane_subtitle(self, "")
+        # 滚动条指示器
+        if need_sb:
+            self._draw_scrollbar(log, items, start, end, avail)
 
-    def _format_user_line(self, name, is_online, is_friend, selected, avail):
+        # 更新面板副标题
+        if not need_sb:
+            online_count = len(online_names)
+            if online_count:
+                _set_pane_subtitle(self, f"在线({online_count})")
+            else:
+                _set_pane_subtitle(self, "")
+
+    @staticmethod
+    def _sb_char(row: int, visible: int, total: int, offset: int) -> str:
+        """单行滚动条字符"""
+        max_off = max(1, total - visible)
+        thumb_size = max(1, round(visible / total * visible))
+        track = visible - thumb_size
+        thumb_start = round(offset / max_off * track) if track > 0 else 0
+        if thumb_start <= row < thumb_start + thumb_size:
+            return f" [{COLOR_FG_TERTIARY}]\u2588[/]"
+        return f" [{COLOR_FG_TERTIARY}]\u2502[/]"
+
+    def _draw_scrollbar(self, log: RichLog, items: list, start: int, end: int, avail: int):
+        """在渲染完成后用副标题显示滚动位置"""
+        total = len(items)
+        _set_pane_subtitle(self, f"{self._cursor + 1}/{total}")
+
+    def _format_user_line(self, name, is_online, is_friend, selected, avail, need_sb=False):
         """格式化用户行：名字左对齐，状态右对齐，名字可截断
 
         好友面板：仅显示在线状态 ■/□
@@ -489,10 +491,11 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             display_name = _truncate_name(name, name_max)
             name_w = cell_len(display_name)
 
-        pad = max(1, avail - prefix_w - name_w - status_plain_w)
+        sb_w = 2 if need_sb else 0
+        pad = max(1, avail - prefix_w - name_w - status_plain_w - sb_w)
 
         if selected:
-            left = f" [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{display_name}[/]"
+            left = f" [{COLOR_ACCENT}]\u25cf[/] [bold {COLOR_FG_PRIMARY}]{display_name}[/]"
         else:
             left = f"   [{COLOR_FG_SECONDARY}]{display_name}[/]"
 

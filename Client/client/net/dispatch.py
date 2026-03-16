@@ -224,8 +224,17 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             _push_ai_event(screen, f"游戏事件: {desc}", high_priority=(priority == 'high'))
 
     elif isinstance(parsed, AISyncDown):
-        from ..ai.config import import_all_chars
+        from ..ai.config import import_all_chars, save_stats, load_stats
         import_all_chars(parsed.companions)
+        if parsed.token_stats:
+            local = load_stats()
+            remote = parsed.token_stats
+            if remote.get('today') == local.get('today', ''):
+                remote['tokens'] = max(
+                    remote.get('tokens', 0),
+                    local.get('tokens', 0),
+                )
+            save_stats(remote)
 
     elif isinstance(parsed, ActionCommand):
         action = parsed.action
@@ -241,10 +250,14 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             ver_text = f"版本信息\n客户端: v{cv}\n服务器: v{sv}"
             st.cmd.add_line(ver_text)
         elif action == "exit":
+            from ..ui import ime
+            ime.on_app_blur()
             app.network.disconnect()
             app.exit()
         elif action == "maintenance":
             from ..config import M_BOLD, M_END
             maint_text = f"{M_BOLD}系统维护{M_END}: 服务器正在维护，请稍后重连。"
             st.cmd.add_line(maint_text)
+            from ..ui import ime
+            ime.on_app_blur()
             app.network.disconnect()

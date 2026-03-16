@@ -192,6 +192,8 @@ class UParlorApp(App):
     # ── 退出 ──
 
     def action_quit(self) -> None:
+        from .ui import ime
+        ime.on_app_blur()
         self._cleanup_ai()
         self.network.disconnect()
         self.exit()
@@ -227,6 +229,19 @@ class UParlorApp(App):
                 panel._service.on_exit()
         except Exception:
             pass
+
+    # ── 窗口焦点 ──
+
+    def on_app_blur(self) -> None:
+        """窗口失去焦点 — 恢复中文 IME，避免切出后停留在英文"""
+        from .ui import ime
+        ime.on_app_blur()
+
+    def on_app_focus(self) -> None:
+        """窗口恢复焦点 — 根据当前 vim 模式恢复 IME"""
+        from .ui import ime
+        from .ui.vim_mode import Mode
+        ime.on_app_focus(self.vim.mode == Mode.NORMAL)
 
 
 def _check_version() -> bool:

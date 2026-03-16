@@ -1,6 +1,6 @@
 {
     "categories": {
-        "consumable": "消耗品",
+        "consumable": "消耗",
         "prop": "道具",
         "equipment": "装备",
         "material": "材料",
@@ -30,7 +30,7 @@
             "name": "经验药水",
             "source": "system",
             "category": "consumable",
-            "desc": "饮用后获得50点经验值",
+            "desc": "饮用后获得经验值，品质越高效果越强",
             "stackable": true,
             "use_methods": [
                 {"id": "default", "name": "饮用药水"}
@@ -41,7 +41,7 @@
             "name": "幸运硬币",
             "source": "system",
             "category": "prop",
-            "desc": "传说中的幸运硬币，据说能带来好运",
+            "desc": "传说中的幸运硬币，品质越高许愿金币越多",
             "stackable": true,
             "use_methods": [
                 {"id": "flip", "name": "抛硬币"},
@@ -63,7 +63,7 @@
             "name": "礼盒",
             "source": "event",
             "category": "consumable",
-            "desc": "神秘礼盒，打开后随机获得一件物品",
+            "desc": "神秘礼盒，品质越高奖励越丰厚",
             "stackable": true,
             "use_methods": [
                 {"id": "default", "name": "打开礼盒"}
@@ -77,6 +77,88 @@
                     {"id": "rename_card", "count": 1}
                 ]
             }
+        },
+        "healing_herb": {
+            "name": "治疗草药",
+            "source": "system",
+            "category": "material",
+            "desc": "蕴含生命力的草药，可用于炼药",
+            "stackable": true
+        },
+        "iron_ore": {
+            "name": "铁矿石",
+            "source": "system",
+            "category": "material",
+            "desc": "坚硬的铁矿石，锻造的基础材料",
+            "stackable": true
+        },
+        "mystic_scroll": {
+            "name": "神秘卷轴",
+            "source": "system",
+            "category": "prop",
+            "desc": "记载着失落知识的古老卷轴，阅读可获取经验",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "阅读卷轴"}
+            ],
+            "effect": {"type": "add_exp", "value": 120}
+        },
+        "teleport_stone": {
+            "name": "传送石",
+            "source": "system",
+            "category": "consumable",
+            "desc": "蕴含空间之力的石头，暂无传送目的地",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "使用传送石"}
+            ]
+        },
+        "dragon_scale": {
+            "name": "龙鳞",
+            "source": "event",
+            "category": "material",
+            "desc": "从远古巨龙身上脱落的鳞片，坚不可摧",
+            "stackable": true
+        },
+        "enchanted_ring": {
+            "name": "附魔戒指",
+            "source": "event",
+            "category": "equipment",
+            "desc": "附有神秘力量的戒指，佩戴后略有加成",
+            "stackable": false,
+            "use_methods": [
+                {"id": "equip", "name": "佩戴"},
+                {"id": "disenchant", "name": "分解"}
+            ]
+        },
+        "ancient_tome": {
+            "name": "古籍",
+            "source": "event",
+            "category": "prop",
+            "desc": "尘封已久的典籍，阅读可获得大量经验",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "研读古籍"}
+            ],
+            "effect": {"type": "add_exp", "value": 300}
+        },
+        "phoenix_feather": {
+            "name": "凤凰羽毛",
+            "source": "event",
+            "category": "special",
+            "desc": "传说中凤凰的羽毛，温暖而璀璨",
+            "stackable": true
+        },
+        "star_fragment": {
+            "name": "星辰碎片",
+            "source": "event",
+            "category": "special",
+            "desc": "坠落的星辰碎片，闪烁着微弱的光芒",
+            "stackable": true,
+            "use_methods": [
+                {"id": "default", "name": "凝视碎片"}
+            ],
+            "effect": {"type": "add_exp", "value": 80}
         }
     },
 

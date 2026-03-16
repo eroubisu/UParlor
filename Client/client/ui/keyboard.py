@@ -7,6 +7,7 @@ from textual.widgets import RichLog
 
 from .vim_mode import Mode
 from .layout import navigate, find_pane
+from ..panels.inventory import InventoryPanel
 
 
 class KeyboardMixin:
@@ -117,13 +118,26 @@ class KeyboardMixin:
         if key == "space":
             self._open_space_menu()
         elif key == "i":
-            self._enter_insert()
+            # 物品栏: i 进入搜索模式
+            w = self._get_focused_widget()
+            if isinstance(w, InventoryPanel) and w._mode in ('browse', 'search'):
+                w.enter_search()
+                self._enter_insert()
+            else:
+                self._enter_insert()
         elif key == "G":
             self._scroll_focused_bottom()
         elif key == "g":
             vim.pending_key = "g"
         elif key == "tab":
-            self._cycle_channel()
+            # 物品栏: tab 切换排序
+            w = self._get_focused_widget()
+            if isinstance(w, InventoryPanel):
+                w.toggle_tab_row()
+        elif key == "v":
+            w = self._get_focused_widget()
+            if isinstance(w, InventoryPanel):
+                w.toggle_multi_select()
 
     # ── 滚动 ──
 

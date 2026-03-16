@@ -10,7 +10,13 @@ from ..systems.item_commands import (
 
 def _pending_rename(lobby, player_name, player_data, cmd, raw_input, pending_data):
     if cmd == '/y':
-        return do_rename(lobby, player_name, player_data, pending_data)
+        if isinstance(pending_data, dict):
+            new_name = pending_data.get('new_name', '')
+            quality = pending_data.get('rename_quality', 0)
+        else:
+            new_name = pending_data
+            quality = 0
+        return do_rename(lobby, player_name, player_data, new_name, quality)
     return '已取消改名。'
 
 

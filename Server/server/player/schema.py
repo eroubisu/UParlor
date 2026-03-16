@@ -98,6 +98,7 @@ def get_default_user_template(name="", password_hash=""):
         'window_layout': None,
 
         'ai_companions': {},
+        'ai_token_stats': {},
     }
 
     for game_id, defaults in _GAME_PLAYER_DEFAULTS.items():

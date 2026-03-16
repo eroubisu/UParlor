@@ -15,12 +15,15 @@ class InputMixin:
 
     def _submit_input(self):
         text = self._input_buffer.strip()
+        # 聊天面板: 发送后保持输入框打开
+        keep_insert = self._input_target == 'chat' and bool(text)
         self._input_buffer = ""
-        self._hide_panel_prompt()
-        self._hide_input_bar()
-        self.vim.enter_normal()
-        self._update_mode_indicator()
-        self.set_focus(None)
+        if not keep_insert:
+            self._hide_panel_prompt()
+            self._hide_input_bar()
+            self.vim.enter_normal()
+            self._update_mode_indicator()
+            self.set_focus(None)
 
         if not text and self._input_target != 'login':
             if self._input_target == 'inventory':
@@ -46,6 +49,9 @@ class InputMixin:
                     self._send_chat(text, chat.current_channel)
             else:
                 self._send_chat(text, 1)
+            if keep_insert:
+                self._update_panel_prompt("")
+                self._clear_input_textarea()
         elif self._input_target == 'inventory':
             inv = self._get_module('inventory')
             if isinstance(inv, InventoryPanel):
@@ -144,6 +150,10 @@ class InputMixin:
             panel = self._get_module('online')
             if isinstance(panel, OnlineUsersPanel):
                 panel.show_input_bar()
+        elif target == 'inventory':
+            inv = self._get_module('inventory')
+            if isinstance(inv, InventoryPanel):
+                inv.show_input_bar()
 
     def _hide_input_bar(self):
         cmd = self._get_module('cmd')
@@ -161,6 +171,21 @@ class InputMixin:
         panel = self._get_module('online')
         if isinstance(panel, OnlineUsersPanel):
             panel.hide_input_bar()
+        inv = self._get_module('inventory')
+        if isinstance(inv, InventoryPanel):
+            inv.hide_input_bar()
+
+    def _clear_input_textarea(self):
+        """清空当前面板的 InputTextArea 文本"""
+        from ..widgets.input_bar import InputTextArea
+        mod = self._focused_module()
+        widget = self._get_module(mod) if mod else None
+        if widget:
+            try:
+                ta = widget.query_one(InputTextArea)
+                ta.clear()
+            except Exception:
+                pass
 
     def _update_completion(self):
         if self._input_target != 'cmd':

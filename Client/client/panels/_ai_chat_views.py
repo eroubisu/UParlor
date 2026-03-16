@@ -73,6 +73,17 @@ class _ChatViewsMixin:
         from ..ai.config import load_global_config
         return load_global_config().get("api_key", "")
 
+    def _get_provider_info(self) -> tuple[str, dict]:
+        """返回 (provider_name, provider_kwargs) 用于角色创建等独立 AI 调用"""
+        from ..ai.config import load_global_config
+        cfg = load_global_config()
+        name = cfg.get("provider", "google")
+        kwargs: dict = {"model": cfg.get("model", "gemini-2.5-flash")}
+        base_url = cfg.get("base_url", "")
+        if base_url:
+            kwargs["base_url"] = base_url
+        return name, kwargs
+
     def _save_api_key(self, key: str):
         from ..ai.config import load_global_config, save_global_config
         cfg = load_global_config()
@@ -90,7 +101,7 @@ class _ChatViewsMixin:
         if self._select_cursor < total:
             char = self._char_list[self._select_cursor]
             self._enter_character(char.id)
-        else:
+        elif self._select_cursor == total:
             self._set_view(_VIEW_CREATE)
             self._create_step = "desc"
             self._create_desc = ""
@@ -98,6 +109,17 @@ class _ChatViewsMixin:
             self._create_status = ""
             self._create_tokens = 0
             self._wants_insert = True
+            self._refresh_content()
+        else:
+            # 切换 API — 进入 SETUP 流程
+            self._setup_step = "provider"
+            self._setup_provider_cursor = 0
+            self._setup_key = ""
+            self._setup_provider = ""
+            self._setup_base_url = ""
+            self._create_status = ""
+            self._set_view(_VIEW_SETUP)
+            self._wants_insert = False
             self._refresh_content()
 
     def _enter_character(self, char_id: str):
@@ -153,35 +175,82 @@ class _ChatViewsMixin:
 
     # ── SETUP 视图 ──
 
+    def _on_setup_provider_enter(self):
+        """SETUP provider 步骤按 Enter 确认选择"""
+        from ..ai.provider import PROVIDER_NAMES
+        keys = list(PROVIDER_NAMES)
+        chosen = keys[self._setup_provider_cursor]
+        self._setup_provider = chosen
+        if chosen == "openai":
+            self._setup_step = "base_url"
+            self._wants_insert = True
+            self._create_status = ""
+        else:
+            # Google 不需要 base_url
+            self._setup_base_url = ""
+            self._setup_step = "api_key"
+            self._wants_insert = True
+            self._create_status = ""
+        self._refresh_content()
+
     def _on_setup_submit(self, text: str):
-        if not text.strip():
+        if not text.strip() and self._setup_step not in ("base_url",):
             return
-        if self._setup_step == "api_key":
+        if self._setup_step == "base_url":
+            url = text.strip().rstrip("/")
+            if url and not url.startswith("http"):
+                url = "https://" + url
+            # 用户可能粘贴了完整端点 URL，剥离 SDK 会自动拼接的尾部路径
+            for suffix in ("/chat/completions", "/completions", "/models"):
+                if url.endswith(suffix):
+                    url = url[:-len(suffix)]
+                    break
+            self._setup_base_url = url
+            self._setup_step = "api_key"
+            self._wants_insert = True
+            self._create_status = ""
+            self._refresh_content()
+        elif self._setup_step == "api_key":
             key = text.strip()
+            if not key:
+                return
             self._setup_key = key
             self._create_status = "验证 API Key 中..."
             self._wants_insert = False
             self._refresh_content()
             asyncio.create_task(self._do_setup_validate(key))
+        elif self._setup_step == "model_input":
+            model_name = text.strip()
+            if not model_name:
+                return
+            self._finish_setup(model=model_name)
 
     def _on_setup_model_enter(self):
         """在 SETUP model 步骤按 Enter 确认选择"""
         if not self._setup_models:
             return
         chosen = self._setup_models[self._setup_model_cursor]
-        self._save_api_key(self._setup_key)
+        self._finish_setup(model=chosen["name"])
+
+    def _finish_setup(self, *, model: str):
+        """SETUP 完成 — 一次性写入全局配置并重新初始化 service"""
         from ..ai.config import load_global_config, save_global_config
         cfg = load_global_config()
-        cfg["model"] = chosen["name"]
+        cfg["provider"] = self._setup_provider or cfg.get("provider", "google")
+        cfg["base_url"] = self._setup_base_url
+        cfg["api_key"] = self._setup_key
+        cfg["model"] = model
         save_global_config(cfg)
         self._create_status = ""
+        if self._service:
+            self._service._init_provider()
         self._set_view(_VIEW_SELECT)
         self._refresh_char_list()
         self._refresh_content()
         self._show_static()
 
     async def _do_setup_validate(self, key: str):
-        """验证 API Key → 成功则列出可用模型"""
+        """验证 API Key → 成功则列出可用模型（不写入全局配置）"""
         self._ensure_service()
         if not self._service:
             self._create_status = "AI 服务初始化失败"
@@ -189,29 +258,37 @@ class _ChatViewsMixin:
             self._refresh_content()
             self.post_message(self.RequestInsert())
             return
-        ok, err = await self._service.validate_key(key)
+        # 用 SETUP 暂存值创建临时 provider 验证
+        from ..ai.provider import create_provider
+        prov_name = self._setup_provider or "google"
+        base_url = self._setup_base_url
+        provider = create_provider(prov_name)
+        kwargs = {}
+        if base_url:
+            kwargs["base_url"] = base_url
+        ok, err = await provider.validate_key(key, **kwargs)
         if self._view != _VIEW_SETUP:
             return
         if ok:
-            self._save_api_key(key)
             self._create_status = "正在获取可用模型..."
             self._refresh_content()
             try:
-                from ..ai.service import AIService
-                models = await AIService.list_models(key)
+                models = await provider.list_models(key, **kwargs)
                 if self._view != _VIEW_SETUP:
                     return
                 self._setup_models = models
                 self._setup_model_cursor = 0
                 self._model_scroll_offset = 0
-                for i, m in enumerate(models):
-                    if m["name"] == "gemini-2.5-flash":
-                        self._setup_model_cursor = i
-                        break
-                self._adjust_model_scroll()
-                self._setup_step = "model"
-                self._create_status = ""
-                self._wants_insert = False
+                if models:
+                    self._adjust_model_scroll()
+                    self._setup_step = "model"
+                    self._create_status = ""
+                    self._wants_insert = False
+                else:
+                    # 无法列出模型（某些兼容API不支持），允许手动输入
+                    self._setup_step = "model_input"
+                    self._create_status = ""
+                    self._wants_insert = True
                 self._refresh_content()
             except Exception as e:
                 self._create_status = f"获取模型列表失败: {e}"
@@ -253,8 +330,10 @@ class _ChatViewsMixin:
         """调用 AI 结构化描述 → 进入确认步骤"""
         try:
             from ..ai.character import structurize_description
+            prov_name, prov_kwargs = self._get_provider_info()
             char, tokens = await structurize_description(
-                self._create_desc, self._get_api_key()
+                self._create_desc, self._get_api_key(),
+                provider_name=prov_name, **prov_kwargs,
             )
             if self._view != _VIEW_CREATE:
                 return
@@ -284,8 +363,10 @@ class _ChatViewsMixin:
         """调用 AI 微调角色 → 更新确认视图"""
         try:
             from ..ai.character import refine_character
+            prov_name, prov_kwargs = self._get_provider_info()
             self._create_char, tokens = await refine_character(
-                self._create_char, feedback, self._get_api_key()
+                self._create_char, feedback, self._get_api_key(),
+                provider_name=prov_name, **prov_kwargs,
             )
             self._create_tokens += tokens
             if self._view != _VIEW_CREATE:
@@ -313,10 +394,8 @@ class _ChatViewsMixin:
         """保存角色并进入聊天"""
         try:
             from ..ai.character import save_character
-            from ..ai.config import save_api_config
             char = self._create_char
             save_character(char)
-            save_api_config(char.id, {"api_key": self._get_api_key()})
             self._refresh_char_list()
             creation_tokens = self._create_tokens
             self._create_tokens = 0
@@ -403,16 +482,36 @@ class _ChatViewsMixin:
             self.show_input_bar()
             self._log(f"{M_DIM}>>> 输入新的 API Key{M_END}")
         elif idx == 1:
+            # 切换供应商（循环）
+            from ..ai.config import load_global_config, save_global_config
+            from ..ai.provider import PROVIDER_NAMES
+            cfg = load_global_config()
+            keys = list(PROVIDER_NAMES)
+            cur = cfg.get("provider", "google")
+            nxt = keys[(keys.index(cur) + 1) % len(keys)] if cur in keys else keys[0]
+            cfg["provider"] = nxt
+            save_global_config(cfg)
+            if self._service:
+                self._service._api_config["provider"] = nxt
+                self._service._init_provider()
+            self._refresh_content()
+        elif idx == 2:
+            # 编辑 Base URL
+            self._wants_insert = True
+            self.show_input_bar()
+            self._log(f"{M_DIM}>>> 输入 Base URL（留空恢复默认）{M_END}")
+            self._editing_base_url = True
+        elif idx == 3:
             self._create_status = "正在获取可用模型..."
             self._refresh_content()
             asyncio.create_task(self._do_fetch_models_for_settings())
-        elif idx == 2:
+        elif idx == 4:
             from ..ai.config import load_global_config, save_global_config
             cfg = load_global_config()
             cfg["auto_start"] = not cfg.get("auto_start", False)
             save_global_config(cfg)
             self._refresh_content()
-        elif idx == 3:
+        elif idx == 5:
             from ..ai.config import load_global_config, save_global_config
             cfg = load_global_config()
             levels = ["quiet", "normal", "talkative"]
@@ -421,7 +520,7 @@ class _ChatViewsMixin:
             cfg["attention_level"] = nxt
             save_global_config(cfg)
             self._refresh_content()
-        elif idx == 4:
+        elif idx == 6:
             try:
                 log: RichLog = self.query_one("#ai-chat-log", RichLog)
                 log.clear()
@@ -429,7 +528,7 @@ class _ChatViewsMixin:
                 pass
             if self._service:
                 self._service.clear_display()
-        elif idx == 5:
+        elif idx == 7:
             # 重置所有记忆 — 需确认
             if self._reset_confirming:
                 self._reset_confirming = False
@@ -443,7 +542,7 @@ class _ChatViewsMixin:
                     self._log(f"{M_DIM}>>> 所有记忆已重置{M_END}")
             else:
                 self._reset_confirming = True
-        elif idx == 6:
+        elif idx == 8:
             self._reset_confirming = False
             # 手动切回角色选择 → 取消自动启动
             from ..ai.config import load_global_config, save_global_config
@@ -457,25 +556,21 @@ class _ChatViewsMixin:
             self._refresh_char_list()
             self._refresh_content()
             self._show_static()
-        elif idx == 7:
+        elif idx == 9:
             self._reset_confirming = False
-            if self._service and self._service.char_id:
-                from ..ai.config import delete_character
-                cid = self._service.char_id
-                self._service.unload_character()
-                delete_character(cid)
-                self._log(f"{M_DIM}>>> 角色已删除{M_END}")
-                self._set_view(_VIEW_SELECT)
-                self._refresh_char_list()
-                self._show_static()
+            if self._service and self._service.character:
+                name = self._service.character.name or "?"
+                self._deleting_character = True
+                self._wants_insert = True
+                self.show_input_bar()
+                self._log(f"{M_DIM}>>> 输入角色名称 [{name}] 以确认删除{M_END}")
                 self._refresh_content()
 
     async def _do_fetch_models_for_settings(self):
         """获取模型列表用于设置中切换"""
         try:
-            from ..ai.service import AIService
             key = self._get_api_key()
-            models = await AIService.list_models(key)
+            models = await self._service.list_models(key)
             if self._view != _VIEW_CHAT or self._menu_tab != "settings":
                 return
             self._setup_models = models
@@ -499,34 +594,42 @@ class _ChatViewsMixin:
     async def _do_fetch_models_for_setup(self):
         """SETUP model 步骤恢复时重新获取模型列表"""
         try:
-            from ..ai.service import AIService
-            key = self._get_api_key()
+            key = self._setup_key or self._get_api_key()
             if not key:
-                self._setup_step = "api_key"
+                self._setup_step = "provider"
                 self._create_status = ""
-                self._wants_insert = True
+                self._wants_insert = False
                 self._refresh_content()
-                self.post_message(self.RequestInsert())
                 return
-            models = await AIService.list_models(key)
+            # 使用 SETUP 暂存的 provider/base_url
+            from ..ai.provider import create_provider
+            prov_name = self._setup_provider or "google"
+            base_url = self._setup_base_url
+            provider = create_provider(prov_name)
+            kwargs = {}
+            if base_url:
+                kwargs["base_url"] = base_url
+            models = await provider.list_models(key, **kwargs)
             if self._view != _VIEW_SETUP:
                 return
             self._setup_models = models
             self._setup_model_cursor = 0
             self._model_scroll_offset = 0
-            for i, m in enumerate(models):
-                if m["name"] == "gemini-2.5-flash":
-                    self._setup_model_cursor = i
-                    break
+            from ..ai.config import load_global_config
+            current_model = load_global_config().get("model", "")
+            if current_model:
+                for i, m in enumerate(models):
+                    if m["name"] == current_model:
+                        self._setup_model_cursor = i
+                        break
             self._adjust_model_scroll()
             self._create_status = ""
             self._refresh_content()
         except Exception as e:
             self._create_status = f"获取模型列表失败: {e}"
-            self._setup_step = "api_key"
-            self._wants_insert = True
+            self._setup_step = "provider"
+            self._wants_insert = False
             self._refresh_content()
-            self.post_message(self.RequestInsert())
 
     # ── 流式聊天 ──
 
@@ -605,9 +708,13 @@ class _ChatViewsMixin:
     def _upload_ai_sync(self):
         """将本地 AI 角色数据上传到服务器进行同步"""
         try:
-            from ..ai.config import export_all_chars
+            from ..ai.config import export_all_chars, load_stats
             data = export_all_chars()
             if data:
-                self.app.network.send({"type": "ai_sync_up", "companions": data})
+                self.app.network.send({
+                    "type": "ai_sync_up",
+                    "companions": data,
+                    "token_stats": load_stats(),
+                })
         except Exception:
             pass

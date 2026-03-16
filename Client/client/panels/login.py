@@ -20,6 +20,10 @@ _WELCOME_DOC = """\
   更纱黑体（SarasaTermSC）
   等宽变体以获得最佳显示效果
 
+[dim]账号规则[/dim]
+  用户名仅支持英文字母和数字，2—12 个字符
+  密码至少 3 个字符
+
 [dim]操作指南[/dim]
   [bold]i[/bold]            打开输入窗口
   [bold]Backspace[/bold]    返回上一级
@@ -29,8 +33,11 @@ _WELCOME_DOC = """\
   [bold]Space[/bold]        打开浮窗菜单
   [bold]h j k l[/bold]      窗口内移动
   [bold]H J K L[/bold]      窗口间移动
+  [bold]v[/bold]            物品多选模式
+  [bold]/[/bold]            物品搜索
 
 [dim]注意左下角 normal / insert 状态显示[/dim]
+[dim]中英文切换请手动按 Shift[/dim]
 
 ────────────────────────────────────
 
@@ -48,6 +55,18 @@ class LoginPanel(InputBarMixin, Widget):
             yield Static(_WELCOME_DOC, markup=True)
         yield Static("", id="login-prompt-text", markup=True)
         yield InputBar(prompt_id="login-prompt", id="login-input-bar")
+
+    def nav_down(self):
+        try:
+            self.query_one("#login-doc", VerticalScroll).scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def nav_up(self):
+        try:
+            self.query_one("#login-doc", VerticalScroll).scroll_up(animate=False)
+        except Exception:
+            pass
 
     def add_message(self, text: str):
         try:

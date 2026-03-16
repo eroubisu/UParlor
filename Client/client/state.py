@@ -36,6 +36,7 @@ class ChatState:
         self.dm_tabs: list[str] = []  # 已打开的私聊标签页（按打开顺序）
         self.active_tab: str = "global"  # "global" | peer_name
         self.dm_unread: set[str] = set()  # 有未读消息的私聊标签
+        self._closed_tabs: set[str] = set()  # 用户手动关闭过的标签（防止重登时自动恢复）
         self._listener = None
 
     def set_listener(self, cb):
@@ -75,7 +76,7 @@ class ChatState:
         conversations: {peer_name: [{from, text, time}, ...]}
         """
         for peer, msgs in conversations.items():
-            if peer not in self.dm_tabs:
+            if peer not in self._closed_tabs and peer not in self.dm_tabs:
                 self.dm_tabs.append(peer)
             self.dm_entries[peer] = [
                 (m.get('from', ''), m.get('text', ''), m.get('time', ''))
@@ -85,6 +86,7 @@ class ChatState:
 
     def open_private_tab(self, peer_name: str):
         """打开（或切换到）一个私聊标签页"""
+        self._closed_tabs.discard(peer_name)
         if peer_name not in self.dm_tabs:
             self.dm_tabs.append(peer_name)
             self.dm_entries.setdefault(peer_name, [])
@@ -96,6 +98,7 @@ class ChatState:
         """关闭一个私聊标签页"""
         if peer_name in self.dm_tabs:
             self.dm_tabs.remove(peer_name)
+        self._closed_tabs.add(peer_name)
         if self.active_tab == peer_name:
             self.active_tab = "global"
         self._notify('close_private_tab', peer_name)
@@ -261,33 +264,49 @@ class InventoryState:
     def update_inventory(self, player_data: dict):
         """从 player_data 提取物品并更新
 
-        服务端推送富格式: inventory = {item_id: {count, name, desc, category, use_methods}}
+        服务端推送列表格式: inventory = [{id, quality, count, name, desc, category, use_methods}, ...]
+        兼容旧字典格式: inventory = {item_id: {count, name, ...}}
         """
         self.gold = player_data.get('gold', 0)
         inventory = player_data.get('inventory', {})
         items = []
-        for item_id, info in inventory.items():
-            if isinstance(info, dict):
-                if info.get('count', 0) > 0:
+        if isinstance(inventory, list):
+            for entry in inventory:
+                if entry.get('count', 0) > 0:
                     items.append({
-                        'id': item_id,
-                        'name': info.get('name', item_id),
-                        'desc': info.get('desc', ''),
-                        'category': info.get('category', ''),
-                        'count': info['count'],
-                        'use_methods': info.get('use_methods', []),
+                        'id': entry.get('id', ''),
+                        'name': entry.get('name', entry.get('id', '')),
+                        'desc': entry.get('desc', ''),
+                        'category': entry.get('category', ''),
+                        'quality': entry.get('quality', 0),
+                        'count': entry['count'],
+                        'use_methods': entry.get('use_methods', []),
                     })
-            else:
-                # 兼容旧格式 {item_id: count}
-                if isinstance(info, int) and info > 0:
-                    items.append({
-                        'id': item_id,
-                        'name': item_id,
-                        'desc': '',
-                        'category': '',
-                        'count': info,
-                        'use_methods': [],
-                    })
+        elif isinstance(inventory, dict):
+            for item_id, info in inventory.items():
+                if isinstance(info, dict):
+                    if info.get('count', 0) > 0:
+                        items.append({
+                            'id': item_id,
+                            'name': info.get('name', item_id),
+                            'desc': info.get('desc', ''),
+                            'category': info.get('category', ''),
+                            'quality': info.get('quality', 0),
+                            'count': info['count'],
+                            'use_methods': info.get('use_methods', []),
+                        })
+                else:
+                    # 兼容旧格式 {item_id: count}
+                    if isinstance(info, int) and info > 0:
+                        items.append({
+                            'id': item_id,
+                            'name': item_id,
+                            'desc': '',
+                            'category': '',
+                            'quality': 0,
+                            'count': info,
+                            'use_methods': [],
+                        })
         self.items = items
         self._notify('update_inventory')
 
@@ -307,8 +326,10 @@ class AIChatState:
         self.create_desc: str = ""
         self.create_char = None          # Character | None
         self.create_status: str = ""
-        self.setup_step: str = "api_key" # api_key | model
+        self.setup_step: str = "provider" # provider | base_url | api_key | model | model_input
         self.setup_key: str = ""
+        self.setup_provider: str = ""
+        self.setup_base_url: str = ""
         self.wants_insert: bool = False
 
     def set_listener(self, cb):

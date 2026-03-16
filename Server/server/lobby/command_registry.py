@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config import SERVER_VERSION
+from ..systems.item_commands import cmd_use, cmd_gift, cmd_drop
 from ..systems.title_commands import cmd_alltitle, cmd_title
 
 
@@ -131,3 +132,6 @@ register_sub_builder('delete', _delete_sub_builder)
 register_global('passwd', _handle_passwd)
 register_global('title', _handle_title)
 register_global('settitle', _handle_settitle)
+register_global('use', cmd_use)
+register_global('gift', cmd_gift)
+register_global('drop', cmd_drop)

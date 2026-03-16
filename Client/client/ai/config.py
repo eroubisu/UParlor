@@ -17,7 +17,9 @@ CHARACTERS_DIR = AI_DIR / "characters"
 _DEFAULT_GLOBAL = {
     "auto_start": False,
     "last_character_id": "",
+    "provider": "google",
     "api_key": "",
+    "base_url": "",
     "model": "gemini-2.5-flash",
     "attention_level": "normal",
 }
@@ -80,10 +82,11 @@ def delete_character(char_id: str):
 # ── 角色级 API 配置 ──
 
 _DEFAULT_API_CONFIG = {
+    "provider": "",
     "api_key": "",
-    "model": "gemini-2.5-flash",
-    "summary_model": "gemini-2.5-flash",
-    "daily_token_limit": 100000,
+    "base_url": "",
+    "model": "",
+    "summary_model": "",
     "proactive_enabled": True,
     "proactive_idle_minutes": 10,
     "proactive_cooldown_minutes": 5,
@@ -91,17 +94,15 @@ _DEFAULT_API_CONFIG = {
 
 
 def load_api_config(char_id: str) -> dict:
+    """加载角色级 API 配置（不合并默认值，缺失字段由 _resolve_config 降级到全局）"""
     path = char_dir(char_id) / "api.json"
     if not path.exists():
-        return dict(_DEFAULT_API_CONFIG)
+        return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        merged = dict(_DEFAULT_API_CONFIG)
-        merged.update(data)
-        return merged
+            return json.load(f)
     except Exception:
-        return dict(_DEFAULT_API_CONFIG)
+        return {}
 
 
 def save_api_config(char_id: str, data: dict):
@@ -111,10 +112,11 @@ def save_api_config(char_id: str, data: dict):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# ── 角色级 token 统计 ──
+# ── 全局 token 统计 ──
 
-def load_stats(char_id: str) -> dict:
-    path = char_dir(char_id) / "stats.json"
+def load_stats() -> dict:
+    ensure_ai_dir()
+    path = AI_DIR / "stats.json"
     if not path.exists():
         return {"today": "", "tokens": 0}
     try:
@@ -124,9 +126,9 @@ def load_stats(char_id: str) -> dict:
         return {"today": "", "tokens": 0}
 
 
-def save_stats(char_id: str, data: dict):
-    ensure_char_dir(char_id)
-    path = char_dir(char_id) / "stats.json"
+def save_stats(data: dict):
+    ensure_ai_dir()
+    path = AI_DIR / "stats.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
@@ -174,7 +176,7 @@ def export_all_chars() -> dict:
     """导出所有角色数据，用于上传到服务器同步。
 
     返回 ``{char_id: {profile: {}, status: {}, ...}}``。
-    不包含 api.json（含 api_key）和 stats.json（设备专属）。
+    不包含 api.json（含 api_key）。
     """
     result: dict = {}
     for cid in list_character_ids():

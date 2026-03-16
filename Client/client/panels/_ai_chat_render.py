@@ -11,7 +11,7 @@ from ..config import (
     COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
     COLOR_BORDER_LIGHT, COLOR_ACCENT,
 )
-from ..widgets.helpers import build_tab_overflow, _widget_width
+from ..widgets.helpers import build_tab_overflow, _widget_width, _set_pane_subtitle
 
 _MAX_MODEL_VISIBLE = 8
 
@@ -94,18 +94,38 @@ class _ChatRenderMixin:
             return
 
         lines = [
-            f"[b]初始设置[/b]",
+            f"[b]设置 API[/b]",
             f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}",
         ]
-        if self._setup_step == "api_key":
-            lines.append(f"[{COLOR_FG_SECONDARY}]步骤 1/2 — 输入 Gemini API Key{M_END}")
-            lines.append(f"[{COLOR_FG_TERTIARY}]获取: https://aistudio.google.com/app/apikey{M_END}")
+        if self._setup_step == "provider":
+            from ..ai.provider import PROVIDER_NAMES
+            lines.append(f"[{COLOR_FG_SECONDARY}]选择 AI 供应商{M_END}")
+            lines.append("")
+            for i, (key, label) in enumerate(PROVIDER_NAMES.items()):
+                if i == self._setup_provider_cursor:
+                    lines.append(f" [{COLOR_ACCENT}]●[/] [b]{label}[/b]")
+                else:
+                    lines.append(f"   [{COLOR_FG_SECONDARY}]{label}{M_END}")
+        elif self._setup_step == "base_url":
+            lines.append(f"[{COLOR_FG_SECONDARY}]输入 Base URL{M_END}")
+            lines.append(f"[{COLOR_FG_TERTIARY}]火山引擎: ark.cn-beijing.volces.com/api/v3{M_END}")
+            lines.append(f"[{COLOR_FG_TERTIARY}]DeepSeek: api.deepseek.com{M_END}")
+            lines.append(f"[{COLOR_FG_TERTIARY}]留空使用 OpenAI 官方端点{M_END}")
+            lines.append("")
+            lines.append(f"[{COLOR_FG_TERTIARY}]请输入 Base URL:{M_END}")
+        elif self._setup_step == "api_key":
+            lines.append(f"[{COLOR_FG_SECONDARY}]输入 API Key{M_END}")
             lines.append("")
             lines.append(f"[{COLOR_FG_TERTIARY}]请输入你的 API Key:{M_END}")
         elif self._setup_step == "model":
-            lines.append(f"[{COLOR_FG_SECONDARY}]步骤 2/2 — 选择模型{M_END}")
+            lines.append(f"[{COLOR_FG_SECONDARY}]选择模型{M_END}")
             lines.append("")
             lines.extend(self._render_model_list())
+        elif self._setup_step == "model_input":
+            lines.append(f"[{COLOR_FG_SECONDARY}]输入模型名称{M_END}")
+            lines.append(f"[{COLOR_FG_TERTIARY}]该供应商不支持列出模型，请手动输入{M_END}")
+            lines.append("")
+            lines.append(f"[{COLOR_FG_TERTIARY}]请输入模型名称:{M_END}")
         if self._create_status:
             lines.append("")
             lines.append(f"{M_DIM}{self._create_status}{M_END}")
@@ -119,26 +139,36 @@ class _ChatRenderMixin:
         except Exception:
             return
 
-        lines = [
-            f"[b]AI 旅伴[/b]",
-            f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}",
-        ]
-
+        lines: list[str] = []
         for i, ch in enumerate(self._char_list):
             if i == self._select_cursor:
                 lines.append(f" [{COLOR_ACCENT}]●[/] [b]{ch.name}[/b]")
             else:
                 lines.append(f"   [{COLOR_FG_SECONDARY}]{ch.name}{M_END}")
 
-        # 最后一项：创建新角色
         new_idx = len(self._char_list)
         if self._select_cursor == new_idx:
             lines.append(f" [{COLOR_ACCENT}]●[/] [b]+ 创建新角色[/b]")
         else:
             lines.append(f"   [{COLOR_FG_TERTIARY}]+ 创建新角色{M_END}")
 
+        api_idx = new_idx + 1
+        if self._select_cursor == api_idx:
+            lines.append(f" [{COLOR_ACCENT}]●[/] [b]切换 API[/b]")
+        else:
+            lines.append(f"   [{COLOR_FG_TERTIARY}]切换 API{M_END}")
+
         lines.append("")
         content.update("\n".join(lines))
+
+        # 右下角显示当前 API 信息
+        from ..ai.config import load_global_config
+        from ..ai.provider import PROVIDER_NAMES
+        cfg = load_global_config()
+        prov = cfg.get("provider", "google")
+        model = cfg.get("model", "")
+        label = PROVIDER_NAMES.get(prov, prov)
+        _set_pane_subtitle(self, f"{label} | {model}" if model else label)
 
     # ── CREATE 视图 ──
 
@@ -291,8 +321,16 @@ class _ChatRenderMixin:
         attn_labels = {"quiet": "安静", "normal": "普通", "talkative": "话多"}
         attn_label = attn_labels.get(attn, attn)
 
+        from ..ai.provider import PROVIDER_NAMES
+        provider = cfg.get("provider", "google")
+        provider_label = PROVIDER_NAMES.get(provider, provider)
+        base_url = cfg.get("base_url", "")
+        base_url_display = base_url if base_url else "(默认)"
+
         settings_items = [
             f"修改 API Key",
+            f"供应商: {provider_label}",
+            f"Base URL: {base_url_display}",
             f"切换模型: {current_model}",
             f"自动启动: {auto_label}",
             f"注意力: {attn_label}",
@@ -301,6 +339,11 @@ class _ChatRenderMixin:
             f"切换角色",
             f"删除此角色",
         ]
+        # 动态替换确认状态的标签
+        if self._reset_confirming:
+            settings_items[7] = "再次确认重置"
+        if self._deleting_character:
+            settings_items[9] = "输入角色名确认删除..."
         lines = []
         for i, label in enumerate(settings_items):
             if i == self._settings_cursor:

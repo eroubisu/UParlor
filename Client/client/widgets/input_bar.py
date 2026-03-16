@@ -2,11 +2,43 @@
 
 from __future__ import annotations
 
+import sys
+
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import TextArea
+
+
+def _read_system_clipboard() -> str:
+    """读取系统剪贴板文本（Windows ctypes 直读，无外部依赖）"""
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    import ctypes.wintypes as wt
+    CF_UNICODETEXT = 13
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    user32.GetClipboardData.restype = wt.HANDLE
+    kernel32.GlobalLock.argtypes = [wt.HANDLE]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [wt.HANDLE]
+    if not user32.OpenClipboard(0):
+        return ""
+    try:
+        handle = user32.GetClipboardData(CF_UNICODETEXT)
+        if not handle:
+            return ""
+        ptr = kernel32.GlobalLock(handle)
+        if not ptr:
+            return ""
+        try:
+            return ctypes.wstring_at(ptr)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
 
 
 class InputTextArea(TextArea):
@@ -63,6 +95,14 @@ class InputTextArea(TextArea):
             event.prevent_default()
             event.stop()
             self.replace(" ", *self.selection)
+            return
+        # Ctrl+V — 读取系统剪贴板（Windows 上 Textual 不生成 Paste 事件）
+        if event.key == "ctrl+v":
+            event.prevent_default()
+            event.stop()
+            text = _read_system_clipboard()
+            if text:
+                self.replace(text, *self.selection)
             return
         # Escape / Ctrl+[ → 通知 Screen 退出 INSERT
         if event.key in ("escape", "ctrl+left_square_bracket"):

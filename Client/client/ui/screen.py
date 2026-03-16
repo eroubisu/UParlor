@@ -197,6 +197,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             return
         self._input_buffer = ""
         self.vim.enter_insert()
+        # 指令面板: 输入的是 /cmd 英文指令，保持英文 IME
+        if self._input_target == 'cmd':
+            from . import ime
+            ime.on_enter_normal()
         self._update_mode_indicator()
         # 搜索面板: 进入 INSERT 时标记 wants_insert
         w = self._get_focused_widget()
@@ -204,7 +208,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             w._wants_insert = True
         self._show_panel_prompt("")
         self._show_input_bar()
-        self._focus_active_input()
+        self.call_after_refresh(self._focus_active_input)
 
     def _focus_active_input(self):
         """聚焦当前面板的 InputTextArea"""
@@ -228,6 +232,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             if self._input_target == 'online':
                 w = self._get_module('online')
                 if isinstance(w, OnlineUsersPanel):
+                    w.on_search_change(self._input_buffer)
+            elif self._input_target == 'inventory':
+                w = self._get_module('inventory')
+                if isinstance(w, InventoryPanel):
                     w.on_search_change(self._input_buffer)
 
     def on_input_text_area_submit(self, event) -> None:
@@ -380,6 +388,12 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if resize_pane(self._layout_tree, self._focused_pane_id, delta, direction):
             self.canvas.sync_weights(self._layout_tree)
             self._save_layout()
+
+    async def _do_refresh_panes(self):
+        """重建所有窗格"""
+        await self.canvas.rebuild(self._layout_tree)
+        self._restore_all_modules()
+        self._set_focused_pane(self._focused_pane_id)
 
     def _save_layout(self):
         if not self.logged_in:

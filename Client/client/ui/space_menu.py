@@ -23,6 +23,7 @@ class SpaceMenuMixin:
             ("横分", "水平分割当前窗格"),
             ("纵分", "垂直分割当前窗格"),
             ("关闭", "关闭当前窗格"),
+            ("刷新", "重建所有窗格"),
         ]
         # 顶级列表：每个分类是带子菜单的项
         items = [
@@ -87,3 +88,5 @@ class SpaceMenuMixin:
                 self.call_later(self._do_split, 'v')
             elif idx == 2:
                 self.call_later(self._do_close_pane)
+            elif idx == 3:
+                self.call_later(self._do_refresh_panes)

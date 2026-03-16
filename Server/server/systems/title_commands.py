@@ -5,7 +5,7 @@ from ..player.manager import PlayerManager
 
 def cmd_item(player_data, args):
     """背包指令"""
-    from .items import ITEM_LIBRARY, ITEM_SOURCES
+    from .items import ITEM_LIBRARY, ITEM_SOURCES, inv_total
     inventory = player_data.get('inventory', {})
     gold = player_data.get('gold', 0)
     text = "【背包】\n\n"
@@ -17,12 +17,13 @@ def cmd_item(player_data, args):
         if filter_source and filter_source != source_id:
             continue
         items_in_source = []
-        for item_id, count in inventory.items():
-            if count <= 0:
+        for item_id, val in inventory.items():
+            total = inv_total(inventory, item_id)
+            if total <= 0:
                 continue
             item_info = ITEM_LIBRARY.get(item_id, {})
             if item_info.get('source') == source_id:
-                items_in_source.append((item_id, count, item_info))
+                items_in_source.append((item_id, total, item_info))
         if items_in_source:
             has_items = True
             text += f"【{source_name}】\n"
