@@ -5,8 +5,7 @@
         {"name": "home",      "label": "回HOME",   "desc": "直接返回HOME",       "tab": "导航"},
         {"name": "clear",     "label": "清屏",     "desc": "清空指令面板",       "tab": "系统"},
         {"name": "passwd",    "label": "改密码",   "desc": "修改密码",           "tab": "系统"},
-        {"name": "exit",      "label": "退出",     "desc": "关闭程序",           "tab": "系统"},
-        {"name": "delete",    "label": "注销账号", "desc": "永久删除账号",       "tab": "系统"}
+        {"name": "exit",      "label": "退出",     "desc": "关闭程序",           "tab": "系统"}
     ],
     "lobby": [
         {"name": "games",     "label": "游戏列表", "desc": "查看可用游戏",       "tab": "导航"},

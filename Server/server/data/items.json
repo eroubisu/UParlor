@@ -5,7 +5,8 @@
         "equipment": "装备",
         "material": "材料",
         "currency": "货币",
-        "special": "特殊"
+        "special": "特殊",
+        "decoration": "装饰"
     },
 
     "items": {
@@ -159,6 +160,39 @@
                 {"id": "default", "name": "凝视碎片"}
             ],
             "effect": {"type": "add_exp", "value": 80}
+        },
+        "pattern_default": {
+            "name": "默认花色",
+            "source": "system",
+            "category": "decoration",
+            "desc": "朴素的符号花色",
+            "stackable": false,
+            "pattern": {
+                "chars": ".:+*~.:+*~",
+                "colors": ["#606060", "#505050", "#707070"]
+            }
+        },
+        "pattern_letters": {
+            "name": "字母花色",
+            "source": "system",
+            "category": "decoration",
+            "desc": "彩色字母装饰你的名片背景",
+            "stackable": false,
+            "pattern": {
+                "chars": "ABCDEFGHIKLMNPQRSTUVWXYZabcdefghiklmnpqrstuvwxyz",
+                "colors": ["#E8A0BF", "#A0C4E8", "#B5E8A0", "#E8D4A0"]
+            }
+        },
+        "pattern_stars": {
+            "name": "星空花色",
+            "source": "event",
+            "category": "decoration",
+            "desc": "闪烁的星辰装饰你的名片",
+            "stackable": false,
+            "pattern": {
+                "chars": ".*+..*+..*.+*",
+                "colors": ["#FFD700", "#87CEEB", "#DDA0DD", "#98FB98"]
+            }
         }
     },
 

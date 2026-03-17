@@ -40,3 +40,6 @@ DM_HISTORY = 'dm_history'
 
 # ── 通知 ──
 FRIEND_REQUEST = 'friend_request'
+
+# ── 名片 ──
+PROFILE_CARD = 'profile_card'

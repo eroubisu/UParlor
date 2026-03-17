@@ -570,10 +570,19 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                     self._show_static()
                     self._refresh_content()
         else:
-            # 自动启动关闭 — 始终进入选择界面
-            self._set_view(_VIEW_SELECT)
-            self._show_static()
-            self._refresh_content()
+            # 自动启动关闭 — 有进行中的对话时恢复，否则选择界面
+            if st.current_char_id and st.view == _VIEW_CHAT:
+                self._enter_character(st.current_char_id)
+            else:
+                self._set_view(_VIEW_SELECT)
+                self._show_static()
+                self._refresh_content()
+
+        # 流式输出被窗口操作中断 — 提示用户
+        if st.streaming_interrupted:
+            st.streaming_interrupted = False
+            if self._view == _VIEW_CHAT:
+                self._log(f"{M_DIM}>>> 窗口操作中断了 AI 回复{M_END}")
 
     def _ensure_service(self):
         if self._service:
@@ -642,6 +651,7 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                         cid = self._service.char_id
                         self._service.unload_character()
                         delete_character(cid)
+                        self._upload_ai_sync()
                         self._log(f"{M_DIM}>>> 角色已删除{M_END}")
                         self._set_view(_VIEW_SELECT)
                         self._refresh_char_list()
@@ -675,6 +685,8 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     def on_unmount(self):
         self._panel_active = False
+        if self._streaming and self._state_mgr:
+            self._state_mgr.ai_chat.streaming_interrupted = True
         if self._service:
             self._service.on_exit()
         self._upload_ai_sync()

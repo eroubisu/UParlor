@@ -163,10 +163,12 @@ class CmdState:
 
 
 class StatusState:
-    """状态面板的全部状态（固定显示玩家信息）"""
+    """状态面板的全部状态（名片 + 状态 + 设置）"""
 
     def __init__(self):
         self.player_data: dict = {}
+        self.page: str = 'status'     # status | card | settings
+        self.settings_cursor: int = 0
         self._listener = None
 
     def set_listener(self, cb):
@@ -192,6 +194,10 @@ class OnlineState:
         self.users: list = []
         self.friends: list[str] = []
         self.all_users: list[str] = []
+        self.tab: str = "friends"
+        self.cursor: int = 0
+        self.search_query: str = ""
+        self.viewed_card: dict | None = None
         self._listener = None
 
     def set_listener(self, cb):
@@ -212,6 +218,10 @@ class OnlineState:
     def update_all_users(self, users: list[str]):
         self.all_users = users
         self._notify('update_all_users', users)
+
+    def set_viewed_card(self, card_data: dict):
+        self.viewed_card = card_data
+        self._notify('viewed_card', card_data)
 
 
 class GameBoardState:
@@ -252,6 +262,11 @@ class InventoryState:
     def __init__(self):
         self.items: list[dict] = []   # [{id, name, count, desc, use_methods}]
         self.gold: int = 0
+        self.cursor: int = 0
+        self.filter_tab: str = "all"
+        self.quality_filter: str = "all"
+        self.sort_cursor: int = 0
+        self.tab_row: int = 0
         self._listener = None
 
     def set_listener(self, cb):
@@ -281,6 +296,7 @@ class InventoryState:
                         'quality': entry.get('quality', 0),
                         'count': entry['count'],
                         'use_methods': entry.get('use_methods', []),
+                        'pattern': entry.get('pattern'),
                     })
         elif isinstance(inventory, dict):
             for item_id, info in inventory.items():
@@ -331,6 +347,7 @@ class AIChatState:
         self.setup_provider: str = ""
         self.setup_base_url: str = ""
         self.wants_insert: bool = False
+        self.streaming_interrupted: bool = False
 
     def set_listener(self, cb):
         self._listener = cb
@@ -363,6 +380,8 @@ class NotificationState:
         self.system_notifications: list[str] = []
         # 好友申请: [{name, status}]  status = 'pending' | 'accepted' | 'rejected'
         self.friend_requests: list[dict] = []
+        self.tab: str = "system"
+        self.cursor: int = 0
         self._listener = None
 
     def set_listener(self, cb):

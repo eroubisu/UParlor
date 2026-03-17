@@ -109,6 +109,13 @@ AIChatPanel {
     scrollbar-size: 1 1;
 }
 
+#login-settings {
+    height: 1fr;
+    width: 1fr;
+    display: none;
+    scrollbar-size: 1 1;
+}
+
 #login-prompt-text {
     height: auto;
     width: 1fr;
@@ -172,7 +179,7 @@ InputTextArea:focus {
 }
 
 /* ── 面板标签栏 ── */
-#chat-header, #online-header, #notify-header, #inventory-header {
+#chat-header, #online-header, #notify-header, #inventory-header, #status-header, #login-header {
     height: auto;
     dock: top;
     background: transparent;
@@ -181,7 +188,7 @@ InputTextArea:focus {
 }
 
 /* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar {
+#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar, #status-input-bar {
     height: auto;
     border: round $color-accent;
     border-title-color: $color-accent;
@@ -189,7 +196,7 @@ InputTextArea:focus {
     display: none;
 }
 
-#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible {
+#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible, #status-input-bar.visible {
     display: block;
 }
 

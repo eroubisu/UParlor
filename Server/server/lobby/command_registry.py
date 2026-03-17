@@ -110,25 +110,12 @@ def _handle_passwd(lobby, player_name, player_data, args, location):
 
 # ── 注册 ──
 
-def _handle_delete(lobby, player_name, player_data, args, location):
-    lobby.pending_confirms[player_name] = {'type': 'delete_start'}
-    return '警告：注销账号将永久删除所有数据，不可恢复！\n请输入你的用户名以确认：'
-
-
-def _delete_sub_builder(lobby, player_data):
-    return [
-        {'name': 'delete', 'label': '开始注销', 'desc': '永久删除账号'},
-    ]
-
-
 register_global('help', _handle_help)
 register_global('games', _handle_games)
 register_global('clear', _handle_clear)
 register_global('version', _handle_version)
 register_global('exit', _handle_exit)
 register_sub_builder('exit', _exit_sub_builder)
-register_global('delete', _handle_delete)
-register_sub_builder('delete', _delete_sub_builder)
 register_global('passwd', _handle_passwd)
 register_global('title', _handle_title)
 register_global('settitle', _handle_settitle)

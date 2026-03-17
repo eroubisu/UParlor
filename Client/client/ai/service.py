@@ -203,16 +203,21 @@ class AIService:
         stats = load_stats()
         today = date.today().isoformat()
         if stats.get("today") == today:
-            self._today_tokens = stats.get("tokens", 0)
+            models = stats.get("models", {})
+            self._today_tokens = models.get(self.model, 0)
         else:
             self._today_tokens = 0
 
-    def _add_tokens(self, count: int):
-        self._today_tokens += count
-        save_stats({
-            "today": date.today().isoformat(),
-            "tokens": self._today_tokens,
-        })
+    def _add_tokens(self, count: int, model: str = ""):
+        model = model or self.model
+        stats = load_stats()
+        today = date.today().isoformat()
+        if stats.get("today") != today:
+            stats = {"today": today, "models": {}}
+        models = stats.setdefault("models", {})
+        models[model] = models.get(model, 0) + count
+        save_stats(stats)
+        self._today_tokens = models.get(self.model, 0)
 
     # ── 属性 ──
 
@@ -331,7 +336,7 @@ class AIService:
             raise
         self._consecutive_errors = 0
         if tokens:
-            self._add_tokens(tokens)
+            self._add_tokens(tokens, model=self.summary_model)
         return text
 
     _TOKEN_PREFIX = "\x00TOKENS:"

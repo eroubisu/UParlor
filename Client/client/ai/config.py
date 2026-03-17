@@ -118,12 +118,16 @@ def load_stats() -> dict:
     ensure_ai_dir()
     path = AI_DIR / "stats.json"
     if not path.exists():
-        return {"today": "", "tokens": 0}
+        return {"today": "", "models": {}}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # 兼容旧版扁平格式
+        if "tokens" in data and "models" not in data:
+            data = {"today": data.get("today", ""), "models": {}}
+        return data
     except Exception:
-        return {"today": "", "tokens": 0}
+        return {"today": "", "models": {}}
 
 
 def save_stats(data: dict):

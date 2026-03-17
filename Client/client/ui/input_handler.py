@@ -6,6 +6,7 @@ from ..panels import ChatPanel, CommandPanel, LoginPanel
 from ..panels.inventory import InventoryPanel
 from ..panels.ai_chat import AIChatPanel
 from ..panels.online import OnlineUsersPanel
+from ..panels.status import StatusPanel
 
 
 class InputMixin:
@@ -37,8 +38,12 @@ class InputMixin:
             return
 
         if self._input_target == 'login':
-            if text:
-                self._send_command(text)
+            login = self._get_module('login')
+            if isinstance(login, LoginPanel):
+                if login._tab == 'settings':
+                    return
+                if text:
+                    self.app.network.send({"type": login._tab, "text": text})
         elif self._input_target == "chat":
             chat = self._get_module('chat')
             if isinstance(chat, ChatPanel):
@@ -66,6 +71,12 @@ class InputMixin:
             panel = self._get_module('online')
             if isinstance(panel, OnlineUsersPanel):
                 panel.on_input_submit(text)
+        elif self._input_target == 'status':
+            panel = self._get_module('status')
+            if isinstance(panel, StatusPanel):
+                panel.on_input_submit(text)
+                if panel.wants_insert:
+                    self._enter_insert()
         else:
             if not text.startswith("/"):
                 text = "/" + text
@@ -108,6 +119,11 @@ class InputMixin:
     # ── 指令补全 ──
 
     def _complete_command(self):
+        if self._input_target == 'login':
+            login = self._get_module('login')
+            if isinstance(login, LoginPanel):
+                login.nav_tab_next()
+            return
         if self._input_target != 'cmd':
             return
         buf = self._input_buffer
@@ -150,6 +166,10 @@ class InputMixin:
             panel = self._get_module('online')
             if isinstance(panel, OnlineUsersPanel):
                 panel.show_input_bar()
+        elif target == 'status':
+            panel = self._get_module('status')
+            if isinstance(panel, StatusPanel):
+                panel.show_input_bar()
         elif target == 'inventory':
             inv = self._get_module('inventory')
             if isinstance(inv, InventoryPanel):
@@ -171,6 +191,9 @@ class InputMixin:
         panel = self._get_module('online')
         if isinstance(panel, OnlineUsersPanel):
             panel.hide_input_bar()
+        status = self._get_module('status')
+        if isinstance(status, StatusPanel):
+            status.hide_input_bar()
         inv = self._get_module('inventory')
         if isinstance(inv, InventoryPanel):
             inv.hide_input_bar()

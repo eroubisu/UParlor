@@ -472,6 +472,9 @@ class _ChatViewsMixin:
                 cfg = load_global_config()
                 cfg["model"] = chosen["name"]
                 save_global_config(cfg)
+                if self._service:
+                    self._service._load_today_tokens()
+                    _set_pane_subtitle(self, f"tokens: {self._service.today_tokens_display}")
                 self._log(f"{M_DIM}>>> 模型已切换为 {chosen['display']}{M_END}")
             self._model_picking = False
             self._refresh_content()
@@ -494,6 +497,8 @@ class _ChatViewsMixin:
             if self._service:
                 self._service._api_config["provider"] = nxt
                 self._service._init_provider()
+                self._service._load_today_tokens()
+                _set_pane_subtitle(self, f"tokens: {self._service.today_tokens_display}")
             self._refresh_content()
         elif idx == 2:
             # 编辑 Base URL
@@ -700,7 +705,8 @@ class _ChatViewsMixin:
             return
         items = getattr(self._state_mgr.inventory, 'items', [])
         self._gift_items = [
-            {"id": it.get("id", ""), "name": it.get("name", "?"), "count": it.get("count", 0)}
+            {"id": it.get("id", ""), "name": it.get("name", "?"),
+             "count": it.get("count", 0), "quality": it.get("quality", 0)}
             for it in items
             if it.get("count", 0) > 0
         ]

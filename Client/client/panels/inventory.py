@@ -42,7 +42,7 @@ from ..config import (
     COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
 )
 from ..state import ModuleStateManager
-from ..widgets.helpers import build_tab_overflow, _widget_width
+from ..widgets.helpers import update_tab_header
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
 
@@ -301,13 +301,7 @@ class InventoryPanel(InputBarMixin, Widget):
                 markup = f"  [{COLOR_HINT_TAB_DIM}]{label}[/]"
             tab_parts.append((markup, cell_len(plain)))
 
-        avail = _widget_width(self, "inventory-header")
-        tab_line = build_tab_overflow(tab_parts, real_active, avail, COLOR_FG_TERTIARY)
-
-        try:
-            self.query_one("#inventory-header", Static).update(tab_line)
-        except Exception:
-            pass
+        update_tab_header(self, "inventory-header", tab_parts, real_active)
 
     def _render_sort_header(self):
         active_idx = self._sort_cursor // 2
@@ -328,13 +322,7 @@ class InventoryPanel(InputBarMixin, Widget):
                 markup = f"[{COLOR_HINT_TAB_DIM}]{plain}[/]"
             tab_parts.append((markup, cell_len(plain)))
 
-        avail = _widget_width(self, "inventory-header")
-        tab_line = build_tab_overflow(tab_parts, real_active, avail, COLOR_FG_TERTIARY)
-
-        try:
-            self.query_one("#inventory-header", Static).update(tab_line)
-        except Exception:
-            pass
+        update_tab_header(self, "inventory-header", tab_parts, real_active)
 
     def _render_quality_header(self):
         items = self._build_quality_items()
@@ -356,13 +344,7 @@ class InventoryPanel(InputBarMixin, Widget):
                 markup = f"  [{COLOR_HINT_TAB_DIM}]{label}[/]"
             tab_parts.append((markup, cell_len(plain)))
 
-        avail = _widget_width(self, "inventory-header")
-        tab_line = build_tab_overflow(tab_parts, real_active, avail, COLOR_FG_TERTIARY)
-
-        try:
-            self.query_one("#inventory-header", Static).update(tab_line)
-        except Exception:
-            pass
+        update_tab_header(self, "inventory-header", tab_parts, real_active)
 
     def on_resize(self, event) -> None:
         self._render_header()
@@ -1002,6 +984,18 @@ class InventoryPanel(InputBarMixin, Widget):
         st = self._state
         self._items = list(st.items)
         self._gold = st.gold
+        self._filter_tab = st.filter_tab
+        self._quality_filter = st.quality_filter
+        self._sort_cursor = st.sort_cursor
+        self._tab_row = st.tab_row
+        self._cursor = st.cursor
+        # 从 filter 值推导出对应的 header cursor 位置
+        cat_items = self._build_cat_items()
+        self._cat_cursor = next(
+            (i for i, (v, _) in enumerate(cat_items) if v == self._filter_tab), 0)
+        qual_items = self._build_quality_items()
+        self._quality_cursor = next(
+            (i for i, (v, _) in enumerate(qual_items) if v == self._quality_filter), 0)
         self._apply_filter()
         self.call_after_refresh(self._refresh_all)
 
@@ -1020,3 +1014,12 @@ class InventoryPanel(InputBarMixin, Widget):
         self._state = state.inventory
         self._state.set_listener(self._on_state_event)
         self._sync_from_state()
+
+    def on_unmount(self):
+        if self._state_mgr:
+            st = self._state_mgr.inventory
+            st.cursor = self._cursor
+            st.filter_tab = self._filter_tab
+            st.quality_filter = self._quality_filter
+            st.sort_cursor = self._sort_cursor
+            st.tab_row = self._tab_row

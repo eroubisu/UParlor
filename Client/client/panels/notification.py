@@ -288,5 +288,14 @@ class NotificationPanel(Widget):
 
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
-        state.notify.set_listener(self._on_state_event)
+        st = state.notify
+        st.set_listener(self._on_state_event)
+        self._tab = st.tab
+        self._cursor = st.cursor
         self._render_all()
+
+    def on_unmount(self):
+        if self._state_mgr:
+            st = self._state_mgr.notify
+            st.tab = self._tab
+            st.cursor = self._cursor

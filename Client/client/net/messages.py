@@ -114,6 +114,10 @@ class FriendRequest:
 class DMHistory:
     conversations: dict = field(default_factory=dict)
 
+@dataclass
+class ProfileCard:
+    data: dict = field(default_factory=dict)
+
 
 # ── 分发表 ──
 
@@ -147,6 +151,7 @@ _PARSERS = {
                                             time=m.get('time', '')),
     'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending', [])),
     'dm_history':     lambda m: DMHistory(conversations=m.get('conversations', {})),
+    'profile_card':   lambda m: ProfileCard(data=m.get('data', {})),
 }
 
 

@@ -26,7 +26,7 @@ from .schema import get_default_user_template, ensure_user_schema
 
 _MODULE_MAP = {
     'auth':       ('name', 'password_hash', 'created_at'),
-    'profile':    ('level', 'exp', 'gold', 'accessory', 'social_stats', 'friends'),
+    'profile':    ('level', 'exp', 'gold', 'accessory', 'profile_card', 'social_stats', 'friends'),
     'game_stats': ('game_stats',),
     'inventory':  ('inventory',),
     'titles':     ('titles',),

@@ -19,13 +19,13 @@ from ..config import (
     M_DIM, M_END,
     COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
     COLOR_ACCENT,
-    COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
 )
 from ..state import ModuleStateManager
 from ..widgets import _set_pane_subtitle
-from ..widgets.helpers import build_tab_overflow, _widget_width
+from ..widgets.helpers import render_tab_header, _widget_width
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
+from ._card_render import render_card
 
 
 _TABS = ["friends", "all", "online", "search"]
@@ -34,6 +34,7 @@ _TAB_LABELS = {"friends": "好友", "all": "所有", "online": "在线", "search
 _MODE_LIST = 'list'
 _MODE_ACTION = 'action'
 _MODE_CONFIRM = 'confirm'
+_MODE_CARD = 'card'
 
 
 def _truncate_name(name: str, max_width: int) -> str:
@@ -112,7 +113,9 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             return []
         is_friend = name in st.online.friends
         actions = []
-        actions.append(('private_chat', '发起私聊'))
+        actions.append(('view_card', '查看名片'))
+        if is_friend:
+            actions.append(('private_chat', '发起私聊'))
         if is_friend:
             actions.append(('friend_remove', '删除好友'))
         else:
@@ -150,6 +153,8 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         self._scroll_offset = max(0, self._scroll_offset)
 
     def nav_down(self):
+        if self._mode == _MODE_CARD:
+            return
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
@@ -164,6 +169,8 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         self._render_list()
 
     def nav_up(self):
+        if self._mode == _MODE_CARD:
+            return
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
@@ -199,6 +206,17 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             if not actions:
                 return
             action_id, label = actions[self._action_cursor]
+            if action_id == 'view_card':
+                try:
+                    self.app.network.send({
+                        'type': 'get_profile_card',
+                        'target': name,
+                    })
+                except Exception:
+                    pass
+                self._mode = _MODE_CARD
+                self._render_card_waiting()
+                return
             if action_id == 'private_chat':
                 st = self._state_mgr
                 if st:
@@ -222,6 +240,9 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 self.app.network.send({"type": "friend_request", "name": self._confirm_target})
             elif self._confirm_action == 'friend_remove':
                 self.app.network.send({"type": "friend_remove", "name": self._confirm_target})
+                st = self._state_mgr
+                if st:
+                    st.chat.close_private_tab(self._confirm_target)
             self._mode = _MODE_LIST
             self._render_list()
             return
@@ -229,6 +250,10 @@ class OnlineUsersPanel(InputBarMixin, Widget):
     def nav_back(self) -> bool:
         if self._wants_insert:
             return False
+        if self._mode == _MODE_CARD:
+            self._mode = _MODE_LIST
+            self._render_list()
+            return True
         if self._mode == _MODE_CONFIRM:
             self._mode = _MODE_ACTION
             self._render_list()
@@ -250,6 +275,10 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         if self._wants_insert:
             self._wants_insert = False
             self.hide_input_bar()
+            return True
+        if self._mode == _MODE_CARD:
+            self._mode = _MODE_LIST
+            self._render_list()
             return True
         if self._mode != _MODE_LIST:
             self._mode = _MODE_LIST
@@ -299,18 +328,20 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         st = self._state_mgr
         if not st:
             return []
+        my_name = st.chat._my_name
         if self._tab == "friends":
-            return list(st.online.friends)
+            return [n for n in st.online.friends if n != my_name]
         elif self._tab == "all":
-            return list(st.online.all_users)
+            return [n for n in st.online.all_users if n != my_name]
         elif self._tab == "online":
             return [u["name"] if isinstance(u, dict) else str(u)
-                    for u in st.online.users]
+                    for u in st.online.users
+                    if (u.get("name") if isinstance(u, dict) else str(u)) != my_name]
         elif self._tab == "search":
             q = self._search_query
             if not q:
                 return []
-            return [n for n in st.online.all_users if q in n.lower()]
+            return [n for n in st.online.all_users if q in n.lower() and n != my_name]
         return []
 
     def _online_names(self) -> set[str]:
@@ -330,28 +361,10 @@ class OnlineUsersPanel(InputBarMixin, Widget):
     def _render_all(self):
         self._render_header()
         self._render_list()
+        self._update_subtitle()
 
     def _render_header(self):
-        tab_parts = []
-        for t in _TABS:
-            label = _TAB_LABELS[t]
-            if t == self._tab:
-                plain = f"● {label}"
-                markup = f"[{COLOR_HINT_TAB_ACTIVE}]{plain}[/]"
-            else:
-                plain = f"  {label}"
-                markup = f"  [{COLOR_HINT_TAB_DIM}]{label}[/]"
-            tab_parts.append((markup, cell_len(plain)))
-
-        active_idx = _TABS.index(self._tab) if self._tab in _TABS else 0
-        avail = _widget_width(self, "online-header")
-        tab_line = build_tab_overflow(tab_parts, active_idx, avail, COLOR_FG_TERTIARY)
-
-        try:
-            header = self.query_one("#online-header", Static)
-            header.update(tab_line)
-        except Exception:
-            pass
+        render_tab_header(self, "online-header", _TABS, _TAB_LABELS, self._tab)
 
     def on_resize(self, event) -> None:
         self._render_all()
@@ -378,6 +391,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             else:
                 log.write(RichText.from_markup(
                     f"{M_DIM}暂无用户{M_END}"))
+            self._update_subtitle()
             return
 
         if self._cursor >= len(items):
@@ -419,33 +433,17 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                 log.write(RichText.from_markup(
                     f"     [{COLOR_FG_SECONDARY}]{self._confirm_label}[/]"))
 
-        # 滚动条指示器
-        if need_sb:
-            self._draw_scrollbar(log, items, start, end, avail)
+        self._update_subtitle()
 
-        # 更新面板副标题
-        if not need_sb:
-            online_count = len(online_names)
-            if online_count:
-                _set_pane_subtitle(self, f"在线({online_count})")
-            else:
-                _set_pane_subtitle(self, "")
+    def _update_subtitle(self):
+        """始终更新面板副标题为在线人数"""
+        online_count = len(self._online_names())
+        if online_count:
+            _set_pane_subtitle(self, f"在线({online_count})")
+        else:
+            _set_pane_subtitle(self, "")
 
-    @staticmethod
-    def _sb_char(row: int, visible: int, total: int, offset: int) -> str:
-        """单行滚动条字符"""
-        max_off = max(1, total - visible)
-        thumb_size = max(1, round(visible / total * visible))
-        track = visible - thumb_size
-        thumb_start = round(offset / max_off * track) if track > 0 else 0
-        if thumb_start <= row < thumb_start + thumb_size:
-            return f" [{COLOR_FG_TERTIARY}]\u2588[/]"
-        return f" [{COLOR_FG_TERTIARY}]\u2502[/]"
 
-    def _draw_scrollbar(self, log: RichLog, items: list, start: int, end: int, avail: int):
-        """在渲染完成后用副标题显示滚动位置"""
-        total = len(items)
-        _set_pane_subtitle(self, f"{self._cursor + 1}/{total}")
 
     def _format_user_line(self, name, is_online, is_friend, selected, avail, need_sb=False):
         """格式化用户行：名字左对齐，状态右对齐，名字可截断
@@ -503,14 +501,51 @@ class OnlineUsersPanel(InputBarMixin, Widget):
 
     # ── State listener ──
 
+    def _render_card_waiting(self):
+        try:
+            log: RichLog = self.query_one("#online-log", RichLog)
+        except Exception:
+            return
+        log.clear()
+        log.write(RichText.from_markup(f"{M_DIM}加载名片...{M_END}"))
+
+    def _render_card_view(self, card_data: dict):
+        try:
+            log: RichLog = self.query_one("#online-log", RichLog)
+        except Exception:
+            return
+        avail_w = _widget_width(self, "online-log")
+        try:
+            h = log.scrollable_content_region.height
+            avail_h = h if h > 0 else 15
+        except Exception:
+            avail_h = 15
+        render_card(log, card_data, avail_w, avail_h)
+
     def _on_state_event(self, event: str, *args):
+        if event == 'viewed_card':
+            (card_data,) = args
+            if self._mode == _MODE_CARD:
+                self._render_card_view(card_data)
+            return
         if event in ('update_users', 'update_friends', 'update_all_users'):
-            # 数据变更时重置到列表模式
-            if self._mode != _MODE_LIST:
+            # 数据变更时重置到列表模式（名片模式除外）
+            if self._mode not in (_MODE_LIST, _MODE_CARD):
                 self._mode = _MODE_LIST
             self._render_all()
 
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
-        state.online.set_listener(self._on_state_event)
+        st = state.online
+        st.set_listener(self._on_state_event)
+        self._tab = st.tab
+        self._cursor = st.cursor
+        self._search_query = st.search_query
         self._render_all()
+
+    def on_unmount(self):
+        if self._state_mgr:
+            st = self._state_mgr.online
+            st.tab = self._tab
+            st.cursor = self._cursor
+            st.search_query = self._search_query

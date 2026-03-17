@@ -15,6 +15,7 @@ from .messages import (
     RoomUpdate, RoomLeave, GameQuit, LocationUpdate,
     CommandsUpdate, GameEvent, ActionCommand, AISyncDown,
     FriendList, AllUsers, PrivateChat, FriendRequest, DMHistory,
+    ProfileCard,
 )
 from ..protocol.handler import GameHandlerContext, get_handler
 from ..panels import LoginPanel
@@ -66,6 +67,11 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
     parsed = parse_server_message(raw)
     st = screen.state
 
+    # 版本检查 — 连接后服务器下发最新客户端版本号
+    if raw.get('type') == 'client_version':
+        _handle_version_check(app, screen, raw.get('latest', ''))
+        return
+
     if isinstance(parsed, LoginPrompt):
         login = screen._get_module('login')
         if isinstance(login, LoginPanel):
@@ -80,6 +86,7 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
 
     elif isinstance(parsed, SystemMessage):
         st.chat.add_system_message(parsed.text)
+        st.notify.add_system_notification(parsed.text)
 
     elif isinstance(parsed, GameMessage):
         st.cmd.add_line(parsed.text, update_last=parsed.update_last)
@@ -151,6 +158,9 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             st.notify.add_friend_request(parsed.from_name)
             # 好友申请是重要社交事件，始终推送给 AI
             _push_ai_event(screen, f"{parsed.from_name}想加你为好友", high_priority=True)
+
+    elif isinstance(parsed, ProfileCard):
+        st.online.set_viewed_card(parsed.data)
 
     elif isinstance(parsed, GameInvite):
         inv = parsed.raw
@@ -230,10 +240,12 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             local = load_stats()
             remote = parsed.token_stats
             if remote.get('today') == local.get('today', ''):
-                remote['tokens'] = max(
-                    remote.get('tokens', 0),
-                    local.get('tokens', 0),
-                )
+                r_models = remote.get('models', {})
+                l_models = local.get('models', {})
+                merged = {}
+                for k in set(r_models) | set(l_models):
+                    merged[k] = max(r_models.get(k, 0), l_models.get(k, 0))
+                remote['models'] = merged
             save_stats(remote)
 
     elif isinstance(parsed, ActionCommand):
@@ -254,6 +266,9 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             ime.on_app_blur()
             app.network.disconnect()
             app.exit()
+        elif action == "return_to_login":
+            screen.logged_in = False
+            screen.call_later(screen._rebuild_to_login_layout)
         elif action == "maintenance":
             from ..config import M_BOLD, M_END
             maint_text = f"{M_BOLD}系统维护{M_END}: 服务器正在维护，请稍后重连。"
@@ -261,3 +276,23 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
             from ..ui import ime
             ime.on_app_blur()
             app.network.disconnect()
+
+
+def _handle_version_check(app, screen, latest: str):
+    """服务器下发最新客户端版本号，与本地对比"""
+    if not latest:
+        return
+    try:
+        from ..config import VERSION, M_DIM, M_END
+        current = VERSION or "0.0.0"
+        cur = tuple(int(x) for x in current.split("."))
+        lat = tuple(int(x) for x in latest.split("."))
+        if lat > cur:
+            login = screen._get_module('login')
+            msg = f"{M_DIM}发现新版本 v{latest}（当前 v{current}），请更新: pip install --upgrade uparlor{M_END}"
+            if isinstance(login, LoginPanel):
+                login.add_message(msg)
+            else:
+                screen.state.cmd.add_line(msg)
+    except Exception:
+        pass

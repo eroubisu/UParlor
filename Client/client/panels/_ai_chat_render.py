@@ -296,17 +296,21 @@ class _ChatRenderMixin:
         if not self._gift_items:
             lines.append(f"[{COLOR_FG_TERTIARY}]暂无物品{M_END}")
             return lines
+        _qm = {0: '', 1: '-', 2: '+', 3: '*', 4: '=', 5: '!'}
         for i, item in enumerate(self._gift_items):
             name = item.get("name", "?")
             count = item.get("count", 0)
+            q = item.get("quality", 0)
+            m = _qm.get(q, '')
+            display = f"{m}{name}{m}" if m else name
             selected = i == self._gift_cursor
             if selected and self._gift_qty > 0:
-                lines.append(f" [{COLOR_ACCENT}]●[/] [b]{name} x{count}[/b]")
+                lines.append(f" [{COLOR_ACCENT}]●[/] [b]{display} x{count}[/b]")
                 lines.append(f"   赠送数量: [{COLOR_ACCENT}]{self._gift_qty}[/]")
             elif selected:
-                lines.append(f" [{COLOR_ACCENT}]●[/] [b]{name} x{count}[/b]")
+                lines.append(f" [{COLOR_ACCENT}]●[/] [b]{display} x{count}[/b]")
             else:
-                lines.append(f"   [{COLOR_FG_SECONDARY}]{name} x{count}{M_END}")
+                lines.append(f"   [{COLOR_FG_SECONDARY}]{display} x{count}{M_END}")
         return lines
 
     def _render_settings(self) -> list[str]:
@@ -334,7 +338,7 @@ class _ChatRenderMixin:
             f"切换模型: {current_model}",
             f"自动启动: {auto_label}",
             f"注意力: {attn_label}",
-            f"清空聊天记录",
+            f"清空屏幕",
             f"重置所有记忆",
             f"切换角色",
             f"删除此角色",

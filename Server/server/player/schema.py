@@ -70,6 +70,15 @@ def get_default_user_template(name="", password_hash=""):
         'gold': 100,
         'accessory': None,
 
+        'profile_card': {
+            'motto': '',
+            'pattern_id': 'pattern_default',
+            'name_color': '#ffffff',
+            'motto_color': '#b3b3b3',
+            'border_color': '#5a5a5a',
+            'card_fields': ['level', 'gold', 'games', 'created'],
+        },
+
         'social_stats': {
             'login_days': 0,
             'last_login_date': '',
@@ -88,6 +97,7 @@ def get_default_user_template(name="", password_hash=""):
 
         'inventory': {
             'rename_card': 2,
+            'pattern_default': 1,
         },
 
         'titles': {

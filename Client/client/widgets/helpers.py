@@ -1,5 +1,10 @@
 """面板共用工具函数"""
 
+from rich.cells import cell_len
+from textual.widgets import Static
+
+from ..config import COLOR_FG_TERTIARY, COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM
+
 
 def _set_pane_subtitle(widget, text: str):
     """沿 DOM 向上找到 PaneWrapper 并设置 border_subtitle"""
@@ -82,3 +87,59 @@ def build_tab_overflow(
     if hi < len(tab_parts):
         result += f" [{dim_color}]>[/]"
     return result
+
+
+def build_tab_parts(
+    tabs: list[str],
+    labels: dict[str, str],
+    active: str,
+) -> tuple[list[tuple[str, int]], int]:
+    """构建标准标签页 tab_parts 和 active_idx。
+
+    返回 (tab_parts, active_idx)，可直接传入 build_tab_overflow。
+    """
+    parts: list[tuple[str, int]] = []
+    active_idx = 0
+    for i, key in enumerate(tabs):
+        label = labels.get(key, key)
+        if key == active:
+            active_idx = i
+            plain = f"● {label}"
+            markup = f"[{COLOR_HINT_TAB_ACTIVE}]{plain}[/]"
+        else:
+            plain = f"  {label}"
+            markup = f"  [{COLOR_HINT_TAB_DIM}]{label}[/]"
+        parts.append((markup, cell_len(plain)))
+    return parts, active_idx
+
+
+def render_tab_header(
+    widget,
+    header_id: str,
+    tabs: list[str],
+    labels: dict[str, str],
+    active: str,
+) -> None:
+    """标准标签页渲染 — 构建 tab_parts 并更新 header Static 控件。"""
+    parts, active_idx = build_tab_parts(tabs, labels, active)
+    avail = _widget_width(widget, header_id)
+    line = build_tab_overflow(parts, active_idx, avail, COLOR_FG_TERTIARY)
+    try:
+        widget.query_one(f"#{header_id}", Static).update(line)
+    except Exception:
+        pass
+
+
+def update_tab_header(
+    widget,
+    header_id: str,
+    tab_parts: list[tuple[str, int]],
+    active_idx: int,
+) -> None:
+    """自定义 tab_parts 的标签页更新 — 用于需要特殊标记的面板。"""
+    avail = _widget_width(widget, header_id)
+    line = build_tab_overflow(tab_parts, active_idx, avail, COLOR_FG_TERTIARY)
+    try:
+        widget.query_one(f"#{header_id}", Static).update(line)
+    except Exception:
+        pass

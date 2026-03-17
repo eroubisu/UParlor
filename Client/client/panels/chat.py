@@ -12,7 +12,7 @@ from textual.widget import Widget
 
 from ..widgets import InputBar, _set_pane_subtitle, MenuNav, render_menu_lines
 from ..widgets.prompt import InputBarMixin
-from ..widgets.helpers import build_tab_overflow, _widget_width
+from ..widgets.helpers import update_tab_header
 from ..config import (
     MAX_LINES_CHAT, CHANNEL_NAMES, M_DIM, M_BOLD, M_END,
     COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
@@ -211,14 +211,7 @@ class ChatPanel(InputBarMixin, Widget):
             tab_parts.append((markup, cell_len(plain)))
 
         active_idx = tabs.index(self._active_tab) if self._active_tab in tabs else 0
-        avail = _widget_width(self, "chat-header")
-        tab_line = build_tab_overflow(tab_parts, active_idx, avail, COLOR_FG_TERTIARY)
-
-        try:
-            header = self.query_one("#chat-header", Static)
-            header.update(tab_line)
-        except Exception:
-            pass
+        update_tab_header(self, "chat-header", tab_parts, active_idx)
 
     def on_resize(self, event) -> None:
         self._render_header()

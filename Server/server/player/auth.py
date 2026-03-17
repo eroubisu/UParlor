@@ -27,24 +27,37 @@ class AuthMixin:
             return
 
         name = text
-        exists = PlayerManager.player_exists(name)
-
-        # 新用户注册时校验格式（已有用户允许登录以保持兼容）
-        if not exists:
-            err = validate_username(name)
-            if err:
-                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': f'{err}\n请重新输入用户名：'})
-                return
+        if not PlayerManager.player_exists(name):
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该用户名不存在。'})
+            return
 
         with self.lock:
             self.clients[client_socket]['name'] = name
 
-        if exists:
-            self.clients[client_socket]['state'] = 'password'
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入密码：'})
-        else:
-            self.clients[client_socket]['state'] = 'register_password'
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请设置密码（至少3个字符）：'})
+        self.clients[client_socket]['state'] = 'password'
+        self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入密码：'})
+
+    def _handle_register_name(self, client_socket, text):
+        """注册流程 — 用户名阶段：校验格式 + 检查占用"""
+        if not text:
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '用户名不能为空，请重新输入：'})
+            return
+
+        name = text
+        err = validate_username(name)
+        if err:
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': err})
+            return
+
+        if PlayerManager.player_exists(name):
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该用户名已被占用。'})
+            return
+
+        with self.lock:
+            self.clients[client_socket]['name'] = name
+
+        self.clients[client_socket]['state'] = 'register_password'
+        self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请设置密码（至少3个字符）：'})
 
     def _handle_register(self, client_socket):
         """处理注册"""
@@ -120,9 +133,6 @@ class AuthMixin:
                 'companions': ai_data,
                 'token_stats': token_stats,
             })
-        online_msg = f'{name} 上线了'
-        self.log_mgr.save(1, '[SYS]', online_msg)
-        self.broadcast({'type': CHAT, 'name': '[SYS]', 'text': online_msg, 'channel': 1})
         self.broadcast_online_users()
         self._send_friend_list(client_socket, player_data)
         self._send_all_users(client_socket)

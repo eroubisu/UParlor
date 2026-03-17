@@ -1,6 +1,6 @@
-"""大厅级待确认状态处理（rename/password/delete）"""
+"""大厅级待确认状态处理（rename/password）"""
 
-from .profile import do_rename, do_change_password, do_delete_account
+from .profile import do_rename, do_change_password
 from ..systems.item_commands import (
     pending_use_rename_card, pending_gift_item, pending_drop_item,
 )
@@ -36,23 +36,10 @@ def _pending_password_confirm(lobby, player_name, player_data, cmd, raw_input, p
     return do_change_password(player_name, pending_data)
 
 
-def _pending_delete_start(lobby, player_name, player_data, cmd, raw_input, pending_data):
-    if raw_input != player_name:
-        return '用户名不匹配。已取消。'
-    lobby.pending_confirms[player_name] = {'type': 'delete_password'}
-    return '请输入你的密码：'
-
-
-def _pending_delete_password(lobby, player_name, player_data, cmd, raw_input, pending_data):
-    return do_delete_account(lobby, player_name, raw_input)
-
-
 _PENDING_HANDLERS: dict[str, callable] = {
     'rename':           _pending_rename,
     'password_start':   _pending_password_start,
     'password_confirm': _pending_password_confirm,
-    'delete_start':     _pending_delete_start,
-    'delete_password':  _pending_delete_password,
     'use_rename_card':  pending_use_rename_card,
     'gift_item':        pending_gift_item,
     'drop_item':        pending_drop_item,

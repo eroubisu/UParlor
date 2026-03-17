@@ -28,6 +28,21 @@ def get_version():
     sys.exit(1)
 
 
+def sync_server_version(ver: str, project_dir: str):
+    """同步客户端版本号到服务器 config.py 的 CLIENT_VERSION"""
+    server_cfg = os.path.join(project_dir, "..", "Server", "server", "config.py")
+    server_cfg = os.path.normpath(server_cfg)
+    if os.path.exists(server_cfg):
+        with open(server_cfg, "r", encoding="utf-8") as f:
+            src = f.read()
+        src = re.sub(
+            r'^(CLIENT_VERSION\s*=\s*)".*?"', rf'\1"{ver}"',
+            src, count=1, flags=re.MULTILINE,
+        )
+        with open(server_cfg, "w", encoding="utf-8") as f:
+            f.write(src)
+
+
 def run(cmd, check=True):
     """执行命令"""
     print(f"  > {cmd}")
@@ -54,6 +69,9 @@ def main():
     if reply != "y":
         print("已取消。")
         return
+
+    # 0. 同步版本号到服务器
+    sync_server_version(version, project_dir)
 
     # 1. 清理旧构建
     print("\n[1/3] 清理旧构建...")

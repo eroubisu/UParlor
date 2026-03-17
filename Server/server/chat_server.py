@@ -23,8 +23,8 @@ from .game.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    ALL_USERS, CHAT, CHAT_HISTORY, DM_HISTORY, FRIEND_LIST, FRIEND_REQUEST, GAME, LOGIN_PROMPT,
-    LOCATION_UPDATE, ONLINE_USERS, PRIVATE_CHAT, STATUS,
+    ACTION, ALL_USERS, CHAT, CHAT_HISTORY, DM_HISTORY, FRIEND_LIST, FRIEND_REQUEST, GAME, LOGIN_PROMPT,
+    LOCATION_UPDATE, ONLINE_USERS, PRIVATE_CHAT, PROFILE_CARD, STATUS, SYSTEM,
 )
 
 
@@ -34,6 +34,9 @@ class ChatServer(AuthMixin):
         self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.clients = {}
         self.lock = threading.Lock()
+        
+        from .config import CLIENT_VERSION
+        self._client_version = CLIENT_VERSION
         
         # 游戏大厅引擎
         self.lobby_engine = LobbyEngine()
@@ -192,6 +195,7 @@ class ChatServer(AuthMixin):
             }
         
         # 登录提示发到指令区
+        self.send_to(client_socket, {'type': 'client_version', 'latest': self._client_version})
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
         
         while self.running:
@@ -237,11 +241,28 @@ class ChatServer(AuthMixin):
             return
         
         if state == 'login':
-            self._handle_login(client_socket, text)
+            if msg_type == 'register':
+                self._handle_register_name(client_socket, text)
+            else:
+                self._handle_login(client_socket, text)
         elif state == 'register_password':
-            self._handle_register_password(client_socket, text)
+            if msg_type == 'login':
+                # 用户切换到登录标签，重置状态
+                with self.lock:
+                    self.clients[client_socket]['state'] = 'login'
+                    self.clients[client_socket]['name'] = None
+                self._handle_login(client_socket, text)
+            else:
+                self._handle_register_password(client_socket, text)
         elif state == 'password':
-            self._handle_password(client_socket, text)
+            if msg_type == 'register':
+                # 用户切换到注册标签，重置状态
+                with self.lock:
+                    self.clients[client_socket]['state'] = 'login'
+                    self.clients[client_socket]['name'] = None
+                self._handle_register_name(client_socket, text)
+            else:
+                self._handle_password(client_socket, text)
         elif state == 'playing':
             self._handle_playing(client_socket, msg)
 
@@ -300,13 +321,15 @@ class ChatServer(AuthMixin):
                 player_data['ai_companions'] = companions
             token_stats = msg.get('token_stats')
             if isinstance(token_stats, dict):
-                # 取本地与服务端同日的较大值
                 saved = player_data.get('ai_token_stats', {})
                 if token_stats.get('today') == saved.get('today', ''):
-                    token_stats['tokens'] = max(
-                        token_stats.get('tokens', 0),
-                        saved.get('tokens', 0),
-                    )
+                    # 按模型取较大值
+                    r_models = token_stats.get('models', {})
+                    s_models = saved.get('models', {})
+                    merged = {}
+                    for k in set(r_models) | set(s_models):
+                        merged[k] = max(r_models.get(k, 0), s_models.get(k, 0))
+                    token_stats['models'] = merged
                 player_data['ai_token_stats'] = token_stats
             PlayerManager.save_player_data(name, player_data)
 
@@ -322,6 +345,78 @@ class ChatServer(AuthMixin):
                     inv_sub(inventory, item_id, quality, qty)
                     PlayerManager.save_player_data(name, player_data)
                     self.send_player_status(client_socket, player_data)
+
+        elif msg_type == 'delete_account':
+            password = msg.get('password', '')
+            if not isinstance(password, str) or not password:
+                self.send_to(client_socket, {'type': GAME, 'text': '密码不能为空。'})
+                return
+            from server.lobby.profile import do_delete_account
+            result = do_delete_account(self.lobby_engine, name, password)
+            if isinstance(result, dict) and result.get('action') == 'account_deleted':
+                self.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})
+                # 重置为登录状态，而非断开连接
+                with self.lock:
+                    self.clients[client_socket]['state'] = 'login'
+                    self.clients[client_socket]['name'] = None
+                    self.clients[client_socket]['data'] = None
+                self.broadcast_online_users()
+                self.send_to(client_socket, {'type': ACTION, 'action': 'return_to_login'})
+                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
+            else:
+                self.send_to(client_socket, {'type': GAME, 'text': result if isinstance(result, str) else '删除失败。'})
+
+        elif msg_type == 'get_profile_card':
+            target = msg.get('target', '').strip()
+            if target and PlayerManager.player_exists(target):
+                target_data = PlayerManager.load_player_data(target)
+                if target_data:
+                    pc = target_data.get('profile_card', {})
+                    pattern_id = pc.get('pattern_id', 'pattern_default')
+                    pattern_info = get_item_info(pattern_id) or {}
+                    titles_data = target_data.get('titles', {})
+                    displayed = titles_data.get('displayed', [])
+                    title_display = ' | '.join(get_title_name(t) for t in displayed) if displayed else ''
+                    card = {
+                        'name': target_data.get('name', target),
+                        'level': target_data.get('level', 1),
+                        'gold': target_data.get('gold', 0),
+                        'title': title_display,
+                        'motto': pc.get('motto', ''),
+                        'name_color': pc.get('name_color', '#ffffff'),
+                        'motto_color': pc.get('motto_color', '#b3b3b3'),
+                        'border_color': pc.get('border_color', '#5a5a5a'),
+                        'pattern': pattern_info.get('pattern', {'chars': '.', 'colors': ['#505050']}),
+                        'card_fields': pc.get('card_fields', ['level', 'gold', 'games', 'created']),
+                        'created_at': target_data.get('created_at', ''),
+                        'game_stats': target_data.get('game_stats', {}),
+                        'social_stats': target_data.get('social_stats', {}),
+                        'friends_count': len(target_data.get('friends', [])),
+                    }
+                    self.send_to(client_socket, {'type': PROFILE_CARD, 'data': card})
+
+        elif msg_type == 'update_profile_card':
+            updates = msg.get('data', {})
+            pc = player_data.setdefault('profile_card', {})
+            allowed = ('motto', 'pattern_id', 'name_color', 'motto_color', 'border_color')
+            for k in allowed:
+                if k in updates:
+                    val = updates[k]
+                    if isinstance(val, str) and len(val) <= 200:
+                        if k == 'pattern_id':
+                            inv = player_data.get('inventory', {})
+                            if val not in inv or (isinstance(inv.get(val), int) and inv[val] <= 0):
+                                continue
+                        pc[k] = val
+            # card_fields: list of field IDs (max 4)
+            if 'card_fields' in updates:
+                valid_ids = {'level', 'gold', 'friends', 'games', 'days', 'created'}
+                raw = updates['card_fields']
+                if isinstance(raw, list) and len(raw) <= 4:
+                    filtered = [f for f in raw if isinstance(f, str) and f in valid_ids]
+                    pc['card_fields'] = filtered
+            PlayerManager.save_player_data(name, player_data)
+            self.send_player_status(client_socket, player_data)
 
         elif msg_type == 'friend_request':
             target = msg.get('name', '').strip()
@@ -443,6 +538,14 @@ class ChatServer(AuthMixin):
             target = msg.get('target', '').strip()
             if not target or not text:
                 return
+            # 仅好友之间可以私聊
+            friends = player_data.get('friends', [])
+            if target not in friends:
+                self.send_to(client_socket, {
+                    'type': SYSTEM,
+                    'text': '只能向好友发送私聊消息。',
+                })
+                return
             display_name = f"[{player_data['level']}]{name}"
             current_time = datetime.now().strftime('%H:%M')
             dm_msg = {
@@ -481,6 +584,21 @@ class ChatServer(AuthMixin):
                 'accessory': player_data.get('accessory'),
                 'window_layout': player_data.get('window_layout'),
             }
+            # 名片数据
+            pc = player_data.get('profile_card', {})
+            pattern_id = pc.get('pattern_id', 'pattern_default')
+            pattern_info = get_item_info(pattern_id) or {}
+            status_data['profile_card'] = {
+                'motto': pc.get('motto', ''),
+                'name_color': pc.get('name_color', '#ffffff'),
+                'motto_color': pc.get('motto_color', '#b3b3b3'),
+                'border_color': pc.get('border_color', '#5a5a5a'),
+                'pattern': pattern_info.get('pattern', {'chars': '.', 'colors': ['#505050']}),
+                'pattern_id': pattern_id,
+                'card_fields': pc.get('card_fields', ['level', 'gold', 'games', 'created']),
+            }
+            status_data['created_at'] = player_data.get('created_at', '')
+            status_data['friends_count'] = len(player_data.get('friends', []))
             # 附带富物品信息供客户端直接渲染
             inv_raw = player_data.get('inventory', {})
             inv_list = []
@@ -489,7 +607,7 @@ class ChatServer(AuthMixin):
                 if isinstance(val, int):
                     # 兼容旧格式: 纯数量 → quality 0
                     if val > 0:
-                        inv_list.append({
+                        entry = {
                             'id': item_id,
                             'quality': 0,
                             'count': val,
@@ -497,11 +615,14 @@ class ChatServer(AuthMixin):
                             'desc': info.get('desc', ''),
                             'category': info.get('category', ''),
                             'use_methods': info.get('use_methods', []),
-                        })
+                        }
+                        if info.get('pattern'):
+                            entry['pattern'] = info['pattern']
+                        inv_list.append(entry)
                 elif isinstance(val, dict):
                     for q_str, count in sorted(val.items()):
                         if isinstance(count, int) and count > 0:
-                            inv_list.append({
+                            entry = {
                                 'id': item_id,
                                 'quality': int(q_str),
                                 'count': count,
@@ -509,7 +630,10 @@ class ChatServer(AuthMixin):
                                 'desc': info.get('desc', ''),
                                 'category': info.get('category', ''),
                                 'use_methods': info.get('use_methods', []),
-                            })
+                            }
+                            if info.get('pattern'):
+                                entry['pattern'] = info['pattern']
+                            inv_list.append(entry)
             status_data['inventory'] = inv_list
 
             # 全局游戏统计
@@ -563,10 +687,6 @@ class ChatServer(AuthMixin):
                     room_notifications = self.lobby_engine.unregister_player(name)
         
         if should_broadcast:
-            # 聊天室显示下线消息
-            offline_msg = f'{name} 下线了'
-            self.log_mgr.save(1, '[SYS]', offline_msg)
-            self.broadcast({'type': CHAT, 'name': '[SYS]', 'text': offline_msg, 'channel': 1})
             self.broadcast_online_users()
             
             # 通知房间内其他玩家

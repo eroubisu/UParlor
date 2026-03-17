@@ -12,6 +12,7 @@ from textual.app import ComposeResult
 
 from .vim_mode import VimMode, Mode
 from ..protocol.handler import GameHandlerContext, get_handler
+from ..registry import get_module_info
 from ..state import ModuleStateManager
 from .canvas import Canvas
 from .layout import (
@@ -102,6 +103,19 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                 self._set_focused_pane(panes[0].pane_id)
         self.action_enter_normal()
 
+    async def _rebuild_to_login_layout(self):
+        """账号注销后回到登录界面"""
+        self.state = ModuleStateManager()
+        self._layout_tree = get_default_layout()
+        self._layout_loaded = False
+        self.app.player_data = {}
+        await self.canvas.rebuild(self._layout_tree)
+        self._restore_all_modules()
+        panes = all_panes(self._layout_tree)
+        if panes:
+            self._set_focused_pane(panes[0].pane_id)
+        self._enter_insert()
+
     # ── 画布与面板访问 ──
 
     @property
@@ -141,13 +155,18 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     @property
     def _input_target(self) -> str:
         mod = self._focused_module()
-        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online'):
+        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online', 'status'):
             return mod
         return ''
 
     def _can_input(self) -> bool:
         target = self._input_target
-        if target in ('chat', 'cmd', 'login'):
+        if target in ('chat', 'cmd'):
+            return True
+        if target == 'login':
+            w = self._get_module('login')
+            if isinstance(w, LoginPanel) and w._tab == 'settings':
+                return False
             return True
         if target == 'inventory':
             w = self._get_module('inventory')
@@ -166,6 +185,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                     return True
                 return w._tab == "search"
             return False
+        if target == 'status':
+            from ..panels.status import StatusPanel
+            w = self._get_module('status')
+            return isinstance(w, StatusPanel) and getattr(w, 'wants_insert', False)
         return False
 
     @property
@@ -284,33 +307,52 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         widget = self._get_module(mod) if mod else None
         if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
             widget.show_prompt(text)
+        else:
+            from ..panels.status import StatusPanel
+            if isinstance(widget, StatusPanel):
+                widget.show_prompt(text)
 
     def _update_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
         if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
             widget.update_prompt(text)
+        else:
+            from ..panels.status import StatusPanel
+            if isinstance(widget, StatusPanel):
+                widget.update_prompt(text)
 
     def _hide_panel_prompt(self):
-        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online'):
+        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online', 'status'):
             widget = self._get_module(mod)
             if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
                 widget.hide_prompt()
+            else:
+                from ..panels.status import StatusPanel
+                if isinstance(widget, StatusPanel):
+                    widget.hide_prompt()
 
     # ── Space 菜单由 SpaceMenuMixin 提供 ──
 
     async def _do_open_module(self, module_name: str):
         canvas = self.canvas
-        # 如果该模块已在其他窗格中，先清除旧位置
+        # 如果该模块已在其他窗格中，先清除旧位置（热替换为空）
         existing = find_module_pane(self._layout_tree, module_name)
         if existing and existing.pane_id != self._focused_pane_id:
             existing.module = None
-        # 直接替换当前窗格的模块
+            old_pw = canvas.get_pane(existing.pane_id)
+            if old_pw:
+                await old_pw.set_module(None)
+        # 直接替换当前窗格的模块（热替换）
         current = find_pane(self._layout_tree, self._focused_pane_id)
         if current:
             current.module = module_name
-        await canvas.rebuild(self._layout_tree)
-        self._restore_all_modules()
+        info = get_module_info(module_name)
+        new_widget = info['class']() if info else None
+        pw = canvas.get_pane(self._focused_pane_id)
+        if pw:
+            await pw.set_module(module_name, new_widget)
+        self._restore_module(module_name)
         self._set_focused_pane(self._focused_pane_id)
         self._save_layout()
 

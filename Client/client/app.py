@@ -244,36 +244,9 @@ class UParlorApp(App):
         ime.on_app_focus(self.vim.mode == Mode.NORMAL)
 
 
-def _check_version() -> bool:
-    """检查是否最新版，返回 True 表示可以启动"""
-    from .config import VERSION
-    current = VERSION or "0.0.0"
-    print(f"uparlor v{current}")
-    print("正在检查更新...")
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            "https://pypi.org/pypi/uparlor/json",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            latest = json.loads(resp.read().decode())["info"]["version"]
-        cur = tuple(int(x) for x in current.split("."))
-        lat = tuple(int(x) for x in latest.split("."))
-        if lat > cur:
-            print(f"\n发现新版本 v{latest}（当前 v{current}），请更新后启动:\n")
-            print(f"  pip install --upgrade uparlor\n")
-            return False
-        else:
-            print("已是最新版本\n")
-    except Exception:
-        pass
-    return True
-
-
 def main():
     """CLI 入口点"""
-    if not _check_version():
-        return
+    from .config import VERSION
+    print(f"uparlor v{VERSION or 'dev'}\n")
     app = UParlorApp()
     app.run()

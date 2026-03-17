@@ -13,7 +13,7 @@ from .notification import NotificationPanel
 
 from ..registry import register_module
 
-register_module('login',      '登录',     LoginPanel, scope='internal')
+register_module('login',      '开始',     LoginPanel, scope='internal')
 register_module('chat',       '聊天',     ChatPanel, desc='频道消息和私聊')
 register_module('cmd',        '指令',     CommandPanel, desc='输入并执行指令')
 register_module('status',     '状态',     StatusPanel, desc='个人信息总览')
