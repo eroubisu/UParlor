@@ -22,7 +22,7 @@ from .layout import (
     all_panes, find_pane, find_module_pane,
     split_pane, close_pane, resize_pane,
 )
-from ..panels import ChatPanel, CommandPanel, LoginPanel, AIChatPanel
+from ..panels import LoginPanel, AIChatPanel
 from ..panels.inventory import InventoryPanel
 from ..panels.online import OnlineUsersPanel
 from ..panels.which_key import WhichKeyPanel
@@ -56,7 +56,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         with Horizontal(id="footer-bar"):
             yield Static(" NORMAL ", id="mode-indicator")
             yield Static("HOME", id="location-indicator")
-            yield Static("----", id="connection-status")
+            yield Static("", id="badge-indicator")
+            yield Static(" ---- ", id="connection-status")
 
     def on_mount(self) -> None:
         panes = all_panes(self._layout_tree)
@@ -102,6 +103,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             if panes:
                 self._set_focused_pane(panes[0].pane_id)
         self.action_enter_normal()
+        self.update_badges()
 
     async def _rebuild_to_login_layout(self):
         """账号注销后回到登录界面"""
@@ -155,13 +157,16 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     @property
     def _input_target(self) -> str:
         mod = self._focused_module()
-        if mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online', 'status'):
+        if mod in ('chat', 'cmd', 'game_board', 'login', 'inventory', 'ai', 'online', 'status'):
             return mod
         return ''
 
+    def _is_cmd_focused(self) -> bool:
+        return self._focused_module() == 'cmd'
+
     def _can_input(self) -> bool:
         target = self._input_target
-        if target in ('chat', 'cmd'):
+        if target in ('chat', 'cmd', 'game_board'):
             return True
         if target == 'login':
             w = self._get_module('login')
@@ -220,8 +225,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             return
         self._input_buffer = ""
         self.vim.enter_insert()
-        # 指令面板: 输入的是 /cmd 英文指令，保持英文 IME
-        if self._input_target == 'cmd':
+        # 游戏面板/指令面板: 输入的是 /cmd 英文指令，保持英文 IME
+        if self._input_target in ('game_board', 'cmd'):
             from . import ime
             ime.on_enter_normal()
         self._update_mode_indicator()
@@ -248,10 +253,9 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     # ── InputTextArea 自定义消息 ──
 
     def on_text_area_changed(self, event) -> None:
-        """TextArea 内容变更 — 同步 _input_buffer + 更新补全"""
+        """TextArea 内容变更 — 同步 _input_buffer"""
         if self.vim.mode == Mode.INSERT:
             self._input_buffer = event.text_area.text
-            self._update_completion()
             if self._input_target == 'online':
                 w = self._get_module('online')
                 if isinstance(w, OnlineUsersPanel):
@@ -260,6 +264,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                 w = self._get_module('inventory')
                 if isinstance(w, InventoryPanel):
                     w.on_search_change(self._input_buffer)
+            elif self._input_target == 'game_board':
+                self._hint_filter(self._input_buffer)
 
     def on_input_text_area_submit(self, event) -> None:
         """Enter / Ctrl+Enter 提交"""
@@ -292,6 +298,11 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         """AI 面板异步步骤完成后请求进入 INSERT 模式"""
         self._enter_insert()
 
+    def on_game_board_panel_request_insert(self, event) -> None:
+        """服务端推送选择菜单 → 确保输入框打开"""
+        if self.vim.mode == Mode.NORMAL:
+            self._enter_insert()
+
     def _update_mode_indicator(self):
         indicator = self.query_one("#mode-indicator", Static)
         mode = self.vim.mode
@@ -300,37 +311,45 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         elif mode == Mode.INSERT:
             indicator.update(" INSERT ")
 
+    def update_badges(self):
+        """Update notification/message badge indicators in footer bar."""
+        try:
+            badge = self.query_one("#badge-indicator", Static)
+        except Exception:
+            return
+        parts = []
+        dm_unread = len(self.state.chat.dm_unread)
+        if dm_unread:
+            parts.append(f"私{dm_unread}")
+        notify_unread = self.state.notify.unread_count
+        if notify_unread:
+            parts.append(f"通{notify_unread}")
+        if parts:
+            text = " ".join(parts)
+            badge.update(f" [{text}]")
+        else:
+            badge.update("")
+
     # ── 面板内输入提示 ──
 
     def _show_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
+        if widget and hasattr(widget, 'show_prompt'):
             widget.show_prompt(text)
-        else:
-            from ..panels.status import StatusPanel
-            if isinstance(widget, StatusPanel):
-                widget.show_prompt(text)
 
     def _update_panel_prompt(self, text: str):
         mod = self._focused_module()
         widget = self._get_module(mod) if mod else None
-        if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
+        if widget and hasattr(widget, 'update_prompt'):
             widget.update_prompt(text)
-        else:
-            from ..panels.status import StatusPanel
-            if isinstance(widget, StatusPanel):
-                widget.update_prompt(text)
 
     def _hide_panel_prompt(self):
-        for mod in ('chat', 'cmd', 'login', 'inventory', 'ai', 'online', 'status'):
-            widget = self._get_module(mod)
-            if isinstance(widget, (ChatPanel, CommandPanel, LoginPanel, InventoryPanel, AIChatPanel, OnlineUsersPanel)):
-                widget.hide_prompt()
-            else:
-                from ..panels.status import StatusPanel
-                if isinstance(widget, StatusPanel):
-                    widget.hide_prompt()
+        from .canvas import PaneWrapper
+        for pw in self.canvas.query(PaneWrapper):
+            w = pw.module_widget
+            if w and hasattr(w, 'hide_prompt'):
+                w.hide_prompt()
 
     # ── Space 菜单由 SpaceMenuMixin 提供 ──
 

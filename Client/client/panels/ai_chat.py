@@ -596,7 +596,7 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     # ── 用户提交 ──
 
-    def on_user_submit(self, text: str):
+    def on_input_submit(self, text: str):
         if not text:
             return
 

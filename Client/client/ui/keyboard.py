@@ -40,8 +40,14 @@ class KeyboardMixin:
                 self._scroll_focused_top()
             return
 
+        # 数字前缀累积（vim 风格: 5j = 向下移动5步）
+        if key.isdigit() and (key != '0' or vim._count_buffer):
+            vim._count_buffer += key
+            return
+
         # Space 菜单（jk 导航，Enter 进入子菜单，Backspace 返回）
         if self._wk.is_open:
+            vim._count_buffer = ""
             if key == "escape":
                 self._wk.close()
             elif key == "j":
@@ -55,20 +61,33 @@ class KeyboardMixin:
                     self._wk.close()
             return
 
+        # 消费数字前缀
+        count = vim.consume_count()
+
         # hjkl 在聚焦窗口内 — 先尝试面板导航，再 fallback 到滚动
         if key == "j":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_down'):
-                w.nav_down()
+                try:
+                    w.nav_down(count)
+                except TypeError:
+                    for _ in range(count):
+                        w.nav_down()
             else:
-                self._scroll_focused_down()
+                for _ in range(count):
+                    self._scroll_focused_down()
             return
         if key == "k":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_up'):
-                w.nav_up()
+                try:
+                    w.nav_up(count)
+                except TypeError:
+                    for _ in range(count):
+                        w.nav_up()
             else:
-                self._scroll_focused_up()
+                for _ in range(count):
+                    self._scroll_focused_up()
             return
         if key == "enter":
             w = self._get_focused_widget()
@@ -80,12 +99,20 @@ class KeyboardMixin:
         if key == "l":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_tab_next'):
-                w.nav_tab_next()
+                try:
+                    w.nav_tab_next(count)
+                except TypeError:
+                    for _ in range(count):
+                        w.nav_tab_next()
                 return
         if key == "h":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_tab_prev'):
-                w.nav_tab_prev()
+                try:
+                    w.nav_tab_prev(count)
+                except TypeError:
+                    for _ in range(count):
+                        w.nav_tab_prev()
                 return
         if key == "backspace":
             w = self._get_focused_widget()
@@ -120,11 +147,13 @@ class KeyboardMixin:
         elif key == "i":
             # 物品栏: i 进入搜索模式
             w = self._get_focused_widget()
+            vim.sticky = False
             if isinstance(w, InventoryPanel) and w._mode in ('browse', 'search'):
                 w.enter_search()
-                self._enter_insert()
-            else:
-                self._enter_insert()
+            self._enter_insert()
+        elif key == "I":
+            vim.sticky = True
+            self._enter_insert()
         elif key == "G":
             self._scroll_focused_bottom()
         elif key == "g":

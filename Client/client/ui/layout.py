@@ -39,10 +39,13 @@ def get_default_layout() -> LayoutNode:
 
 
 def get_game_layout() -> LayoutNode:
-    """游戏布局：左聊天 右指令"""
+    """游戏布局：左游戏面板 右聊天+记录"""
     return SplitNode('h', [
-        PaneNode('chat', 'pane-0'),
-        PaneNode('cmd', 'pane-1'),
+        PaneNode('game_board', 'pane-0'),
+        SplitNode('v', [
+            PaneNode('chat', 'pane-1'),
+            PaneNode('cmd', 'pane-2'),
+        ], [1.0, 1.0]),
     ], [1.0, 1.0])
 
 

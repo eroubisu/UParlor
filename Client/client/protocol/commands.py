@@ -1,4 +1,8 @@
-"""指令注册表 — 服务端下发，客户端纯缓存（含标签页分组）"""
+"""指令注册表 — 服务端下发，客户端纯缓存（含标签页分组）
+
+SSOT：服务端 commands.json + 游戏引擎 get_commands() → 客户端此模块唯一缓存。
+指令菜单、补全、hint bar 全部从此模块读取。
+"""
 
 from __future__ import annotations
 
@@ -11,18 +15,18 @@ from collections import OrderedDict
 @dataclass
 class CommandInfo:
     """游戏指令描述"""
-    command: str        # 如 "/d", "/pong"
-    label: str          # 如 "打牌", "碰"
+    command: str        # 带 / 前缀，如 "/help", "/back"
+    label: str          # 如 "帮助", "返回"
     description: str = ""  # 详细说明
     tab: str = "其他"      # 标签页分组
     scope: str = "cmd"     # 归属面板: cmd=指令面板, inventory=物品栏
     sub: list | None = None  # 子菜单项列表（递归 CommandInfo）
 
 
-# ── 服务端下发的当前位置指令集 ──
+# ── 当前位置指令集（唯一缓存）──
 
-_current_commands: list[CommandInfo] = []
-_current_tabs: list[tuple[str, list[CommandInfo]]] = []  # [(tab_name, [cmds])]
+_commands: list[CommandInfo] = []
+_tabs: list[tuple[str, list[CommandInfo]]] = []
 
 
 def _parse_command(c: dict) -> CommandInfo:
@@ -31,8 +35,11 @@ def _parse_command(c: dict) -> CommandInfo:
     raw_sub = c.get('sub')
     if raw_sub is not None:
         sub = [_parse_command(s) for s in raw_sub]
+    name = c.get('name', '')
+    if name and not name.startswith('/'):
+        name = '/' + name
     return CommandInfo(
-        command=c.get('name', ''),
+        command=name,
         label=c.get('label', ''),
         description=c.get('desc', ''),
         tab=c.get('tab', '其他'),
@@ -44,28 +51,30 @@ def _parse_command(c: dict) -> CommandInfo:
 def set_commands(commands: list[dict]) -> None:
     """接收服务端下发的指令列表，替换当前缓存并按 tab 分组
 
-    scope 字段控制指令归属面板：
-      - 'cmd'（默认）：指令面板显示
-      - 'inventory'：物品栏操作，不在指令面板显示
+    scope='inventory' 的指令不在指令菜单显示。
     """
-    global _current_commands, _current_tabs
+    global _commands, _tabs
     all_cmds = [_parse_command(c) for c in commands]
-    # 只保留指令面板的指令（scope 省略或为 'cmd'）
-    _current_commands = [c for c in all_cmds if c.scope == 'cmd']
-    # 按 tab 字段分组（保持服务端顺序）
+    _commands = [c for c in all_cmds if c.scope != 'inventory']
     tabs: OrderedDict[str, list[CommandInfo]] = OrderedDict()
-    for cmd in _current_commands:
+    for cmd in _commands:
         tabs.setdefault(cmd.tab, []).append(cmd)
-    _current_tabs = list(tabs.items())
+    _tabs = list(tabs.items())
 
 
 def get_command_tabs() -> list[tuple[str, list[CommandInfo]]]:
     """获取按标签页分组的指令列表"""
-    return list(_current_tabs)
+    return list(_tabs)
+
+
+def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
+    """获取游戏指令标签页（同 get_command_tabs，保持接口兼容）"""
+    return list(_tabs)
 
 
 def filter_commands(prefix: str) -> list[CommandInfo]:
-    """根据输入前缀过滤可用指令"""
+    """根据输入前缀过滤可用指令（prefix 应带 / 前缀）"""
     if not prefix:
-        return list(_current_commands)
-    return [c for c in _current_commands if c.command.startswith(prefix)]
+        return list(_commands)
+    p = prefix if prefix.startswith('/') else '/' + prefix
+    return [c for c in _commands if c.command.startswith(p)]

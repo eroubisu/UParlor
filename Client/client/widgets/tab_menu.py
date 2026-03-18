@@ -35,6 +35,7 @@ class TabMenuBase(Vertical):
         self._selected_idx: int = 0
         self._scroll_offset: int = 0
         self._nav_stack: list[dict] = []
+        self._filter_text: str = ''
 
     # ── 子类钩子（必须重写）──
 
@@ -63,7 +64,11 @@ class TabMenuBase(Vertical):
 
     def _current_items(self) -> list:
         if self._tabs and self._active_tab < len(self._tabs):
-            return self._tabs[self._active_tab][1]
+            items = self._tabs[self._active_tab][1]
+            if self._filter_text:
+                ft = self._filter_text.lower()
+                return [it for it in items if ft in self._item_name(it).lower()]
+            return items
         return []
 
     # ── 导航 ──
@@ -84,19 +89,19 @@ class TabMenuBase(Vertical):
         self._scroll_offset = 0
         self._refresh_display()
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         items = self._current_items()
         if not items:
             return
-        self._selected_idx = (self._selected_idx + 1) % len(items)
+        self._selected_idx = (self._selected_idx + count) % len(items)
         self._ensure_scroll()
         self._refresh_display()
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         items = self._current_items()
         if not items:
             return
-        self._selected_idx = (self._selected_idx - 1) % len(items)
+        self._selected_idx = (self._selected_idx - count) % len(items)
         self._ensure_scroll()
         self._refresh_display()
 
@@ -131,8 +136,16 @@ class TabMenuBase(Vertical):
             return True
         return False
 
+    def filter_items(self, text: str):
+        """按文本过滤当前列表，只显示包含该文本的项目"""
+        self._filter_text = text.strip()
+        self._selected_idx = 0
+        self._scroll_offset = 0
+        self._refresh_display()
+
     def reset_to_root(self):
         """重置到根菜单（逐层弹出导航栈恢复根状态）"""
+        self._filter_text = ''
         while self._nav_stack:
             state = self._nav_stack.pop()
             self._tabs = state['tabs']
@@ -197,14 +210,14 @@ class TabMenuBase(Vertical):
                 plain = f"  {name}"
                 tab_parts.append((f"[{COLOR_HINT_TAB_DIM}]{plain}[/]", _text_width(plain)))
 
-        total_width = sum(w for _, w in tab_parts)
+        total_width = sum(w for _, w in tab_parts) + max(0, len(tab_parts) - 1)
 
         from .helpers import _widget_width
         avail = _widget_width(self, self._tabs_widget_id)
 
-        # 全部放得下 → 直接拼接
+        # 全部放得下 → 直接拼接（标签间加空格）
         if total_width <= avail:
-            return "".join(p for p, _ in tab_parts)
+            return " ".join(p for p, _ in tab_parts)
 
         # 需要滚动 — 以 active_tab 为中心，向左右扩展
         arrow_w = 2  # "‹ " 或 " ›"
@@ -242,7 +255,7 @@ class TabMenuBase(Vertical):
         result = ""
         if need_left:
             result += f"[{COLOR_HINT_TAB_DIM}]< [/]"
-        result += "".join(p for _, (p, _) in selected)
+        result += " ".join(p for _, (p, _) in selected)
         if need_right:
             result += f"[{COLOR_HINT_TAB_DIM}] >[/]"
         return result

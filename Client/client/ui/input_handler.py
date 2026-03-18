@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from ..panels import ChatPanel, CommandPanel, LoginPanel
-from ..panels.inventory import InventoryPanel
-from ..panels.ai_chat import AIChatPanel
-from ..panels.online import OnlineUsersPanel
-from ..panels.status import StatusPanel
-
 
 class InputMixin:
     """输入处理 Mixin — 提供指令/聊天提交与 hint-bar 交互。"""
@@ -16,76 +10,48 @@ class InputMixin:
 
     def _submit_input(self):
         text = self._input_buffer.strip()
-        # 聊天面板: 发送后保持输入框打开
-        keep_insert = self._input_target == 'chat' and bool(text)
-        self._input_buffer = ""
-        if not keep_insert:
-            self._hide_panel_prompt()
-            self._hide_input_bar()
-            self.vim.enter_normal()
-            self._update_mode_indicator()
-            self.set_focus(None)
 
-        if not text and self._input_target != 'login':
-            if self._input_target == 'inventory':
-                inv = self._get_module('inventory')
-                if isinstance(inv, InventoryPanel):
-                    inv.cancel_input()
-            elif self._input_target == 'online':
-                panel = self._get_module('online')
-                if isinstance(panel, OnlineUsersPanel):
-                    panel.on_input_submit("")
+        # 空 Enter + 游戏/指令面板 → 从 hint bar 选择
+        if not text and self._input_target in ('game_board', 'cmd'):
+            self._clear_input_textarea()
+            chain_done = self._hint_enter()
+            # sticky(I): 始终保持; 非sticky(i): 指令链完成才关闭
+            if not self.vim.sticky and chain_done:
+                self._close_insert_mode()
             return
 
-        if self._input_target == 'login':
-            login = self._get_module('login')
-            if isinstance(login, LoginPanel):
-                if login._tab == 'settings':
-                    return
-                if text:
-                    self.app.network.send({"type": login._tab, "text": text})
-        elif self._input_target == "chat":
-            chat = self._get_module('chat')
-            if isinstance(chat, ChatPanel):
-                if chat._active_tab != "global":
-                    # 私聊标签 → 发送私聊消息
-                    self._send_private_chat(text, chat._active_tab)
-                else:
-                    self._send_chat(text, chat.current_channel)
-            else:
-                self._send_chat(text, 1)
-            if keep_insert:
-                self._update_panel_prompt("")
-                self._clear_input_textarea()
-        elif self._input_target == 'inventory':
-            inv = self._get_module('inventory')
-            if isinstance(inv, InventoryPanel):
-                inv.on_input_submit(text)
-        elif self._input_target == 'ai':
-            ai_panel = self._get_module('ai')
-            if isinstance(ai_panel, AIChatPanel):
-                ai_panel.on_user_submit(text)
-                if ai_panel.wants_insert:
-                    self._enter_insert()
-        elif self._input_target == 'online':
-            panel = self._get_module('online')
-            if isinstance(panel, OnlineUsersPanel):
-                panel.on_input_submit(text)
-        elif self._input_target == 'status':
-            panel = self._get_module('status')
-            if isinstance(panel, StatusPanel):
-                panel.on_input_submit(text)
-                if panel.wants_insert:
-                    self._enter_insert()
+        # I(sticky): 发送后保持输入框打开; i(非sticky): 发送后关闭
+        keep_insert = self.vim.sticky and self._input_target in ('chat', 'game_board', 'cmd')
+        self._input_buffer = ""
+        if not keep_insert:
+            self._close_insert_mode()
+
+        panel = self._get_module(self._input_target)
+
+        # 空 Enter（非 login）→ cancel
+        if not text and self._input_target != 'login':
+            if panel and hasattr(panel, 'cancel_input'):
+                panel.cancel_input()
+            return
+
+        # 委托面板处理
+        if panel and hasattr(panel, 'on_input_submit'):
+            panel.on_input_submit(text)
+            if hasattr(panel, 'wants_insert') and panel.wants_insert:
+                self._enter_insert()
         else:
+            # 未知面板 → 作为指令发送
             if not text.startswith("/"):
                 text = "/" + text
-            # 回显指令
-            cmd_panel = self._get_module('cmd')
-            if isinstance(cmd_panel, CommandPanel):
-                echo = cmd_panel.echo_command(text)
-                self.state.cmd.add_line(echo)
             self._send_command(text)
+
+        # keep_insert 面板后处理
+        if keep_insert:
+            self._update_panel_prompt("")
+            self._clear_input_textarea()
+            if self._input_target == 'game_board':
+                self._hint_filter('')
+
         if not self.logged_in:
             self._enter_insert()
 
@@ -94,15 +60,17 @@ class InputMixin:
     def _send_command(self, text: str):
         self.app.send_command(text)
 
-    def _send_chat(self, text: str, channel: int):
-        self.app.send_chat(text, channel)
-
-    def _send_private_chat(self, text: str, target: str):
-        self.app.network.send({"type": "private_chat", "target": target, "text": text})
+    def _close_insert_mode(self):
+        """关闭输入模式：隐藏 prompt / input bar，回到 NORMAL。"""
+        self._hide_panel_prompt()
+        self._hide_input_bar()
+        self.vim.enter_normal()
+        self._update_mode_indicator()
+        self.set_focus(None)
 
     def _cycle_channel(self):
         chat = self._get_module('chat')
-        if not isinstance(chat, ChatPanel):
+        if not chat or not hasattr(chat, '_tab_list'):
             return
         # 如果有多个标签页，Tab 切换标签
         tabs = chat._tab_list()
@@ -121,10 +89,8 @@ class InputMixin:
     def _complete_command(self):
         if self._input_target == 'login':
             login = self._get_module('login')
-            if isinstance(login, LoginPanel):
+            if login and hasattr(login, 'nav_tab_next'):
                 login.nav_tab_next()
-            return
-        if self._input_target != 'cmd':
             return
         buf = self._input_buffer
         from ..protocol.commands import filter_commands
@@ -132,71 +98,34 @@ class InputMixin:
         if not prefix:
             return
         matches = filter_commands(prefix)
-        if matches and matches[0].command != prefix:
-            self._input_buffer = matches[0].command + " "
+        if matches and matches[0].command != ('/' + prefix if not prefix.startswith('/') else prefix):
+            self._input_buffer = matches[0].command[1:] + " "  # 去掉 / 前缀
             self._update_panel_prompt(self._input_buffer)
-            self._update_completion()
 
     def _update_hint_bar(self):
-        from ..protocol.commands import get_command_tabs
-        tabs = get_command_tabs()
-        cmd = self._get_module('cmd')
-        if isinstance(cmd, CommandPanel):
-            cmd.update_hint_tabs(tabs)
+        from ..protocol.commands import get_game_tabs
+        game_tabs = get_game_tabs()
+        board = self._get_module('game_board')
+        if board and hasattr(board, 'update_game_tabs'):
+            board.update_game_tabs(game_tabs)
 
     def _show_input_bar(self):
-        target = self._input_target
-        if target == 'cmd':
-            cmd = self._get_module('cmd')
-            if isinstance(cmd, CommandPanel):
-                cmd.show_hint_bar()
-        elif target == 'chat':
-            chat = self._get_module('chat')
-            if isinstance(chat, ChatPanel):
-                chat.show_input_bar()
-        elif target == 'login':
-            login = self._get_module('login')
-            if isinstance(login, LoginPanel):
-                login.show_input_bar()
-        elif target == 'ai':
-            ai_panel = self._get_module('ai')
-            if isinstance(ai_panel, AIChatPanel):
-                ai_panel.show_input_bar()
-        elif target == 'online':
-            panel = self._get_module('online')
-            if isinstance(panel, OnlineUsersPanel):
-                panel.show_input_bar()
-        elif target == 'status':
-            panel = self._get_module('status')
-            if isinstance(panel, StatusPanel):
-                panel.show_input_bar()
-        elif target == 'inventory':
-            inv = self._get_module('inventory')
-            if isinstance(inv, InventoryPanel):
-                inv.show_input_bar()
+        panel = self._get_module(self._input_target)
+        if panel and hasattr(panel, 'show_input_bar'):
+            panel.show_input_bar()
 
     def _hide_input_bar(self):
-        cmd = self._get_module('cmd')
-        if isinstance(cmd, CommandPanel):
-            cmd.hide_hint_bar()
-        chat = self._get_module('chat')
-        if isinstance(chat, ChatPanel):
-            chat.hide_input_bar()
-        login = self._get_module('login')
-        if isinstance(login, LoginPanel):
-            login.hide_input_bar()
-        ai_panel = self._get_module('ai')
-        if isinstance(ai_panel, AIChatPanel):
-            ai_panel.hide_input_bar()
-        panel = self._get_module('online')
-        if isinstance(panel, OnlineUsersPanel):
-            panel.hide_input_bar()
-        status = self._get_module('status')
-        if isinstance(status, StatusPanel):
-            status.hide_input_bar()
-        inv = self._get_module('inventory')
-        if isinstance(inv, InventoryPanel):
-            inv.hide_input_bar()
+        from ..ui.canvas import PaneWrapper
+        for pw in self.canvas.query(PaneWrapper):
+            w = pw.module_widget
+            if w and hasattr(w, 'hide_input_bar'):
+                w.hide_input_bar()
+        # 重置 hint bar
+        board = self._get_module('game_board')
+        if board and hasattr(board, '_hint_bar'):
+            bar = board._hint_bar()
+            if bar:
+                bar.reset_to_root()
 
     def _clear_input_textarea(self):
         """清空当前面板的 InputTextArea 文本"""
@@ -210,83 +139,47 @@ class InputMixin:
             except Exception:
                 pass
 
-    def _update_completion(self):
-        if self._input_target != 'cmd':
-            return
-        cmd = self._get_module('cmd')
-        if not isinstance(cmd, CommandPanel):
-            return
-        bar = cmd._bar()
-
-        if bar and bar._nav_stack:
-            # 子菜单中：用输入过滤当前子菜单项
-            buf = self._input_buffer.strip()
-            if not buf:
-                if bar._mode == 'completion':
-                    bar.exit_completion()
-                return
-            # 获取子菜单真实项（跳过 completion 模式的覆盖）
-            sub_items = bar._tabs[bar._active_tab][1] if bar._tabs else []
-            buf_lower = buf.lower()
-            matches = [
-                item for item in sub_items
-                if self._match_sub_item(item, buf_lower)
-            ]
-            cmd.show_completion(matches)
-            return
-
-        buf = self._input_buffer.strip()
-        if not buf:
-            cmd.exit_completion()
-            return
-        from ..protocol.commands import filter_commands
-        prefix = buf.split()[0]
-        matches = filter_commands(prefix)
-        # 始终进入补全模式（匹配为空时显示"无匹配指令"提示）
-        cmd.show_completion(matches)
-
-    @staticmethod
-    def _match_sub_item(item, buf_lower: str) -> bool:
-        """子菜单项匹配：label / command 尾段 / command 全匹配"""
-        label = (item.label or '').lower()
-        command = (item.command or '').lower()
-        tail = command.split()[-1] if command else ''
-        return (label.startswith(buf_lower)
-                or tail.startswith(buf_lower)
-                or command.startswith(buf_lower))
-
     def _handle_enter(self):
-        if self._input_target == 'cmd':
-            cmd = self._get_module('cmd')
-            if isinstance(cmd, CommandPanel):
-                bar = cmd._bar()
-                use_hint = (not self._input_buffer.strip() or
-                            (bar and (bar._mode == 'completion'
-                                      or bar._nav_stack)))
-                if use_hint and bar:
-                    # 通用指令处理（子菜单钻入在 bar.enter() 中完成）
-                    item = cmd.hint_enter()
-                    if item is None:
-                        # 已钻入子菜单 / 无匹配
-                        self._input_buffer = ''
-                        self._update_panel_prompt(self._input_buffer)
-                        return
-                    # 普通指令 → 提交
-                    self._input_buffer = item.command
-                    self._submit_input()
-                    return
         self._submit_input()
 
     def _hint_nav(self, direction: str):
-        if self._input_target != 'cmd':
-            return
-        cmd = self._get_module('cmd')
-        if isinstance(cmd, CommandPanel):
-            cmd.hint_nav(direction)
+        board = self._get_module('game_board')
+        if board and hasattr(board, '_hint_bar'):
+            bar = board._hint_bar()
+            if bar:
+                getattr(bar, f'nav_{direction}')()
 
     def _hint_back(self):
-        if self._input_target != 'cmd':
-            return
-        cmd = self._get_module('cmd')
-        if isinstance(cmd, CommandPanel):
-            cmd.hint_back()
+        board = self._get_module('game_board')
+        if board and hasattr(board, '_hint_bar'):
+            bar = board._hint_bar()
+            if bar:
+                bar.back()
+
+    def _hint_filter(self, text: str):
+        """根据输入文本跳转 hint bar 选中项"""
+        board = self._get_module('game_board')
+        if board and hasattr(board, '_hint_bar'):
+            bar = board._hint_bar()
+            if bar:
+                bar.filter_items(text.strip().lstrip('/'))
+
+    def _hint_enter(self) -> bool:
+        """从 hint bar 选择当前高亮项并执行。
+
+        返回 True 表示指令链完成（从子菜单中选择了叶子项），
+        False 表示从根菜单发送（可能触发服务端子菜单）或进入了本地子菜单。
+        """
+        board = self._get_module('game_board')
+        if board and hasattr(board, '_hint_bar'):
+            bar = board._hint_bar()
+            if bar:
+                was_in_submenu = bool(bar._nav_stack)
+                item = bar.enter()
+                if item:
+                    cmd = item.command
+                    if bar._nav_stack:
+                        bar.reset_to_root()
+                    self._send_command(cmd)
+                    return was_in_submenu
+        return False

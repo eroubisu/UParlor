@@ -65,20 +65,6 @@ _DECAY_EXTREME  = (8.0, 0.7)    # 强负面 8h 衰减
 _POSITIVE = {"joyful", "excited", "shy"}
 _EXTREME  = {"angry", "lonely"}
 
-# 心情图标（纯文本字符，禁止 Emoji）
-MOOD_ICONS = {
-    "calm":    "○",
-    "joyful":  "◆",
-    "excited": "◇",
-    "shy":     "△",
-    "annoyed": "▽",
-    "anxious": "◈",
-    "sad":     "▼",
-    "angry":   "■",
-    "lonely":  "□",
-}
-
-
 class MoodState:
     """心情状态：主情绪 + 副情绪 + 强度 + 来源 + 衰减"""
 
@@ -153,8 +139,7 @@ class MoodState:
 
     # ── 显示 ──
 
-    def to_display(self) -> tuple[str, str, float]:
-        """返回 (心情名, 图标, 强度)"""
+    def to_display(self) -> tuple[str, float]:
+        """返回 (心情名, 强度)"""
         label = MOODS.get(self.primary, self.primary)
-        icon = MOOD_ICONS.get(self.primary, "○")
-        return label, icon, self.intensity
+        return label, self.intensity

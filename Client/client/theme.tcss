@@ -86,12 +86,30 @@ RichLog {
     overflow-x: hidden;
 }
 
+#game-board-toast {
+    height: auto;
+    min-height: 1;
+    width: 1fr;
+    padding: 0 1;
+    overflow: hidden hidden;
+    background: transparent;
+    border: round $color-accent;
+}
+
+#game-board-log {
+    height: 1fr;
+    width: 1fr;
+    content-align: center middle;
+    overflow: hidden hidden;
+    scrollbar-size: 0 0;
+}
+
 RichLog:focus {
     background-tint: transparent;
 }
 
 /* ── 面板组件 ── */
-ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel, AIChatPanel {
+ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel, AIChatPanel, GameBoardPanel {
     height: 1fr;
     width: 1fr;
     background: transparent;
@@ -188,7 +206,7 @@ InputTextArea:focus {
 }
 
 /* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#cmd-hint-bar, #chat-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar, #status-input-bar {
+#chat-input-bar, #cmd-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar, #status-input-bar {
     height: auto;
     border: round $color-accent;
     border-title-color: $color-accent;
@@ -196,12 +214,35 @@ InputTextArea:focus {
     display: none;
 }
 
-#cmd-hint-bar.visible, #chat-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible, #status-input-bar.visible {
+#chat-input-bar.visible, #cmd-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible, #status-input-bar.visible {
     display: block;
 }
 
-#cmd-hint-bar {
-    max-height: 12;
+/* ── 游戏面板指令+输入统一容器 ── */
+#game-cmd-bar {
+    height: auto;
+    border: round $color-accent;
+    padding: 0;
+    display: none;
+    background: transparent;
+}
+
+#game-cmd-bar.visible {
+    display: block;
+}
+
+#game-cmd-bar #game-hint-bar {
+    height: auto;
+    max-height: 8;
+    border: none;
+    padding: 0 1;
+}
+
+#game-cmd-bar #game-input-bar {
+    height: auto;
+    max-height: 7;
+    border: none;
+    padding: 0 1;
 }
 
 #chat-input-bar {
@@ -252,15 +293,21 @@ InputTextArea:focus {
 }
 
 #location-indicator {
-    width: auto;
+    width: 1fr;
     padding: 0 1;
     background: transparent;
 }
 
 #connection-status {
-    dock: right;
     width: auto;
     padding: 0 1;
+    background: transparent;
+}
+
+#badge-indicator {
+    width: auto;
+    padding: 0;
+    color: $color-fg-primary;
     background: transparent;
 }
 

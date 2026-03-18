@@ -17,6 +17,7 @@ class LoginSuccess:
 @dataclass
 class SystemMessage:
     text: str
+    broadcast: bool = False
 
 @dataclass
 class GameMessage:
@@ -124,7 +125,7 @@ class ProfileCard:
 _PARSERS = {
     'login_prompt':   lambda m: LoginPrompt(text=m.get('text', '')),
     'login_success':  lambda m: LoginSuccess(text=m.get('text', '')),
-    'system':         lambda m: SystemMessage(text=m.get('text', '')),
+    'system':         lambda m: SystemMessage(text=m.get('text', ''), broadcast=m.get('broadcast', False)),
     'game':           lambda m: GameMessage(text=m.get('text', ''), update_last=m.get('update_last', False)),
     'chat':           lambda m: ChatMessage(name=m.get('name', '???'), text=m.get('text', ''),
                                             channel=m.get('channel', 1), time=m.get('time', '')),

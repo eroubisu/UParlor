@@ -22,7 +22,7 @@ from ..config import (
 )
 from ..state import ModuleStateManager
 from ..widgets import _set_pane_subtitle
-from ..widgets.helpers import render_tab_header, _widget_width
+from ..widgets.helpers import render_tab_header, _widget_width, render_action_menu
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
 from ._card_render import render_card
@@ -90,7 +90,11 @@ class OnlineUsersPanel(InputBarMixin, Widget):
     # ── InputBar 标准接口 ──
 
     def cancel_input(self):
+        self._search_query = ""
+        self._cursor = 0
+        self._scroll_offset = 0
         self._wants_insert = False
+        self._render_list()
 
     @property
     def wants_insert(self) -> bool:
@@ -223,6 +227,13 @@ class OnlineUsersPanel(InputBarMixin, Widget):
                     st.chat.open_private_tab(name)
                 self._mode = _MODE_LIST
                 self._render_list()
+                # 自动跳转到聊天面板
+                screen = self.screen
+                if hasattr(screen, '_get_pane_for_module'):
+                    pane = screen._get_pane_for_module('chat')
+                    if pane:
+                        screen._set_focused_pane(pane.pane_id)
+                        screen._enter_insert()
                 return
             # friend_request / friend_remove → 进入确认
             if action_id == 'friend_request':
@@ -421,13 +432,8 @@ class OnlineUsersPanel(InputBarMixin, Widget):
 
             if self._mode == _MODE_ACTION:
                 actions = self._actions_for_user(name)
-                for ai, (_, label) in enumerate(actions):
-                    if ai == self._action_cursor:
-                        log.write(RichText.from_markup(
-                            f"     [{COLOR_ACCENT}]\u25cf[/] [bold {COLOR_FG_PRIMARY}]{label}[/]"))
-                    else:
-                        log.write(RichText.from_markup(
-                            f"       [{COLOR_FG_SECONDARY}]{label}[/]"))
+                for line in render_action_menu(actions, self._action_cursor):
+                    log.write(RichText.from_markup(line))
 
             elif self._mode == _MODE_CONFIRM:
                 log.write(RichText.from_markup(

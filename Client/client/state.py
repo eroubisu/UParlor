@@ -142,14 +142,23 @@ class CmdState:
     def __init__(self):
         self.lines: list[str] = []
         self.max_lines: int = MAX_LINES_CMD
-        self._listener = None
+        self._listeners: list = []
 
     def set_listener(self, cb):
-        self._listener = cb
+        """添加监听器（支持多个）"""
+        if cb not in self._listeners:
+            self._listeners.append(cb)
+
+    def remove_listener(self, cb):
+        """移除监听器"""
+        try:
+            self._listeners.remove(cb)
+        except ValueError:
+            pass
 
     def _notify(self, event: str, *args):
-        if self._listener:
-            self._listener(event, *args)
+        for cb in self._listeners:
+            cb(event, *args)
 
     def add_line(self, text: str, **kw):
         self.lines.append(text)
@@ -297,6 +306,7 @@ class InventoryState:
                         'count': entry['count'],
                         'use_methods': entry.get('use_methods', []),
                         'pattern': entry.get('pattern'),
+                        'equipped': entry.get('equipped', ''),
                     })
         elif isinstance(inventory, dict):
             for item_id, info in inventory.items():
@@ -376,6 +386,8 @@ class AIChatState:
 class NotificationState:
     """通知面板的全部状态 — 系统通知 + 好友申请"""
 
+    _MAX_NOTIFICATIONS = 200
+
     def __init__(self):
         self.system_notifications: list[str] = []
         # 好友申请: [{name, status}]  status = 'pending' | 'accepted' | 'rejected'
@@ -440,6 +452,8 @@ class NotificationState:
 
     def add_system_notification(self, text: str):
         self.system_notifications.append(text)
+        if len(self.system_notifications) > self._MAX_NOTIFICATIONS:
+            self.system_notifications = self.system_notifications[-self._MAX_NOTIFICATIONS:]
         self._notify('add_system_notification', text)
 
 

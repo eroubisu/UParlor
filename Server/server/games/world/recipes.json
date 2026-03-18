@@ -1,0 +1,26 @@
+{
+    "iron_sword": {
+        "name": "铁剑",
+        "inputs": [{"id": "iron_ore", "count": 3}],
+        "outputs": [{"id": "iron_sword", "count": 1}],
+        "gold_cost": 50
+    },
+    "iron_armor": {
+        "name": "铁甲",
+        "inputs": [{"id": "iron_ore", "count": 5}],
+        "outputs": [{"id": "iron_armor", "count": 1}],
+        "gold_cost": 100
+    },
+    "iron_helmet": {
+        "name": "铁盔",
+        "inputs": [{"id": "iron_ore", "count": 2}],
+        "outputs": [{"id": "iron_helmet", "count": 1}],
+        "gold_cost": 60
+    },
+    "iron_boots": {
+        "name": "铁靴",
+        "inputs": [{"id": "iron_ore", "count": 2}],
+        "outputs": [{"id": "iron_boots", "count": 1}],
+        "gold_cost": 70
+    }
+}

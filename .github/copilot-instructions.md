@@ -37,10 +37,34 @@
 - ❌ 任何背景颜色填充 — App/Screen/面板/组件的 background 必须为 transparent，继承终端自身背景
 - ❌ 使用 Emoji（图像类 Unicode 符号如 🎆🎉👍 等）— 可使用纯文本字符（●○◆◇→←↑↓ 等）
 
-## 重要内容
+## 架构文档
 
+- **必读**：开始工作前先读 `ARCHITECTURE.md`，了解数据流、模块职责、Protocol 接口和扩展点地图
 - **实现规范**：所有功能实现必须遵守 `.github/rules.md` 中的规范
 - **规范更新**：如用户反馈或开发需要导致规范变更，必须同步更新 `.github/rules.md`
+
+## 常见任务 → 需要读取/修改的文件
+
+| 任务                   | 需要读取                                                    | 需要修改                                                                                                      |
+| ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 添加新游戏             | `ARCHITECTURE.md` "扩展点地图"                              | 服务端: `games/新游戏/`(新建) + `games/__init__.py`；客户端: `games/新handler.py`(新建) + `games/__init__.py` |
+| 添加游戏指令（建筑类） | `games/world/building_handlers.py` 看模式                   | 指令 JSON + handlers 文件 + 路由表                                                                            |
+| 添加游戏指令（地图类） | `games/world/engine.py` 的 handle_command                   | engine.py 的 handle_command + 指令 JSON                                                                       |
+| 添加全局指令           | `lobby/command_registry.py` 看模式                          | `data/commands.json` + `command_registry.py`                                                                  |
+| 添加消息类型           | `net/messages.py` + `net/dispatch.py`                       | `msg_types.py` + `messages.py`(\_PARSERS) + `dispatch.py`                                                     |
+| 修改面板 UI            | 目标面板文件 + 对应 State                                   | 面板文件 + state.py(如需新状态)                                                                               |
+| 修改移动/冷却          | `games/world/movement.py`                                   | movement.py                                                                                                   |
+| 修改跟随系统           | `games/world/follow.py`                                     | follow.py                                                                                                     |
+| 修改输入行为           | `ui/input_handler.py` + `ui/keyboard.py` + `ui/vim_mode.py` | 对应 Mixin 文件                                                                                               |
+| 修改窗口布局           | `ui/layout.py` + `ui/screen.py` compose/rebuild             | layout.py                                                                                                     |
+| 修改 AI 伙伴           | `ai/service.py` + `ai/attention.py`                         | 对应 ai/ 文件                                                                                                 |
+
+## 模式参考
+
+- **游戏指令处理器模板**：`building_handlers.py` 的 `cmd_X(lobby, player_name, player_data, args, location)` + `HANDLERS = {'cmd': func}` 路由表
+- **游戏客户端处理器模板**：`world_handler.py` 的 `handle_event(event, data, ctx)` 分发 + `on_enter_game`/`on_leave_game`
+- **游戏渲染器模板**：`world_renderer.py` 的 `render_board(room_data) → RenderableType`
+- **全局指令模板**：`command_registry.py` 的 `_handle_X(lobby, player_name, player_data, args, location)` + `register_global()`
 
 ## rules.md 维护规则
 

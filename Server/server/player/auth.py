@@ -123,6 +123,8 @@ class AuthMixin:
         self.send_player_status(client_socket, player_data)
         self.lobby_engine.register_player(name, player_data)
         self._send_initial_location(client_socket, name)
+        # 发送世界欢迎地图
+        self._send_world_welcome(client_socket, name, player_data)
         self._send_chat_history(client_socket, 1)
         # 下发 AI 伙伴数据和 token 统计
         ai_data = player_data.get('ai_companions', {})

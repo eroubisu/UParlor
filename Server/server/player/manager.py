@@ -32,6 +32,8 @@ _MODULE_MAP = {
     'titles':     ('titles',),
     'layout':     ('window_layout',),
     'ai':         ('ai_companions', 'ai_token_stats'),
+    'attributes': ('attributes',),
+    'equipment':  ('equipment',),
 }
 
 _KEY_TO_MODULE = {}

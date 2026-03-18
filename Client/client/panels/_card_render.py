@@ -8,27 +8,21 @@ from __future__ import annotations
 from rich.text import Text as RichText
 from rich.cells import cell_len
 
+from ..config import COLOR_FG_SECONDARY, COLOR_FG_TERTIARY, COLOR_BORDER_LIGHT
+from ..data import CARD_FIELD_DEFS
+
 
 # ── 默认花色 ──
 _DEFAULT_PATTERN = {'chars': '.:+*~', 'colors': ['#606060', '#505050', '#707070']}
 
 # ── 名片框样式 ──
-_BORDER_COLOR = '#5a5a5a'
-_FIELD_LABEL_COLOR = '#808080'
-_FIELD_VALUE_COLOR = '#b3b3b3'
+_BORDER_COLOR = COLOR_BORDER_LIGHT
+_FIELD_LABEL_COLOR = COLOR_FG_TERTIARY
+_FIELD_VALUE_COLOR = COLOR_FG_SECONDARY
 
 _CARD_MIN_WIDTH = 16
 _CARD_MAX_WIDTH = 24
 
-# ── 名片可选字段 ──
-CARD_FIELD_DEFS = [
-    ('level', '等级'),
-    ('gold', '金币'),
-    ('friends', '好友'),
-    ('games', '对局'),
-    ('days', '天数'),
-    ('created', '注册'),
-]
 DEFAULT_CARD_FIELDS = ['level', 'gold', 'games', 'created']
 
 

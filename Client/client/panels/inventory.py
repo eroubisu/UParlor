@@ -42,9 +42,10 @@ from ..config import (
     COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
 )
 from ..state import ModuleStateManager
-from ..widgets.helpers import update_tab_header
+from ..widgets.helpers import update_tab_header, render_action_menu
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
+from ..data import QUALITY_MARKERS as _QUALITY_MARKERS, QUALITY_LABELS as _QUALITY_LABELS
 
 # 四个固定操作（每个物品都有）
 _BASE_ACTIONS: list[tuple[str, str]] = [
@@ -78,30 +79,10 @@ _FILTER_LABELS = {
     "special": "特殊",
 }
 
-# 品质定义（仿 Dwarf Fortress）
-_QUALITY_MARKERS = {
-    0: ('', ''),
-    1: ('-', '-'),
-    2: ('+', '+'),
-    3: ('*', '*'),
-    4: ('=', '='),
-    5: ('!', '!'),
-}
-
-_QUALITY_LABELS = {
-    "all": "全部",
-    "0": "普通",
-    "1": "-精良-",
-    "2": "+优秀+",
-    "3": "*卓越*",
-    "4": "=史诗=",
-    "5": "!传奇!",
-}
-
-_QUALITY_ALL = ["all", "0", "1", "2", "3", "4", "5"]
+_QUALITY_ALL = ["all"] + sorted(k for k in _QUALITY_LABELS if k != "all")
 
 # 排序方式
-_SORT_OPTIONS = [("name", "名称"), ("count", "数量"), ("category", "分类"), ("quality", "品质")]
+_SORT_OPTIONS = [("name", "名称"), ("count", "数量"), ("category", "分类"), ("quality", "品质"), ("equipped", "装备")]
 
 _MAX_GIFT_VISIBLE = 5
 
@@ -236,6 +217,8 @@ class InventoryPanel(InputBarMixin, Widget):
             items.sort(key=lambda i: (i.get('category', ''), i.get('name', '')), reverse=rev)
         elif sort_key == "quality":
             items.sort(key=lambda i: i.get('quality', 0), reverse=rev)
+        elif sort_key == "equipped":
+            items.sort(key=lambda i: (1 if i.get('equipped') else 0), reverse=rev)
         # 已选模式: 只显示已选物品
         if self._mode == _MODE_SELECTED or self._batch_mode:
             items = [i for i in items if self._item_key(i) in self._selections]
@@ -249,7 +232,9 @@ class InventoryPanel(InputBarMixin, Widget):
         vh = self._visible_height()
         extra = 0
         if self._mode == _MODE_ACTION:
-            extra = len(_BASE_ACTIONS)
+            item = self._filtered[self._cursor] if self._filtered and self._cursor < len(self._filtered) else None
+            actions = self._get_item_actions(item) if item else _BASE_ACTIONS
+            extra = len(actions)
         elif self._mode == _MODE_USE_SUB:
             extra = max(1, len(self._use_methods))
         elif self._mode == _MODE_GIFT:
@@ -424,7 +409,9 @@ class InventoryPanel(InputBarMixin, Widget):
             if self._filtered:
                 self._cursor = (self._cursor + 1) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
-            self._action_cursor = (self._action_cursor + 1) % len(_BASE_ACTIONS)
+            item = self._filtered[self._cursor] if self._filtered else None
+            actions = self._get_item_actions(item) if item else _BASE_ACTIONS
+            self._action_cursor = (self._action_cursor + 1) % len(actions)
         elif self._mode == _MODE_USE_SUB:
             if self._use_methods:
                 self._use_cursor = (self._use_cursor + 1) % len(self._use_methods)
@@ -440,7 +427,9 @@ class InventoryPanel(InputBarMixin, Widget):
             if self._filtered:
                 self._cursor = (self._cursor - 1) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
-            self._action_cursor = (self._action_cursor - 1) % len(_BASE_ACTIONS)
+            item = self._filtered[self._cursor] if self._filtered else None
+            actions = self._get_item_actions(item) if item else _BASE_ACTIONS
+            self._action_cursor = (self._action_cursor - 1) % len(actions)
         elif self._mode == _MODE_USE_SUB:
             if self._use_methods:
                 self._use_cursor = (self._use_cursor - 1) % len(self._use_methods)
@@ -580,6 +569,21 @@ class InventoryPanel(InputBarMixin, Widget):
             self._mode = _MODE_BROWSE
             self._refresh_content()
             return True
+        # BROWSE 模式: 重置所有筛选/排序
+        if self._filter_tab != 'all' or self._quality_filter != 'all' or self._sort_cursor != 0 or self._search_query:
+            self._filter_tab = 'all'
+            self._quality_filter = 'all'
+            self._sort_cursor = 0
+            self._search_query = ''
+            self._tab_row = 0
+            self._cat_cursor = 0
+            self._quality_cursor = 0
+            self._cursor = 0
+            self._scroll_offset = 0
+            self._apply_filter()
+            self._render_header()
+            self._refresh_content()
+            return True
         return False
 
     # ── 搜索模式 ──
@@ -695,16 +699,31 @@ class InventoryPanel(InputBarMixin, Widget):
         q = item.get('quality', 0)
         return f"{item['id']}:{q}"
 
+    def _get_item_actions(self, item: dict) -> list[tuple[str, str]]:
+        """返回物品的可用操作列表（已装备物品只有\u201c卸下\u201d和\u201c详情\u201d）"""
+        if item.get('equipped'):
+            return [('unequip', '卸下'), ('info', '详情')]
+        return _BASE_ACTIONS
+
     def _execute_base_action(self):
         if not self._filtered or self._cursor >= len(self._filtered):
             return
-        action_id, _ = _BASE_ACTIONS[self._action_cursor]
+        item = self._filtered[self._cursor]
+        actions = self._get_item_actions(item)
+        action_id, _ = actions[self._action_cursor]
         if self._batch_mode:
             self._execute_batch_action(action_id)
             return
-        item = self._filtered[self._cursor]
 
-        if action_id == 'use':
+        if action_id == 'unequip':
+            slot = item.get('equipped', '')
+            if slot:
+                try:
+                    self.app.network.send({'type': 'unequip', 'slot': slot})
+                except Exception:
+                    pass
+            self._mode = _MODE_BROWSE
+        elif action_id == 'use':
             use_methods = item.get('use_methods', [])
             self._use_methods = use_methods
             self._use_cursor = 0
@@ -722,7 +741,6 @@ class InventoryPanel(InputBarMixin, Widget):
         elif action_id == 'drop':
             self._send_command(f"/drop {self._item_key(item)} y")
             self._mode = _MODE_BROWSE
-            self._apply_filter()
 
     def _execute_batch_action(self, action_id: str):
         """批量操作执行"""
@@ -736,7 +754,6 @@ class InventoryPanel(InputBarMixin, Widget):
             self._selections.clear()
             self._batch_mode = False
             self._mode = _MODE_BROWSE
-            self._apply_filter()
         elif action_id == 'gift':
             self._gift_cursor = 0
             self._gift_scroll = 0
@@ -752,7 +769,6 @@ class InventoryPanel(InputBarMixin, Widget):
             self._selections.clear()
             self._batch_mode = False
             self._mode = _MODE_BROWSE
-            self._apply_filter()
 
     def _execute_use_method(self):
         if not self._use_methods or not self._filtered:
@@ -769,6 +785,7 @@ class InventoryPanel(InputBarMixin, Widget):
         else:
             self._send_command(f"/use {item_key} {method['id']}")
             self._mode = _MODE_BROWSE
+            self._action_cursor = 0
 
     def _execute_gift(self):
         if not self._gift_friends:
@@ -787,12 +804,10 @@ class InventoryPanel(InputBarMixin, Widget):
             self._selections.clear()
             self._batch_mode = False
             self._mode = _MODE_BROWSE
-            self._apply_filter()
         else:
             self._send_command(f"/gift {self._gift_item_id}")
             self._send_command(target)
             self._mode = _MODE_BROWSE
-            self._apply_filter()
 
     def _execute_confirm(self):
         for cmd in self._confirm_cmds:
@@ -802,7 +817,6 @@ class InventoryPanel(InputBarMixin, Widget):
         self._selections.clear()
         self._batch_mode = False
         self._mode = _MODE_BROWSE
-        self._apply_filter()
 
     def _send_command(self, cmd: str):
         try:
@@ -866,6 +880,8 @@ class InventoryPanel(InputBarMixin, Widget):
             quality = item.get('quality', 0)
             display_name = _quality_name(name, quality)
             count = item.get('count', 0)
+            equipped_slot = item.get('equipped', '')
+            equip_tag = f" [{COLOR_FG_TERTIARY}]<装备中>[/]" if equipped_slot else ""
 
             if self._mode in (_MODE_MULTI_SELECT, _MODE_QUANTITY):
                 key = self._item_key(item)
@@ -893,10 +909,10 @@ class InventoryPanel(InputBarMixin, Widget):
             else:
                 if selected:
                     marker = f"[{COLOR_ACCENT}]\u25cf[/]"
-                    text = f"[bold {COLOR_FG_PRIMARY}]{display_name}[/]  [{COLOR_FG_SECONDARY}]x{count}[/]"
+                    text = f"[bold {COLOR_FG_PRIMARY}]{display_name}[/]  [{COLOR_FG_SECONDARY}]x{count}[/]{equip_tag}"
                 else:
                     marker = " "
-                    text = f"[{COLOR_FG_SECONDARY}]{display_name}[/]  [{COLOR_FG_TERTIARY}]x{count}[/]"
+                    text = f"[{COLOR_FG_SECONDARY}]{display_name}[/]  [{COLOR_FG_TERTIARY}]x{count}[/]{equip_tag}"
 
             lines.append(f" {marker} {text}")
 
@@ -904,21 +920,15 @@ class InventoryPanel(InputBarMixin, Widget):
                 continue
 
             if self._mode == _MODE_ACTION:
-                for ai, (_, label) in enumerate(_BASE_ACTIONS):
-                    if ai == self._action_cursor:
-                        lines.append(f"     [{COLOR_ACCENT}]\u25cf[/] [b]{label}[/b]")
-                    else:
-                        lines.append(f"       [{COLOR_FG_SECONDARY}]{label}[/]")
+                actions = self._get_item_actions(item)
+                lines += render_action_menu(actions, self._action_cursor)
 
             elif self._mode == _MODE_USE_SUB:
                 if not self._use_methods:
                     lines.append(f"     [{COLOR_FG_TERTIARY}]此物品无法使用[/]")
                 else:
-                    for ui, method in enumerate(self._use_methods):
-                        if ui == self._use_cursor:
-                            lines.append(f"       [{COLOR_ACCENT}]\u25cf[/] [b]{method['name']}[/b]")
-                        else:
-                            lines.append(f"         [{COLOR_FG_SECONDARY}]{method['name']}[/]")
+                    use_actions = [(str(i), m['name']) for i, m in enumerate(self._use_methods)]
+                    lines += render_action_menu(use_actions, self._use_cursor, indent="       ")
 
             elif self._mode == _MODE_INPUT:
                 lines.append(f"     [{COLOR_FG_SECONDARY}]{self._input_label}[/]")
@@ -962,12 +972,8 @@ class InventoryPanel(InputBarMixin, Widget):
         self._gift_scroll = offset
         vis_end = min(total, offset + _MAX_GIFT_VISIBLE)
 
-        for gi in range(offset, vis_end):
-            fname = self._gift_friends[gi]
-            if gi == self._gift_cursor:
-                lines.append(f"     [{COLOR_ACCENT}]\u25cf[/] [bold {COLOR_FG_PRIMARY}]{fname}[/]")
-            else:
-                lines.append(f"       [{COLOR_FG_SECONDARY}]{fname}[/]")
+        visible = [(str(i), self._gift_friends[i]) for i in range(offset, vis_end)]
+        lines += render_action_menu(visible, self._gift_cursor - offset)
 
         if total > _MAX_GIFT_VISIBLE:
             lines.append(f"     [{COLOR_FG_TERTIARY}]{self._gift_cursor + 1}/{total}[/]")
@@ -984,18 +990,6 @@ class InventoryPanel(InputBarMixin, Widget):
         st = self._state
         self._items = list(st.items)
         self._gold = st.gold
-        self._filter_tab = st.filter_tab
-        self._quality_filter = st.quality_filter
-        self._sort_cursor = st.sort_cursor
-        self._tab_row = st.tab_row
-        self._cursor = st.cursor
-        # 从 filter 值推导出对应的 header cursor 位置
-        cat_items = self._build_cat_items()
-        self._cat_cursor = next(
-            (i for i, (v, _) in enumerate(cat_items) if v == self._filter_tab), 0)
-        qual_items = self._build_quality_items()
-        self._quality_cursor = next(
-            (i for i, (v, _) in enumerate(qual_items) if v == self._quality_filter), 0)
         self._apply_filter()
         self.call_after_refresh(self._refresh_all)
 
@@ -1012,6 +1006,18 @@ class InventoryPanel(InputBarMixin, Widget):
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         self._state = state.inventory
+        st = self._state
+        self._filter_tab = st.filter_tab
+        self._quality_filter = st.quality_filter
+        self._sort_cursor = st.sort_cursor
+        self._tab_row = st.tab_row
+        self._cursor = st.cursor
+        cat_items = self._build_cat_items()
+        self._cat_cursor = next(
+            (i for i, (v, _) in enumerate(cat_items) if v == self._filter_tab), 0)
+        qual_items = self._build_quality_items()
+        self._quality_cursor = next(
+            (i for i, (v, _) in enumerate(qual_items) if v == self._quality_filter), 0)
         self._state.set_listener(self._on_state_event)
         self._sync_from_state()
 

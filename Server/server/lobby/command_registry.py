@@ -108,6 +108,9 @@ def _handle_passwd(lobby, player_name, player_data, args, location):
     return '请输入新密码（6-20个字符）：'
 
 
+
+
+
 # ── 注册 ──
 
 register_global('help', _handle_help)
@@ -122,3 +125,4 @@ register_global('settitle', _handle_settitle)
 register_global('use', cmd_use)
 register_global('gift', cmd_gift)
 register_global('drop', cmd_drop)
+

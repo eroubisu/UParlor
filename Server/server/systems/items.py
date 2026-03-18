@@ -2,18 +2,36 @@
 
 from __future__ import annotations
 
-from ..player.schema import ITEM_LIBRARY, ITEM_SOURCES
+from ..player.schema import ITEM_LIBRARY, ITEM_SOURCES, QUALITY_MULTIPLIERS
 
 
 # ══════════════════════════════════════════════════
 #  品质系统
 # ══════════════════════════════════════════════════
 
-QUALITY_MULTIPLIER = {0: 1.0, 1: 1.2, 2: 1.5, 3: 2.0, 4: 3.0, 5: 5.0}
-
-
 def quality_mult(quality: int) -> float:
-    return QUALITY_MULTIPLIER.get(quality, 1.0)
+    return QUALITY_MULTIPLIERS.get(str(quality), 1.0)
+
+
+# ══════════════════════════════════════════════════
+#  游戏级物品使用处理器注册
+#  优先级: 游戏级 handler > 全局 handler > 声明式效果引擎
+# ══════════════════════════════════════════════════
+
+# {game_id: {item_id: handler}}
+_GAME_USE_HANDLERS: dict[str, dict[str, callable]] = {}
+
+
+def register_game_use_handler(game_id: str, item_id: str, handler) -> None:
+    """注册游戏专属物品使用处理器"""
+    _GAME_USE_HANDLERS.setdefault(game_id, {})[item_id] = handler
+
+
+def get_game_use_handler(game_id: str | None, item_id: str):
+    """查找游戏级处理器，无则返回 None"""
+    if game_id:
+        return _GAME_USE_HANDLERS.get(game_id, {}).get(item_id)
+    return None
 
 
 # ══════════════════════════════════════════════════

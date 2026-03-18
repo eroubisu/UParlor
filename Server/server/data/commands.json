@@ -2,16 +2,14 @@
     "*": [
         {"name": "help",      "label": "帮助",     "desc": "显示帮助信息",       "tab": "导航"},
         {"name": "back",      "label": "返回",     "desc": "返回上一级",         "tab": "导航"},
-        {"name": "home",      "label": "回HOME",   "desc": "直接返回HOME",       "tab": "导航"},
+        {"name": "home",      "label": "回城镇",   "desc": "直接返回城镇",       "tab": "导航"},
         {"name": "clear",     "label": "清屏",     "desc": "清空指令面板",       "tab": "系统"},
         {"name": "passwd",    "label": "改密码",   "desc": "修改密码",           "tab": "系统"},
         {"name": "exit",      "label": "退出",     "desc": "关闭程序",           "tab": "系统"}
     ],
-    "lobby": [
-        {"name": "games",     "label": "游戏列表", "desc": "查看可用游戏",       "tab": "导航"},
-        {"name": "play",      "label": "进入游戏", "desc": "play <游戏ID>",      "tab": "导航"},
+    "world_town": [
         {"name": "title",     "label": "头衔图鉴", "desc": "查看全部头衔",       "tab": "个人"},
-        {"name": "settitle",  "label": "切换头衔", "desc": "settitle <编号>",    "tab": "个人"},
+        {"name": "settitle",  "label": "切换头衔", "desc": "设置显示的头衔",     "tab": "个人"},
         {"name": "version",   "label": "版本",     "desc": "显示版本信息",       "tab": "系统"}
     ]
 }

@@ -19,6 +19,7 @@ from ..player.schema import register_game_player_defaults
 from ..systems.ranks import register_game_ranks, register_rank_titles
 from ..systems.titles import register_game_titles, register_game_title_sources
 from ..systems.items import register_game_items, register_game_item_sources
+from ..systems.recipes import register_game_recipes
 
 # 注册的游戏列表
 GAMES = {}
@@ -69,6 +70,11 @@ def register_game(game_id, game_module):
         register_game_items(data.get('items', {}))
         register_game_item_sources(data.get('sources', {}))
 
+    # ── 配方（recipes.json） ──
+    data = _load_game_json(module_dir, 'recipes.json')
+    if data:
+        register_game_recipes(game_id, data)
+
     # ── 默认玩家数据（player_data.json） ──
     data = _load_game_json(module_dir, 'player_data.json')
     if data:
@@ -90,6 +96,8 @@ def get_all_games():
 
 
 # 注册所有游戏（添加新游戏只需在此添加两行）
+from . import world
+register_game('world', world)
 # from . import xxx
 # register_game('xxx', xxx)
 #

@@ -60,34 +60,5 @@ def get_rank_index(rank_id, game_type=None):
         return 0
 
 
-def calculate_rank_change(current_rank, points_change, game_type=None):
-    """计算段位变化。Returns: (new_rank, new_points, promoted, demoted)"""
-    rank_info = get_rank_info(current_rank, game_type)
-    rank_idx = get_rank_index(current_rank, game_type)
-    order = get_rank_order(game_type)
-
-    new_points = max(0, points_change)
-    promoted = False
-    demoted = False
-    new_rank = current_rank
-
-    if rank_info['points_up'] is not None and new_points >= rank_info['points_up']:
-        if rank_idx < len(order) - 1:
-            new_rank = order[rank_idx + 1]
-            new_points = 0
-            promoted = True
-    elif rank_info['points_down'] is not None and new_points < rank_info['points_down']:
-        if rank_idx > 0:
-            prev_rank = order[rank_idx - 1]
-            prev_tier = get_rank_info(prev_rank, game_type)['tier']
-            current_tier = rank_info['tier']
-            if current_tier > 2 or (current_tier == 2 and prev_tier == 2):
-                new_rank = prev_rank
-                new_points = get_rank_info(new_rank, game_type)['points_up'] // 2
-                demoted = True
-
-    return new_rank, new_points, promoted, demoted
-
-
 def get_title_id_from_rank(rank_id):
     return _RANK_TO_TITLE.get(rank_id)

@@ -46,31 +46,36 @@
             "name": "学士",
             "source": "rank",
             "desc": "段位达到学士",
-            "condition": "段位晋升到学士一"
+            "condition": "段位晋升到学士一",
+            "check": {"type": "rank", "rank": "adept_1"}
         },
         "rank_expert": {
             "name": "精英",
             "source": "rank",
             "desc": "段位达到精英",
-            "condition": "段位晋升到精英一"
+            "condition": "段位晋升到精英一",
+            "check": {"type": "rank", "rank": "expert_1"}
         },
         "rank_master": {
             "name": "大师",
             "source": "rank",
             "desc": "段位达到大师",
-            "condition": "段位晋升到大师一"
+            "condition": "段位晋升到大师一",
+            "check": {"type": "rank", "rank": "master_1"}
         },
         "rank_saint": {
             "name": "宗师",
             "source": "rank",
             "desc": "段位达到宗师",
-            "condition": "段位晋升到宗师一"
+            "condition": "段位晋升到宗师一",
+            "check": {"type": "rank", "rank": "saint_1"}
         },
         "rank_celestial": {
             "name": "传奇",
             "source": "rank",
             "desc": "段位达到传奇",
-            "condition": "段位晋升到传奇"
+            "condition": "段位晋升到传奇",
+            "check": {"type": "rank", "rank": "celestial"}
         }
     },
 

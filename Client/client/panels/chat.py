@@ -43,6 +43,14 @@ class ChatPanel(InputBarMixin, Widget):
     _input_bar_id = "chat-input-bar"
     _scroll_target_id = "chat-log"
 
+    def on_input_submit(self, text: str):
+        if not text:
+            return
+        if self._active_tab != "global":
+            self.app.network.send({"type": "private_chat", "target": self._active_tab, "text": text})
+        else:
+            self.app.send_chat(text, self.current_channel)
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self.current_channel = 1
@@ -180,6 +188,8 @@ class ChatPanel(InputBarMixin, Widget):
             self._settings_action = None
         self._render_header()
         self._replay_tab()
+        if hasattr(self.screen, 'update_badges'):
+            self.screen.update_badges()
 
     # ── 渲染 ──
 

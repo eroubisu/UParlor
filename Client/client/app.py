@@ -24,6 +24,9 @@ from .ui.screen import GameScreen
 from .panels import LoginPanel, CommandPanel
 from .net.dispatch import dispatch_server_message
 
+# 注册游戏渲染器和处理器（导入即注册）
+from . import games as _games  # noqa: F401
+
 
 # ═══════════════════════════════════════════════════════
 #  自定义消息
@@ -142,7 +145,7 @@ class UParlorApp(App):
                     cmd.add_message(f"{M_DIM}连接已断开{M_END}")
             try:
                 conn = screen.query_one("#connection-status", Static)
-                conn.update("----")
+                conn.update(" ---- ")
             except Exception:
                 pass
 
@@ -164,7 +167,7 @@ class UParlorApp(App):
         if isinstance(screen, GameScreen):
             try:
                 conn = screen.query_one("#connection-status", Static)
-                conn.update(f"{ms}ms")
+                conn.update(f" {ms}ms ")
             except Exception:
                 pass
 
@@ -244,8 +247,29 @@ class UParlorApp(App):
         ime.on_app_focus(self.vim.mode == Mode.NORMAL)
 
 
+def _uninstall():
+    """卸载 uparlor：删除外部数据 + pip uninstall"""
+    import shutil, subprocess, sys
+    from pathlib import Path
+
+    data_dir = Path.home() / ".uparlor"
+    if data_dir.exists():
+        shutil.rmtree(data_dir, ignore_errors=True)
+        print(f"已删除数据目录: {data_dir}")
+    else:
+        print("无外部数据需要清理")
+
+    print("卸载 uparlor 包...")
+    subprocess.call([sys.executable, "-m", "pip", "uninstall", "uparlor", "-y"])
+    print("\n卸载完成。")
+
+
 def main():
     """CLI 入口点"""
+    import sys
+    if "--uninstall" in sys.argv:
+        _uninstall()
+        return
     from .config import VERSION
     print(f"uparlor v{VERSION or 'dev'}\n")
     app = UParlorApp()

@@ -42,6 +42,7 @@ TITLE_SOURCES = _titles_data['sources']
 _items_data = _load_json('items.json')
 ITEM_LIBRARY = _items_data['items']
 ITEM_SOURCES = _items_data['sources']
+QUALITY_MULTIPLIERS = _items_data.get('quality_multipliers', {})
 
 
 # ══════════════════════════════════════════════════
@@ -96,8 +97,8 @@ def get_default_user_template(name="", password_hash=""):
         },
 
         'inventory': {
-            'rename_card': 2,
-            'pattern_default': 1,
+            'rename_card': {"0": 2},
+            'pattern_default': {"0": 1},
         },
 
         'titles': {
@@ -109,6 +110,9 @@ def get_default_user_template(name="", password_hash=""):
 
         'ai_companions': {},
         'ai_token_stats': {},
+
+        'attributes': {},
+        'equipment': {},
     }
 
     for game_id, defaults in _GAME_PLAYER_DEFAULTS.items():

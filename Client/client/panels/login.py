@@ -74,6 +74,11 @@ class LoginPanel(InputBarMixin, Widget):
         yield Static("", id="login-prompt-text", markup=True)
         yield InputBar(prompt_id="login-prompt", id="login-input-bar")
 
+    def on_input_submit(self, text: str):
+        if self._tab == 'settings' or not text:
+            return
+        self.app.network.send({"type": self._tab, "text": text})
+
     def on_mount(self) -> None:
         self._render_header()
         self._sync_content_visibility()

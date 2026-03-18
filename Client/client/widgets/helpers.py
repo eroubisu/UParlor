@@ -1,9 +1,14 @@
 """面板共用工具函数"""
 
+from __future__ import annotations
+
 from rich.cells import cell_len
 from textual.widgets import Static
 
-from ..config import COLOR_FG_TERTIARY, COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM
+from ..config import (
+    COLOR_ACCENT, COLOR_FG_PRIMARY, COLOR_FG_SECONDARY,
+    COLOR_FG_TERTIARY, COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
+)
 
 
 def _set_pane_subtitle(widget, text: str):
@@ -143,3 +148,26 @@ def update_tab_header(
         widget.query_one(f"#{header_id}", Static).update(line)
     except Exception:
         pass
+
+
+def render_action_menu(
+    actions: list[tuple[str, str]],
+    cursor: int,
+    indent: str = "     ",
+) -> list[str]:
+    """生成操作菜单的 Rich markup 行列表。
+
+    actions: [(action_id, label), ...]
+    cursor: 当前选中索引
+    indent: 行首缩进（默认5空格）
+    返回 Rich markup 字符串列表，可 append 到内容或 log.write。
+    """
+    lines: list[str] = []
+    for i, (_, label) in enumerate(actions):
+        if i == cursor:
+            lines.append(
+                f"{indent}[{COLOR_ACCENT}]\u25cf[/] [bold {COLOR_FG_PRIMARY}]{label}[/]")
+        else:
+            lines.append(
+                f"{indent}  [{COLOR_FG_SECONDARY}]{label}[/]")
+    return lines

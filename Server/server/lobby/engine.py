@@ -22,10 +22,12 @@ class LobbyEngine:
         self.invite_callback = callback
 
     def register_player(self, player_name, player_data):
-        """注册在线玩家"""
+        """注册在线玩家 — 默认进入世界城镇"""
         self.online_players[player_name] = player_data
-        self.player_locations[player_name] = 'lobby'
+        self.player_locations[player_name] = 'world_town'
         self.pending_confirms.pop(player_name, None)
+        # 自动初始化世界引擎并加载玩家位置
+        self._ensure_engine('world', player_name)
 
     def unregister_player(self, player_name):
         """注销玩家，返回需要通知的房间信息列表"""
@@ -50,7 +52,7 @@ class LobbyEngine:
 
     def get_player_location(self, player_name):
         """获取玩家当前位置"""
-        return self.player_locations.get(player_name, 'lobby')
+        return self.player_locations.get(player_name, 'world_town')
 
     def set_player_location(self, player_name, location):
         """设置玩家位置"""
@@ -105,6 +107,17 @@ class LobbyEngine:
         path_keys.reverse()
         if not path:
             return 'HOME'
+        # 附加地图名到世界根位置
+        if player_name:
+            game_id = self._get_game_for_location(location)
+            if game_id:
+                engine = self._get_engine(game_id, player_name)
+                if engine and hasattr(engine, 'get_status_extras'):
+                    extras = engine.get_status_extras(player_name,
+                        self.online_players.get(player_name, {}))
+                    map_name = extras.get('world_map') if extras else None
+                    if map_name:
+                        path[0] = map_name
         # 附加房间号到"房间"层级
         if player_name and location and ('_room' in location or '_playing' in location):
             game_id = self._get_game_for_location(location)
@@ -123,8 +136,8 @@ class LobbyEngine:
         """获取父位置"""
         info = LOCATION_HIERARCHY.get(location)
         if info:
-            return info[1] or 'lobby'
-        return 'lobby'
+            return info[1] or 'world_town'
+        return 'world_town'
 
     def get_online_player_names(self):
         """获取在线玩家名列表"""
@@ -175,8 +188,6 @@ class LobbyEngine:
 
     def _get_game_for_location(self, location):
         """根据位置确定玩家在哪个游戏中"""
-        if location in ('lobby',):
-            return None
         for game_id, module in GAMES.items():
             info = getattr(module, 'GAME_INFO', {})
             if location in info.get('locations', {}):
@@ -256,15 +267,7 @@ class LobbyEngine:
         if cmd in ('/back', '/home'):
             return self._handle_navigation(player_name, player_data, cmd, location)
 
-        # ── 4. 进入游戏 ──
-        if cmd == '/play':
-            if location not in ('lobby',):
-                return '请先返回 HOME 再进入其他游戏。'
-            if not args:
-                return '用法: play <游戏ID>'
-            return self._enter_game(player_name, player_data, args.lower().strip())
-
-        # ── 6. 游戏内指令路由 ──
+        # ── 4. 游戏内指令路由 ──
         game_id = self._get_game_for_location(location)
         if game_id:
             engine = self._get_engine(game_id, player_name)
@@ -285,8 +288,10 @@ class LobbyEngine:
 
     def _handle_navigation(self, player_name, player_data, cmd, location):
         """统一处理 /back 和 /home 导航"""
-        if location == 'lobby':
-            return '你已经在 HOME 了。'
+        # 城镇根位置是最顶层
+        root = LOCATION_HIERARCHY.get(location)
+        if root and root[1] is None:
+            return '你已经在城镇中了。'
 
         # 游戏内：委托引擎处理（引擎可能需要清理房间等）
         game_id = self._get_game_for_location(location)
@@ -299,10 +304,10 @@ class LobbyEngine:
 
         # 非游戏位置：按层级回退
         if cmd == '/home':
-            self.set_player_location(player_name, 'lobby')
+            self.set_player_location(player_name, 'world_town')
             return {
                 'action': 'location_update',
-                'message': f"已返回{self.get_location_path('lobby')}。"
+                'message': f"已返回{self.get_location_path('world_town')}。"
             }
         parent = self.get_parent_location(location)
         self.set_player_location(player_name, parent)

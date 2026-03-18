@@ -11,7 +11,9 @@ from __future__ import annotations
 from .items import (
     get_item_info, get_item_name,
     inv_get, inv_add, inv_sub, parse_item_key, quality_mult,
+    get_game_use_handler,
 )
+from .effect_engine import process_effect
 from ..player.manager import PlayerManager
 
 
@@ -55,7 +57,7 @@ def cmd_use(lobby, player_name, player_data, args, location):
 
     # 单一用途：直接执行
     if len(use_methods) == 1:
-        return _dispatch_use(lobby, player_name, player_data, item_id, quality, use_methods[0]['id'])
+        return _dispatch_use(lobby, player_name, player_data, item_id, quality, use_methods[0]['id'], location)
 
     # 多用途需指定 method
     if method_id is None:
@@ -68,13 +70,37 @@ def cmd_use(lobby, player_name, player_data, args, location):
     if method_id not in valid:
         return "无效的使用方式。"
 
-    return _dispatch_use(lobby, player_name, player_data, item_id, quality, method_id)
+    return _dispatch_use(lobby, player_name, player_data, item_id, quality, method_id, location)
 
 
-def _dispatch_use(lobby, player_name, player_data, item_id, quality, method_id):
+def _dispatch_use(lobby, player_name, player_data, item_id, quality, method_id, location=None):
+    # 优先级 1: 游戏级 handler
+    game_id = lobby._get_game_for_location(location) if location else None
+    game_handler = get_game_use_handler(game_id, item_id)
+    if game_handler:
+        return game_handler(lobby, player_name, player_data, method_id, quality)
+
+    # 优先级 2: 全局 handler
     handler = _USE_HANDLERS.get(item_id)
     if handler:
         return handler(lobby, player_name, player_data, method_id, quality)
+
+    # 无专用 handler → method_id=='equip' 通用装备
+    if method_id == 'equip':
+        from .equipment import equip_item
+        result = equip_item(player_data, item_id, quality)
+        PlayerManager.save_player_data(player_name, player_data)
+        return {'action': 'status_refresh', 'message': result}
+
+    # 声明式效果引擎
+    info = get_item_info(item_id)
+    if info and info.get('effect'):
+        result = process_effect(player_data, info['effect'], quality)
+        if result:
+            inventory = player_data.get('inventory', {})
+            inv_sub(inventory, item_id, quality)
+            return result
+
     return "此物品暂无使用效果。"
 
 
@@ -155,23 +181,7 @@ def _use_rename_card(lobby, player_name, player_data, method_id, quality=0):
 register_use_handler('rename_card', _use_rename_card)
 
 
-def _use_exp_potion(lobby, player_name, player_data, method_id, quality=0):
-    """经验药水 — 品质倍率影响经验值"""
-    from .leveling import check_level_up
-    info = get_item_info('exp_potion') or {}
-    base_value = info.get('effect', {}).get('value', 50)
-    value = int(base_value * quality_mult(quality))
-    inventory = player_data.get('inventory', {})
-    inv_sub(inventory, 'exp_potion', quality)
-    player_data['exp'] = player_data.get('exp', 0) + value
-    msg = f"饮下经验药水，获得 {value} 点经验值！"
-    leveled = check_level_up(player_data)
-    if leveled:
-        msg += f"\n升级了！当前等级: {leveled[-1]}"
-    return msg
-
-
-register_use_handler('exp_potion', _use_exp_potion)
+# exp_potion — 由声明式效果引擎自动处理 (effect.type=add_exp)
 
 
 def _use_lucky_coin(lobby, player_name, player_data, method_id, quality=0):
@@ -235,27 +245,11 @@ def _use_gift_box(lobby, player_name, player_data, method_id, quality=0):
 register_use_handler('gift_box', _use_gift_box)
 
 
-def _use_mystic_scroll(lobby, player_name, player_data, method_id, quality=0):
-    """神秘卷轴 — 品质倍率影响经验值"""
-    from .leveling import check_level_up
-    info = get_item_info('mystic_scroll') or {}
-    base_value = info.get('effect', {}).get('value', 120)
-    value = int(base_value * quality_mult(quality))
-    inventory = player_data.get('inventory', {})
-    inv_sub(inventory, 'mystic_scroll', quality)
-    player_data['exp'] = player_data.get('exp', 0) + value
-    msg = f"展开卷轴阅读... 获得 {value} 点经验值！"
-    leveled = check_level_up(player_data)
-    if leveled:
-        msg += f"\n升级了！当前等级: {leveled[-1]}"
-    return msg
-
-
-register_use_handler('mystic_scroll', _use_mystic_scroll)
+# mystic_scroll — 由声明式效果引擎自动处理 (effect.type=add_exp)
 
 
 def _use_teleport_stone(lobby, player_name, player_data, method_id, quality=0):
-    """传送石 — 暂无目的地"""
+    """传送石 — 暂无已解锁的传送目的地"""
     return "传送石闪烁了一下... 但没有可用的传送目的地。"
 
 
@@ -263,10 +257,11 @@ register_use_handler('teleport_stone', _use_teleport_stone)
 
 
 def _use_enchanted_ring(lobby, player_name, player_data, method_id, quality=0):
-    """附魔戒指 — equip: 佩戴; disenchant: 分解"""
+    """附魔戒指 — equip: 穿戴装备; disenchant: 分解为金币"""
     inventory = player_data.get('inventory', {})
     if method_id == 'equip':
-        return "你将戒指戴在手上，感受到一股温暖的力量。（暂无实际效果）"
+        from .equipment import equip_item
+        return equip_item(player_data, 'enchanted_ring', quality)
     elif method_id == 'disenchant':
         inv_sub(inventory, 'enchanted_ring', quality)
         gold_gain = int(30 * quality_mult(quality))
@@ -278,42 +273,11 @@ def _use_enchanted_ring(lobby, player_name, player_data, method_id, quality=0):
 register_use_handler('enchanted_ring', _use_enchanted_ring)
 
 
-def _use_ancient_tome(lobby, player_name, player_data, method_id, quality=0):
-    """古籍 — 品质倍率影响经验值"""
-    from .leveling import check_level_up
-    info = get_item_info('ancient_tome') or {}
-    base_value = info.get('effect', {}).get('value', 300)
-    value = int(base_value * quality_mult(quality))
-    inventory = player_data.get('inventory', {})
-    inv_sub(inventory, 'ancient_tome', quality)
-    player_data['exp'] = player_data.get('exp', 0) + value
-    msg = f"研读古籍，领悟了深奥的知识，获得 {value} 点经验值！"
-    leveled = check_level_up(player_data)
-    if leveled:
-        msg += f"\n升级了！当前等级: {leveled[-1]}"
-    return msg
+# ancient_tome — 由声明式效果引擎自动处理 (effect.type=add_exp)
 
 
-register_use_handler('ancient_tome', _use_ancient_tome)
-
-
-def _use_star_fragment(lobby, player_name, player_data, method_id, quality=0):
-    """星辰碎片 — 品质倍率影响经验值"""
-    from .leveling import check_level_up
-    info = get_item_info('star_fragment') or {}
-    base_value = info.get('effect', {}).get('value', 80)
-    value = int(base_value * quality_mult(quality))
-    inventory = player_data.get('inventory', {})
-    inv_sub(inventory, 'star_fragment', quality)
-    player_data['exp'] = player_data.get('exp', 0) + value
-    msg = f"凝视星辰碎片，星光涌入脑海，获得 {value} 点经验值！"
-    leveled = check_level_up(player_data)
-    if leveled:
-        msg += f"\n升级了！当前等级: {leveled[-1]}"
-    return msg
-
-
-register_use_handler('star_fragment', _use_star_fragment)
+# star_fragment — 由声明式效果引擎自动处理 (effect.type=add_exp)
+# healing_herb — 由声明式效果引擎自动处理 (effect.type=heal_hp)
 
 
 # ══════════════════════════════════════════════════

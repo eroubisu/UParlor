@@ -250,7 +250,7 @@ class _ChatRenderMixin:
         tab_line = build_tab_overflow(tab_parts, active_idx, avail, COLOR_FG_TERTIARY)
 
         if self._service:
-            mood_label, _, _ = self._service.mood.to_display()
+            mood_label, _ = self._service.mood.to_display()
             sd = self._service.social.to_display()
             status_line = (f"{mood_label} [{COLOR_FG_TERTIARY}]|{M_END} "
                           f"亲:{sd['intimacy']} 信:{sd['trust']} 熟:{sd['familiarity']} "

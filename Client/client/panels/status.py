@@ -14,66 +14,27 @@ from ..config import (
     COLOR_ACCENT,
 )
 from ..state import ModuleStateManager
-from ..widgets.helpers import render_tab_header, _widget_width
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._card_render import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ._card_render import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ..data import COLOR_PRESETS as _COLOR_PRESETS
+from ..data import EQUIPMENT_SLOT_LABELS
+from ._status_render import (
+    StatusRenderMixin,
+    _PAGES, _PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS,
+    _PAGE_LABELS, _SETTINGS_ITEMS, _COLOR_MENU_ITEMS,
+    _SUB_NONE, _SUB_COLOR_MENU, _SUB_COLOR_PICK, _SUB_PATTERN_PICK,
+    _SUB_MOTTO_INPUT, _SUB_FIELD_PICK,
+)
 
-
-# ── 页面 ──
-_PAGE_STATUS = 'status'
-_PAGE_CARD = 'card'
-_PAGE_SETTINGS = 'settings'
-_PAGES = [_PAGE_STATUS, _PAGE_CARD, _PAGE_SETTINGS]
-_PAGE_LABELS = {_PAGE_STATUS: '状态', _PAGE_CARD: '名片', _PAGE_SETTINGS: '设置'}
-
-# ── 设置菜单项 ──
-_SETTINGS_ITEMS = [
-    ('edit_motto', '修改签名'),
-    ('edit_colors', '颜色'),
-    ('switch_pattern', '切换花色'),
-    ('edit_fields', '名片字段'),
-    ('delete_account', '注销账号'),
-]
-
-# ── 颜色预设 ──
-_COLOR_PRESETS = [
-    ('#ffffff', '白'),
-    ('#c0c0c0', '银'),
-    ('#808080', '灰'),
-    ('#FFB6C1', '粉'),
-    ('#87CEEB', '天蓝'),
-    ('#90EE90', '浅绿'),
-    ('#FFD700', '金'),
-    ('#DDA0DD', '紫'),
-    ('#98FB98', '薄荷'),
-    ('#FFBF00', '琥珀'),
-    ('#FF7F50', '珊瑚'),
-    ('#007FFF', '蔚蓝'),
-]
-
-# ── 颜色子菜单 ──
-_COLOR_MENU_ITEMS = [
-    ('name_color', '名字颜色'),
-    ('motto_color', '签名颜色'),
-    ('border_color', '边框颜色'),
-]
-
+# ── 删除流程 ──
 # ── 删除流程 ──
 _DEL_IDLE = ''
 _DEL_CONFIRM = 'confirm'
 _DEL_PASSWORD = 'password'
 
-# ── 设置子模式 ──
-_SUB_NONE = ''
-_SUB_COLOR_MENU = 'color_menu'
-_SUB_COLOR_PICK = 'color_pick'
-_SUB_PATTERN_PICK = 'pattern_pick'
-_SUB_MOTTO_INPUT = 'motto_input'
-_SUB_FIELD_PICK = 'field_pick'
 
-
-class StatusPanel(InputBarMixin, Widget):
+class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
     """状态面板：名片 / 状态 / 设置"""
 
     _input_bar_id = "status-input-bar"
@@ -84,6 +45,9 @@ class StatusPanel(InputBarMixin, Widget):
         self._player_data: dict = {}
         self._page: str = _PAGE_STATUS
         self._settings_cursor: int = 0
+        self._equip_cursor: int = 0
+        self._equip_confirm: str = ''
+        self._equip_scroll: int = 0
         self._sub_mode: str = _SUB_NONE
         self._sub_cursor: int = 0
         self._sub_items: list = []
@@ -111,186 +75,6 @@ class StatusPanel(InputBarMixin, Widget):
     def wants_insert(self) -> bool:
         return self._wants_insert
 
-    # ── 渲染 ──
-
-    def _render_all(self):
-        self._render_header()
-        self._render_page()
-        # 始终显示用户名
-        name = self._player_data.get('name', '') if self._player_data else ''
-        if name:
-            try:
-                from ..widgets.helpers import _set_pane_subtitle
-                _set_pane_subtitle(self, name)
-            except Exception:
-                pass
-
-    def _render_header(self):
-        render_tab_header(self, "status-header", _PAGES, _PAGE_LABELS, self._page)
-
-    def _render_page(self):
-        if self._page == _PAGE_CARD:
-            self._render_card_page()
-        elif self._page == _PAGE_STATUS:
-            self._render_status_page()
-        elif self._page == _PAGE_SETTINGS:
-            self._render_settings_page()
-
-    def _render_card_page(self):
-        try:
-            log: RichLog = self.query_one("#status-content", RichLog)
-        except Exception:
-            return
-        pd = self._player_data
-        if not pd:
-            log.clear()
-            log.write(RichText.from_markup(f"{M_DIM}暂无数据{M_END}"))
-            return
-        card = pd.get('profile_card', {})
-        card_data = {
-            'name': pd.get('name', '?'),
-            'title': pd.get('title', ''),
-            'level': pd.get('level', 1),
-            'gold': pd.get('gold', 0),
-            'motto': card.get('motto', ''),
-            'name_color': card.get('name_color', '#ffffff'),
-            'motto_color': card.get('motto_color', '#b3b3b3'),
-            'border_color': card.get('border_color', '#5a5a5a'),
-            'pattern': card.get('pattern', {}),
-            'card_fields': card.get('card_fields', DEFAULT_CARD_FIELDS),
-            'created_at': pd.get('created_at', ''),
-            'game_stats': pd.get('game_stats', {}),
-            'social_stats': pd.get('social_stats', {}),
-            'friends_count': pd.get('friends_count', 0),
-        }
-        avail_w = _widget_width(self, "status-content")
-        avail_h = self._visible_height()
-        render_card(log, card_data, avail_w, avail_h)
-
-    def _visible_height(self) -> int:
-        try:
-            log = self.query_one("#status-content", RichLog)
-            h = log.scrollable_content_region.height
-            return h if h > 0 else 15
-        except Exception:
-            return 15
-
-    def _render_status_page(self):
-        try:
-            log: RichLog = self.query_one("#status-content", RichLog)
-        except Exception:
-            return
-        log.clear()
-        pd = self._player_data
-        if not pd:
-            log.write(RichText.from_markup(f"{M_DIM}暂无数据{M_END}"))
-            return
-        name = pd.get('name', '?')
-        title = pd.get('title', '')
-        level = pd.get('level', 1)
-        log.write(RichText.from_markup(f"{M_BOLD}{name}{M_END}"))
-        if title:
-            log.write(RichText.from_markup(f"{M_MUTED}{title}{M_END}"))
-        log.write(RichText.from_markup(f"{M_MUTED}Lv.{level}{M_END}"))
-
-    def _render_settings_page(self):
-        try:
-            log: RichLog = self.query_one("#status-content", RichLog)
-        except Exception:
-            return
-        log.clear()
-        if self._sub_mode == _SUB_COLOR_MENU:
-            self._render_color_menu(log)
-            return
-        if self._sub_mode == _SUB_COLOR_PICK:
-            self._render_color_picker(log)
-            return
-        if self._sub_mode == _SUB_PATTERN_PICK:
-            self._render_pattern_picker(log)
-            return
-        if self._sub_mode == _SUB_FIELD_PICK:
-            self._render_field_picker(log)
-            return
-        # 主菜单
-        for i, (action_id, label) in enumerate(_SETTINGS_ITEMS):
-            if action_id == 'delete_account' and i > 0:
-                log.write(RichText.from_markup(f"{M_DIM}{'─' * 16}{M_END}"))
-            if i == self._settings_cursor:
-                log.write(RichText.from_markup(
-                    f"  [{COLOR_ACCENT}]●[/] {M_BOLD}{label}{M_END}"))
-            else:
-                log.write(RichText.from_markup(
-                    f"    {M_DIM}{label}{M_END}"))
-
-    def _render_color_picker(self, log: RichLog):
-        log.write(RichText.from_markup(
-            f"{M_DIM}选择颜色 (j/k 移动, Enter 确认, Esc 取消){M_END}"))
-        log.write(RichText())
-        for i, (color, name) in enumerate(_COLOR_PRESETS):
-            if i == self._sub_cursor:
-                log.write(RichText.from_markup(
-                    f"  [{COLOR_ACCENT}]●[/] [{color}]■■[/] {M_BOLD}{name}{M_END}"))
-            else:
-                log.write(RichText.from_markup(
-                    f"    [{color}]■■[/] {M_DIM}{name}{M_END}"))
-
-    def _render_pattern_picker(self, log: RichLog):
-        log.write(RichText.from_markup(
-            f"{M_DIM}选择花色 (j/k 移动, Enter 确认, Esc 取消){M_END}"))
-        log.write(RichText())
-        if not self._sub_items:
-            log.write(RichText.from_markup(f"{M_DIM}无可用花色{M_END}"))
-            return
-        for i, item in enumerate(self._sub_items):
-            name = item.get('name', item.get('id', '?'))
-            pattern = item.get('pattern', {})
-            preview_chars = pattern.get('chars', '...')[:8]
-            preview_colors = pattern.get('colors', ['#808080'])
-            preview = RichText()
-            for ci, ch in enumerate(preview_chars):
-                c = preview_colors[ci % len(preview_colors)] if preview_colors else '#808080'
-                preview.append(ch, style=c)
-            line = RichText()
-            if i == self._sub_cursor:
-                line.append("  ")
-                line.append("● ", style=COLOR_ACCENT)
-                line.append_text(preview)
-                line.append(f" {name}", style=f'bold {COLOR_FG_PRIMARY}')
-            else:
-                line.append("    ")
-                line.append_text(preview)
-                line.append(f" {name}", style=COLOR_FG_TERTIARY)
-            log.write(line)
-
-    def _render_field_picker(self, log: RichLog):
-        card = self._player_data.get('profile_card', {}) if self._player_data else {}
-        selected = card.get('card_fields', DEFAULT_CARD_FIELDS)
-        count = len(selected)
-        log.write(RichText.from_markup(
-            f"{M_DIM}选择字段 ({count}/4){M_END}"))
-        log.write(RichText())
-        for i, (fid, label) in enumerate(CARD_FIELD_DEFS):
-            checked = fid in selected
-            mark = '●' if checked else '○'
-            if i == self._sub_cursor:
-                log.write(RichText.from_markup(
-                    f"  [{COLOR_ACCENT}]●[/] {mark} {M_BOLD}{label}{M_END}"))
-            else:
-                log.write(RichText.from_markup(
-                    f"    {mark} {M_DIM}{label}{M_END}"))
-
-    def _render_color_menu(self, log: RichLog):
-        log.write(RichText.from_markup(
-            f"{M_DIM}选择颜色类型 (j/k 移动, Enter 确认, Esc 返回){M_END}"))
-        log.write(RichText())
-        for i, (key, label) in enumerate(_COLOR_MENU_ITEMS):
-            if i == self._sub_cursor:
-                log.write(RichText.from_markup(
-                    f"  [{COLOR_ACCENT}]●[/] {M_BOLD}{label}{M_END}"))
-            else:
-                log.write(RichText.from_markup(
-                    f"    {M_DIM}{label}{M_END}"))
-
     # ── 导航 ──
 
     def nav_tab_next(self):
@@ -298,6 +82,7 @@ class StatusPanel(InputBarMixin, Widget):
             return
         idx = _PAGES.index(self._page) if self._page in _PAGES else 0
         self._page = _PAGES[(idx + 1) % len(_PAGES)]
+        self._equip_confirm = ''
         self._render_all()
 
     def nav_tab_prev(self):
@@ -305,10 +90,17 @@ class StatusPanel(InputBarMixin, Widget):
             return
         idx = _PAGES.index(self._page) if self._page in _PAGES else 0
         self._page = _PAGES[(idx - 1) % len(_PAGES)]
+        self._equip_confirm = ''
         self._render_all()
 
     def nav_up(self):
-        if self._page == _PAGE_CARD:
+        if self._page == _PAGE_EQUIP:
+            if self._equip_cursor > 0:
+                self._equip_cursor -= 1
+                self._equip_confirm = ''
+                self._render_page()
+            return
+        if self._page in (_PAGE_CARD, _PAGE_STATUS):
             try:
                 log = self.query_one("#status-content", RichLog)
                 log.scroll_up(animate=False)
@@ -326,7 +118,14 @@ class StatusPanel(InputBarMixin, Widget):
             self._render_page()
 
     def nav_down(self):
-        if self._page == _PAGE_CARD:
+        if self._page == _PAGE_EQUIP:
+            max_idx = len(EQUIPMENT_SLOT_LABELS) - 1
+            if self._equip_cursor < max_idx:
+                self._equip_cursor += 1
+                self._equip_confirm = ''
+                self._render_page()
+            return
+        if self._page in (_PAGE_CARD, _PAGE_STATUS):
             try:
                 log = self.query_one("#status-content", RichLog)
                 log.scroll_down(animate=False)
@@ -359,6 +158,24 @@ class StatusPanel(InputBarMixin, Widget):
             self._render_page()
 
     def nav_enter(self):
+        if self._page == _PAGE_EQUIP:
+            slots = list(EQUIPMENT_SLOT_LABELS.keys())
+            if 0 <= self._equip_cursor < len(slots):
+                slot_key = slots[self._equip_cursor]
+                pd = self._player_data
+                equip_data = pd.get('equipment', {}) if pd else {}
+                item = equip_data.get(slot_key)
+                if item and isinstance(item, dict):
+                    if self._equip_confirm == slot_key:
+                        try:
+                            self.app.network.send({'type': 'unequip', 'slot': slot_key})
+                        except Exception:
+                            pass
+                        self._equip_confirm = ''
+                    else:
+                        self._equip_confirm = slot_key
+                    self._render_page()
+            return
         if self._page != _PAGE_SETTINGS:
             return
         if self._sub_mode == _SUB_COLOR_MENU:

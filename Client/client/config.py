@@ -55,7 +55,6 @@ M_END     = '[/]'                            # 关闭标记
 MAX_LINES_CMD = 1000
 MAX_LINES_CHAT = 500
 MAX_LINES_STATUS = 500
-MAX_LINES_GAME_BOARD = 500
 MAX_LINES_ONLINE = 200
 
 # ── 频道 ──

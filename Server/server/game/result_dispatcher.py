@@ -5,7 +5,7 @@ from typing import Callable
 
 from ..player.manager import PlayerManager
 from ..msg_types import (
-    ACTION, CHAT, CHAT_HISTORY, GAME, GAME_EVENT, GAME_INVITE,
+    ACTION, CHAT, CHAT_HISTORY, FRIEND_REQUEST, GAME, GAME_EVENT, GAME_INVITE,
     LOGIN_PROMPT, LOGIN_SUCCESS, LOCATION_UPDATE, COMMANDS_UPDATE,
     ONLINE_USERS, ROOM_UPDATE, ROOM_LEAVE, STATUS, SYSTEM,
 )
@@ -20,31 +20,39 @@ ActionHandler = Callable[..., None]
 _ACTION_HANDLERS: dict[str, ActionHandler] = {}
 
 
-def register_action(action_name: str, handler: ActionHandler) -> None:
-    """注册大厅级 action 处理器。"""
-    _ACTION_HANDLERS[action_name] = handler
+def register_action(action_name: str):
+    """装饰器：注册大厅级 action 处理器。"""
+    def decorator(fn: ActionHandler) -> ActionHandler:
+        _ACTION_HANDLERS[action_name] = fn
+        return fn
+    return decorator
 
 
+@register_action('clear')
 def _action_clear(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {'type': ACTION, 'action': 'clear'})
 
 
+@register_action('version')
 def _action_version(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {
         'type': ACTION, 'action': 'version',
         'server_version': result.get('server_version', '未知')})
 
 
+@register_action('confirm_prompt')
 def _action_confirm_prompt(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {
         'type': GAME, 'text': result.get('message', '')})
 
 
+@register_action('exit')
 def _action_exit(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {'type': ACTION, 'action': 'exit'})
     PlayerManager.save_player_data(name, player_data)
 
 
+@register_action('rename_success')
 def _action_rename_success(server, client_socket, name, player_data, result):
     old_name = result.get('old_name')
     new_name = result.get('new_name')
@@ -56,11 +64,13 @@ def _action_rename_success(server, client_socket, name, player_data, result):
                       'text': f'{old_name} 改名为 {new_name}', 'channel': 1})
 
 
+@register_action('account_deleted')
 def _action_account_deleted(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})
     server.send_to(client_socket, {'type': ACTION, 'action': 'exit'})
 
 
+@register_action('firework')
 def _action_firework(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {'type': GAME, 'text': result.get('send_to_caller', '')})
     broadcast_text = result.get('broadcast', '')
@@ -70,6 +80,7 @@ def _action_firework(server, client_socket, name, player_data, result):
     server.send_player_status(client_socket, player_data)
 
 
+@register_action('gift_success')
 def _action_gift_success(server, client_socket, name, player_data, result):
     """赠送成功 — 通知发送者和接收者"""
     server.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})
@@ -96,14 +107,33 @@ def _action_gift_success(server, client_socket, name, player_data, result):
                     break
 
 
-register_action('clear', _action_clear)
-register_action('version', _action_version)
-register_action('confirm_prompt', _action_confirm_prompt)
-register_action('exit', _action_exit)
-register_action('firework', _action_firework)
-register_action('gift_success', _action_gift_success)
-register_action('rename_success', _action_rename_success)
-register_action('account_deleted', _action_account_deleted)
+@register_action('friend_request')
+def _action_friend_request(server, client_socket, name, player_data, result):
+    """游戏内发送好友申请"""
+    target = result.get('target', '')
+    message = result.get('message', '')
+    if target and target != name and PlayerManager.player_exists(target):
+        friends = player_data.get('friends', [])
+        if target not in friends:
+            target_data = PlayerManager.load_player_data(target)
+            if target_data:
+                pending = target_data.setdefault('pending_friend_requests', [])
+                if name not in pending:
+                    pending.append(name)
+                    PlayerManager.save_player_data(target, target_data)
+                with server.lock:
+                    for cs, info in server.clients.items():
+                        if info.get('name') == target and info.get('state') == 'playing':
+                            info['data'].setdefault('pending_friend_requests', [])
+                            if name not in info['data']['pending_friend_requests']:
+                                info['data']['pending_friend_requests'].append(name)
+                            server.send_to(cs, {
+                                'type': FRIEND_REQUEST,
+                                'from': name,
+                                'pending': info['data'].get('pending_friend_requests', []),
+                            })
+    if message:
+        server.send_to(client_socket, {'type': GAME, 'text': message})
 
 
 # 框架级消息类型 — 客户端核心直接处理，不包装

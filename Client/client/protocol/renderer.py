@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
-from textual.widgets import RichLog
+from rich.console import RenderableType
 
 
 @runtime_checkable
@@ -12,16 +12,8 @@ class GameRenderer(Protocol):
 
     game_type: str  # 游戏标识符，与 room_data["game_type"] 一致
 
-    def render_board(self, log: RichLog, room_data: dict) -> None:
-        """渲染游戏主画面（棋盘/牌桌/地图/场景等）"""
-        ...
-
-    def render_status(self, log: RichLog, game_data: dict) -> None:
-        """渲染游戏状态（手牌/走棋历史等）"""
-        ...
-
-    def render_board_waiting(self, log: RichLog, room_data: dict) -> None:
-        """渲染等待中的房间信息（可选）"""
+    def render_board(self, room_data: dict) -> RenderableType:
+        """渲染游戏主画面，返回 Rich 可渲染对象"""
         ...
 
 

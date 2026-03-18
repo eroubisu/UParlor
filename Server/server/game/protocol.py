@@ -54,10 +54,6 @@ class BaseGameEngine:
         """动态返回当前位置的游戏指令列表。返回 None 时 fallback 到 commands.json。"""
         return None
 
-    def get_profile_extras(self, player_data: dict) -> str | None:
-        """个人资料页面的附加行（如段位、胜率等）"""
-        return None
-
     def get_status_extras(self, player_name: str, player_data: dict) -> dict | None:
         """状态消息附加字段"""
         return None

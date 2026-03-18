@@ -26,7 +26,7 @@ from ..config import (
 )
 from ..state import ModuleStateManager
 from ..widgets import _set_pane_subtitle
-from ..widgets.helpers import build_tab_overflow, _widget_width
+from ..widgets.helpers import build_tab_overflow, _widget_width, render_action_menu
 
 _TABS = ["system", "friend"]
 _TAB_LABELS = {"system": "系统", "friend": "好友"}
@@ -118,17 +118,21 @@ class NotificationPanel(Widget):
                 except Exception:
                     pass
                 self._state_mgr.notify.mark_friend_request(name, 'accepted')
+                self._state_mgr.cmd.add_line(f"已接受 {name} 的好友申请")
             elif action_id == 'reject':
                 try:
                     self.app.network.send({"type": "friend_reject", "name": name})
                 except Exception:
                     pass
                 self._state_mgr.notify.mark_friend_request(name, 'rejected')
+                self._state_mgr.cmd.add_line(f"已拒绝 {name} 的好友申请")
             elif action_id == 'delete':
                 self._state_mgr.notify.remove_friend_request(name)
 
             self._mode = _MODE_LIST
             self._render_list()
+            if hasattr(self.screen, 'update_badges'):
+                self.screen.update_badges()
             return
 
     def nav_back(self) -> bool:
@@ -270,13 +274,8 @@ class NotificationPanel(Widget):
 
                 if sel and self._mode == _MODE_ACTION:
                     actions = self._get_actions_for_current()
-                    for ai, (_, label) in enumerate(actions):
-                        if ai == self._action_cursor:
-                            log.write(RichText.from_markup(
-                                f"     [{COLOR_ACCENT}]●[/] [bold {COLOR_FG_PRIMARY}]{label}[/]"))
-                        else:
-                            log.write(RichText.from_markup(
-                                f"       [{COLOR_FG_SECONDARY}]{label}[/]"))
+                    for line in render_action_menu(actions, self._action_cursor):
+                        log.write(RichText.from_markup(line))
 
     # ── State listener ──
 

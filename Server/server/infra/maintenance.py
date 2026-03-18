@@ -53,12 +53,14 @@ def do_maintenance(server):
     print("[维护] 系统维护开始...")
     server.broadcast({
         'type': SYSTEM,
-        'text': '[sys] 系统维护时间到，请在1分钟内保存数据并退出，服务器即将重置聊天记录...'
+        'text': '[sys] 系统维护时间到，请在1分钟内保存数据并退出，服务器即将重置聊天记录...',
+        'broadcast': True,
     })
     time.sleep(30)
     server.broadcast({
         'type': SYSTEM,
-        'text': '[sys] 系统维护中，正在归档聊天记录...'
+        'text': '[sys] 系统维护中，正在归档聊天记录...',
+        'broadcast': True,
     })
     with server.lock:
         clients_to_close = list(server.clients.keys())

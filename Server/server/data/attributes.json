@@ -1,0 +1,28 @@
+{
+    "base_attributes": {
+        "hp":            {"name": "生命值",   "abbr": "HP",   "base": 100, "per_level": 10},
+        "mp":            {"name": "魔力值",   "abbr": "MP",   "base": 50,  "per_level": 5},
+        "attack":        {"name": "攻击力",   "abbr": "ATK",  "base": 10,  "per_level": 2},
+        "defense":       {"name": "防御力",   "abbr": "DEF",  "base": 8,   "per_level": 1},
+        "magic_attack":  {"name": "魔法攻击", "abbr": "MATK", "base": 8,   "per_level": 2},
+        "magic_defense": {"name": "魔法防御", "abbr": "MDEF", "base": 6,   "per_level": 1},
+        "agility":       {"name": "敏捷",     "abbr": "AGI",  "base": 10,  "per_level": 1},
+        "luck":          {"name": "幸运",     "abbr": "LUK",  "base": 5,   "per_level": 0}
+    },
+
+    "equipment_slots": {
+        "head":      "头部",
+        "ear":       "耳部",
+        "neck":      "颈部",
+        "body":      "身体",
+        "back":      "背部",
+        "main_hand": "主手",
+        "off_hand":  "副手",
+        "hands":     "手部",
+        "waist":     "腰部",
+        "feet":      "足部",
+        "finger_l":  "左指",
+        "finger_r":  "右指",
+        "accessory": "饰品"
+    }
+}
