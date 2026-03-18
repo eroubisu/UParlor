@@ -138,6 +138,10 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
 
     def _set_focused_pane(self, pane_id: str):
         self._focused_pane_id = pane_id
+        focused_pane = find_pane(self._layout_tree, pane_id)
+        if hasattr(self, 'state'):
+            self.state.chat.panel_focused = (
+                focused_pane is not None and focused_pane.module == 'chat')
         canvas = self.canvas
         for p in all_panes(self._layout_tree):
             wrapper = canvas.get_pane(p.pane_id)
@@ -318,7 +322,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         except Exception:
             return
         parts = []
-        dm_unread = len(self.state.chat.dm_unread)
+        dm_unread = sum(self.state.chat.dm_unread.values())
         if dm_unread:
             parts.append(f"私{dm_unread}")
         notify_unread = self.state.notify.unread_count
@@ -374,26 +378,6 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self._restore_module(module_name)
         self._set_focused_pane(self._focused_pane_id)
         self._save_layout()
-
-    # ── 游戏模块切换 ──
-
-    def _toggle_game_module(self, module_name: str):
-        existing = find_module_pane(self._layout_tree, module_name)
-        if existing:
-            self._remove_module_panel(module_name)
-        else:
-            self._ensure_module_panel(module_name)
-
-    def _toggle_all_game_modules(self, game_modules: list[str]):
-        all_open = all(
-            find_module_pane(self._layout_tree, m) is not None
-            for m in game_modules)
-        for m in game_modules:
-            opened = find_module_pane(self._layout_tree, m) is not None
-            if all_open and opened:
-                self._remove_module_panel(m)
-            elif not all_open and not opened:
-                self._ensure_module_panel(m)
 
     def _restore_all_modules(self):
         for pane in all_panes(self._layout_tree):

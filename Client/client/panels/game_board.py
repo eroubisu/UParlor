@@ -44,10 +44,15 @@ class GameBoardPanel(InputBarMixin, Widget):
     class RequestInsert(Message):
         """服务端推送选择菜单时请求进入 INSERT 模式"""
 
+    _state_mgr = None
     _game_type: str = ''
     _input_bar_id = "game-input-bar"
     _scroll_target_id = ""
     _last_room_data: dict | None = None
+    _pending_moves: int = 0
+    _pending_move_dir: str = ''
+    _move_timer = None
+    _last_move_sent: float = 0.0
 
     def compose(self) -> ComposeResult:
         yield Static("", id="game-board-toast")
@@ -115,6 +120,7 @@ class GameBoardPanel(InputBarMixin, Widget):
             bar.update_tabs(tabs)
 
     def on_input_submit(self, text: str):
+        self._cancel_pending_moves()
         if not text:
             return
         if not text.startswith("/"):
@@ -162,43 +168,111 @@ class GameBoardPanel(InputBarMixin, Widget):
 
     # ── 导航（NORMAL 模式 j/k/h/l → 角色移动）──
 
+    def _send_world_move(self, direction: str, count: int):
+        """发起多步移动：立即执行第一步，后续步等待服务器确认后继续"""
+        import time
+        self._cancel_pending_moves()
+        self._pending_moves = count - 1
+        self._pending_move_dir = direction
+        self._last_move_sent = time.monotonic()
+        self.app.send_command(direction)
+        if self._pending_moves > 0:
+            self._move_timer = self.set_timer(0.5, self._tick_pending_move)
+
+    def _tick_pending_move(self):
+        """回退定时器：服务器未及时响应时重试下一步"""
+        import time
+        self._move_timer = None
+        if self._pending_moves > 0 and self._pending_move_dir:
+            self._pending_moves -= 1
+            self._last_move_sent = time.monotonic()
+            self.app.send_command(self._pending_move_dir)
+            if self._pending_moves > 0:
+                self._move_timer = self.set_timer(0.5, self._tick_pending_move)
+
+    def _on_move_success(self):
+        """移动成功（收到地图更新）后立即发送下一步"""
+        import time
+        if self._pending_moves > 0 and self._pending_move_dir:
+            now = time.monotonic()
+            elapsed = now - self._last_move_sent
+            if elapsed < 0.3:
+                # 距上次发送太近，让定时器处理（避免被服务端冷却拒绝导致步数丢失）
+                return
+            if self._move_timer:
+                self._move_timer.stop()
+                self._move_timer = None
+            self._pending_moves -= 1
+            self._last_move_sent = now
+            self.app.send_command(self._pending_move_dir)
+            if self._pending_moves > 0:
+                self._move_timer = self.set_timer(0.5, self._tick_pending_move)
+
+    def _cancel_pending_moves(self):
+        """取消待执行的多步移动"""
+        self._pending_moves = 0
+        self._pending_move_dir = ''
+        if self._move_timer:
+            self._move_timer.stop()
+            self._move_timer = None
+
     def nav_down(self, count=1):
         if self._game_type == 'world':
-            self.app.send_command(f'/j {count}' if count > 1 else '/j')
+            self._send_world_move('/j', count)
 
     def nav_up(self, count=1):
         if self._game_type == 'world':
-            self.app.send_command(f'/k {count}' if count > 1 else '/k')
+            self._send_world_move('/k', count)
 
     def nav_tab_prev(self, count=1):
         if self._game_type == 'world':
-            self.app.send_command(f'/h {count}' if count > 1 else '/h')
+            self._send_world_move('/h', count)
 
     def nav_tab_next(self, count=1):
         if self._game_type == 'world':
-            self.app.send_command(f'/l {count}' if count > 1 else '/l')
+            self._send_world_move('/l', count)
 
     def nav_enter(self):
+        self._cancel_pending_moves()
         bar = self._hint_bar()
-        if bar:
+        # 仅在已进入子菜单时处理 hint bar 选择
+        if bar and bar._nav_stack:
             item = bar.enter()
             if item:
                 self.app.send_command(item.command)
+                bar.reset_to_root()
+                bar._active_tab = 0
+                bar._refresh_display()
+                return
+        # 在门口时发送 /enter（进入/离开建筑）
+        if self._game_type == 'world':
+            rd = self._last_room_data
+            if rd and rd.get('door'):
+                self.app.send_command('/enter')
 
     def nav_back(self) -> bool:
+        self._cancel_pending_moves()
         bar = self._hint_bar()
         if bar:
             return bar.back()
         return False
 
     def nav_escape(self) -> bool:
+        self._cancel_pending_moves()
+        bar = self._hint_bar()
+        if bar and bar._nav_stack:
+            bar.reset_to_root()
+            bar._active_tab = 0
+            bar._refresh_display()
+            return True
         return False
 
     def show_toast(self, text: str):
-        """在顶部消息栏显示一条消息（会被下一条覆盖）"""
+        """在顶部消息栏显示最新一行（多行消息只显示最后一行）"""
         try:
             toast = self.query_one("#game-board-toast", Static)
-            toast.update(text)
+            last_line = text.rstrip('\n').rsplit('\n', 1)[-1] if text else ''
+            toast.update(last_line)
         except Exception:
             pass
 
@@ -212,13 +286,15 @@ class GameBoardPanel(InputBarMixin, Widget):
         if event == 'update_room':
             (room_data,) = args
             self._render_room(room_data)
+            self._on_move_success()
         elif event == 'clear':
             display = self.query_one("#game-board-log", Static)
             display.update("")
 
     def restore(self, state: ModuleStateManager):
-        state.game_board.set_listener(self._on_state_event)
-        state.cmd.set_listener(self._on_cmd_event)
+        self._state_mgr = state
+        state.game_board.add_listener(self._on_state_event)
+        state.cmd.add_listener(self._on_cmd_event)
         if state.game_board.room_data:
             self._render_room(state.game_board.room_data)
         # 恢复游戏指令菜单（可能在 _update_hint_bar 之后才挂载）
@@ -226,3 +302,8 @@ class GameBoardPanel(InputBarMixin, Widget):
         game_tabs = get_game_tabs()
         if game_tabs:
             self.update_game_tabs(game_tabs)
+
+    def on_unmount(self):
+        if self._state_mgr:
+            self._state_mgr.game_board.remove_listener(self._on_state_event)
+            self._state_mgr.cmd.remove_listener(self._on_cmd_event)

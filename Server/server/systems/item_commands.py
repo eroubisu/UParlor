@@ -25,9 +25,20 @@ from ..player.manager import PlayerManager
 _USE_HANDLERS: dict[str, callable] = {}
 
 
-def register_use_handler(item_id: str, handler) -> None:
-    """注册某物品的使用处理器"""
-    _USE_HANDLERS[item_id] = handler
+def register_use_handler(item_id: str, handler=None):
+    """注册某物品的使用处理器。
+
+    装饰器: @register_use_handler('rename_card')
+    函数调用: register_use_handler('item_id', handler)
+    """
+    if handler is not None:
+        _USE_HANDLERS[item_id] = handler
+        return handler
+
+    def decorator(fn):
+        _USE_HANDLERS[item_id] = fn
+        return fn
+    return decorator
 
 
 # ══════════════════════════════════════════════════
@@ -169,6 +180,7 @@ def cmd_drop(lobby, player_name, player_data, args, location):
 #  内置物品使用处理
 # ══════════════════════════════════════════════════
 
+@register_use_handler('rename_card')
 def _use_rename_card(lobby, player_name, player_data, method_id, quality=0):
     """改名卡 — 进入改名待确认流程（品质不影响效果）"""
     lobby.pending_confirms[player_name] = {
@@ -178,12 +190,10 @@ def _use_rename_card(lobby, player_name, player_data, method_id, quality=0):
     return "请输入新名字:"
 
 
-register_use_handler('rename_card', _use_rename_card)
-
-
 # exp_potion — 由声明式效果引擎自动处理 (effect.type=add_exp)
 
 
+@register_use_handler('lucky_coin')
 def _use_lucky_coin(lobby, player_name, player_data, method_id, quality=0):
     """幸运硬币 — flip: 抛硬币; wish: 许愿（品质倍率影响金币范围）"""
     import random
@@ -204,9 +214,7 @@ def _use_lucky_coin(lobby, player_name, player_data, method_id, quality=0):
     return "无效操作。"
 
 
-register_use_handler('lucky_coin', _use_lucky_coin)
-
-
+@register_use_handler('firework')
 def _use_firework(lobby, player_name, player_data, method_id, quality=0):
     """烟花 — 消耗并在系统频道广播"""
     inventory = player_data.get('inventory', {})
@@ -219,9 +227,7 @@ def _use_firework(lobby, player_name, player_data, method_id, quality=0):
     }
 
 
-register_use_handler('firework', _use_firework)
-
-
+@register_use_handler('gift_box')
 def _use_gift_box(lobby, player_name, player_data, method_id, quality=0):
     """礼盒 — 品质倍率影响奖励数量"""
     import random
@@ -242,20 +248,16 @@ def _use_gift_box(lobby, player_name, player_data, method_id, quality=0):
     return f"打开礼盒... 获得了 {reward_name} x{reward_count}！"
 
 
-register_use_handler('gift_box', _use_gift_box)
-
-
 # mystic_scroll — 由声明式效果引擎自动处理 (effect.type=add_exp)
 
 
+@register_use_handler('teleport_stone')
 def _use_teleport_stone(lobby, player_name, player_data, method_id, quality=0):
     """传送石 — 暂无已解锁的传送目的地"""
     return "传送石闪烁了一下... 但没有可用的传送目的地。"
 
 
-register_use_handler('teleport_stone', _use_teleport_stone)
-
-
+@register_use_handler('enchanted_ring')
 def _use_enchanted_ring(lobby, player_name, player_data, method_id, quality=0):
     """附魔戒指 — equip: 穿戴装备; disenchant: 分解为金币"""
     inventory = player_data.get('inventory', {})
@@ -268,9 +270,6 @@ def _use_enchanted_ring(lobby, player_name, player_data, method_id, quality=0):
         player_data['gold'] = player_data.get('gold', 0) + gold_gain
         return f"你分解了附魔戒指，获得 {gold_gain} 金币。"
     return "无效操作。"
-
-
-register_use_handler('enchanted_ring', _use_enchanted_ring)
 
 
 # ancient_tome — 由声明式效果引擎自动处理 (effect.type=add_exp)
@@ -348,8 +347,3 @@ def pending_drop_item(lobby, player_name, player_data, cmd, raw_input, pending_d
 
     inv_sub(inventory, item_id, quality)
     return f"已丢弃 {item_name} x1。"
-
-
-# ════════════════════════════════════════════════
-#  自注册全局指令
-# ════════════════════════════════════════════════

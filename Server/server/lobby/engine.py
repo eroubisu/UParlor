@@ -107,17 +107,16 @@ class LobbyEngine:
         path_keys.reverse()
         if not path:
             return 'HOME'
-        # 附加地图名到世界根位置
-        if player_name:
+        # 附加地图名到世界根位置（用城镇地图的 meta.name 替代层级定义）
+        if player_name and path_keys and path_keys[0] == 'world_town':
             game_id = self._get_game_for_location(location)
             if game_id:
                 engine = self._get_engine(game_id, player_name)
                 if engine and hasattr(engine, 'get_status_extras'):
-                    extras = engine.get_status_extras(player_name,
-                        self.online_players.get(player_name, {}))
-                    map_name = extras.get('world_map') if extras else None
-                    if map_name:
-                        path[0] = map_name
+                    pdata = self.online_players.get(player_name, {})
+                    extras = engine.get_status_extras(player_name, pdata)
+                    if extras and extras.get('town_map_name'):
+                        path[0] = extras['town_map_name']
         # 附加房间号到"房间"层级
         if player_name and location and ('_room' in location or '_playing' in location):
             game_id = self._get_game_for_location(location)
@@ -151,6 +150,11 @@ class LobbyEngine:
         """
         import copy
         global_cmds = copy.deepcopy(COMMAND_TABLE.get('*', []))
+
+        # 根位置（parent=None）过滤无意义的导航指令
+        loc_info = LOCATION_HIERARCHY.get(location)
+        if loc_info and loc_info[1] is None:
+            global_cmds = [c for c in global_cmds if c.get('name') != 'home']
 
         # 尝试引擎动态指令
         game_id = self._get_game_for_location(location)
@@ -263,9 +267,9 @@ class LobbyEngine:
         if global_handler is not None:
             return global_handler(self, player_name, player_data, args, location)
 
-        # ── 3. 导航指令 /back, /home ──
-        if cmd in ('/back', '/home'):
-            return self._handle_navigation(player_name, player_data, cmd, location)
+        # ── 3. 导航指令 /home ──
+        if cmd == '/home':
+            return self._handle_navigation(player_name, player_data, location)
 
         # ── 4. 游戏内指令路由 ──
         game_id = self._get_game_for_location(location)
@@ -286,34 +290,24 @@ class LobbyEngine:
 
     # ── 进入游戏 ──
 
-    def _handle_navigation(self, player_name, player_data, cmd, location):
-        """统一处理 /back 和 /home 导航"""
-        # 城镇根位置是最顶层
+    def _handle_navigation(self, player_name, player_data, location):
+        """处理 /home 导航"""
         root = LOCATION_HIERARCHY.get(location)
         if root and root[1] is None:
             return '你已经在城镇中了。'
 
-        # 游戏内：委托引擎处理（引擎可能需要清理房间等）
+        # 游戏内：委托引擎处理
         game_id = self._get_game_for_location(location)
         if game_id:
             engine = self._get_engine(game_id, player_name)
             if engine:
-                if cmd == '/back':
-                    return engine.handle_back(self, player_name, player_data)
                 return engine.handle_quit(self, player_name, player_data)
 
-        # 非游戏位置：按层级回退
-        if cmd == '/home':
-            self.set_player_location(player_name, 'world_town')
-            return {
-                'action': 'location_update',
-                'message': f"已返回{self.get_location_path('world_town')}。"
-            }
-        parent = self.get_parent_location(location)
-        self.set_player_location(player_name, parent)
+        # 非游戏位置：直接回城镇
+        self.set_player_location(player_name, 'world_town')
         return {
             'action': 'location_update',
-            'message': f"已返回{self.get_location_path(parent)}。"
+            'message': f"已返回{self.get_location_path('world_town')}。"
         }
 
     def _enter_game(self, player_name, player_data, game_id):

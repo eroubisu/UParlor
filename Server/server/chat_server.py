@@ -289,6 +289,9 @@ class ChatServer(AuthMixin):
             if isinstance(result, dict):
                 for m in result.get('send_to_caller', []):
                     self.send_to(client_socket, m)
+                for target, messages in result.get('send_to_players', {}).items():
+                    for m in messages:
+                        self.send_to_player(target, m)
 
     def _handle_playing(self, client_socket, msg):
         with self.lock:

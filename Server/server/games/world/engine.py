@@ -57,6 +57,37 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
         world['map'] = WorldEngine._maps.get(player_name, 'starter_town')
         world['pos'] = WorldEngine._positions.get(player_name, [20, 14])
 
+    def _switch_map(self, player_name: str, new_map_id: str, spawn: list[int]) -> dict[str, list]:
+        """切换玩家所在地图，返回需通知的 player_left + player_entered 消息"""
+        old_map = WorldEngine._maps.get(player_name)
+        old_pos = WorldEngine._positions.get(player_name)
+        # 从旧地图移除
+        if old_map and old_map in WorldEngine._map_players:
+            WorldEngine._map_players[old_map].discard(player_name)
+            if not WorldEngine._map_players[old_map]:
+                del WorldEngine._map_players[old_map]
+        # 设置新地图
+        WorldEngine._maps[player_name] = new_map_id
+        WorldEngine._positions[player_name] = list(spawn)
+        WorldEngine._map_players.setdefault(new_map_id, set()).add(player_name)
+        # 通知旧地图视口内玩家该玩家离开
+        send_to: dict[str, list] = {}
+        if old_map and old_pos:
+            for name in WorldEngine._map_players.get(old_map, ()):
+                vr = self._player_viewport_range(name)
+                if vr and self._in_viewport(vr, old_pos[0], old_pos[1]):
+                    send_to.setdefault(name, []).append({
+                        'type': 'game_event',
+                        'game_type': 'world',
+                        'event': 'player_left',
+                        'data': {'name': player_name},
+                    })
+        # 通知新地图视口内玩家该玩家出现
+        entered = self._notify_entered(player_name)
+        for name, msgs in entered.items():
+            send_to.setdefault(name, []).extend(msgs)
+        return send_to
+
     # ── GameEngine Protocol ──
 
     def handle_command(self, lobby, player_name, player_data, cmd, args):
@@ -68,20 +99,15 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
         # 移动指令: /h /j /k /l [步数]
         direction_key = cmd.lstrip('/')
         if direction_key in _DIRECTIONS:
-            # 正在跟随别人 → 自动退出跟随
-            if player_name in WorldEngine._following:
+            # 正在跟随别人 → 自动退出跟随（任意移动取消跟随）
+            was_following = player_name in WorldEngine._following
+            if was_following:
                 self._unfollow(player_name)
             if not self._check_cooldown(player_name, player_data):
                 return ""  # 冷却中，静默忽略
             dx, dy = _DIRECTIONS[direction_key]
-            steps = 1
-            if args:
-                try:
-                    steps = max(1, min(int(args), 50))
-                except ValueError:
-                    steps = 1
             old_pos = list(WorldEngine._positions[player_name])
-            new_pos, door_name = move_player(map_data, old_pos, dx, dy, steps)
+            new_pos, door_name = move_player(map_data, old_pos, dx, dy, 1)
             WorldEngine._positions[player_name] = new_pos
             WorldEngine._facings[player_name] = (dx, dy)
             self._save_world_state(player_name, player_data)
@@ -98,11 +124,17 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
                 'send_to_caller': [self._build_map_update(player_name)],
                 'send_to_players': send_to_players,
                 'save': True,
+                'refresh_commands': True,
             }
+            if was_following:
+                result['send_to_caller'].append({
+                    'type': 'game_event', 'game_type': 'world',
+                    'event': 'follow_cancelled', 'data': {},
+                })
             if door_name:
                 result['send_to_caller'].append({
                     'type': 'game',
-                    'text': f"[{door_name}] 的入口 — 输入 /enter 进入",
+                    'text': f"[{door_name}] — /enter 通过",
                 })
             return result
 
@@ -136,32 +168,35 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
             WorldEngine._map_players[map_id].discard(player_name)
             if not WorldEngine._map_players[map_id]:
                 del WorldEngine._map_players[map_id]
+        send_to: dict[str, list] = {}
         # 通知同地图视口内玩家该玩家离开
         if map_id and old_pos:
-            send_to: dict[str, list] = {}
             for name in WorldEngine._map_players.get(map_id, ()):
                 vr = self._player_viewport_range(name)
                 if vr and self._in_viewport(vr, old_pos[0], old_pos[1]):
-                    send_to[name] = [{
+                    send_to.setdefault(name, []).append({
                         'type': 'game_event',
                         'game_type': 'world',
                         'event': 'player_left',
                         'data': {'name': player_name},
-                    }]
-            if send_to:
-                return [{'action': 'player_disconnect',
-                         'send_to_players': send_to}]
+                    })
+        if send_to:
+            return [{'action': 'player_disconnect',
+                     'send_to_players': send_to}]
         return []
 
     def handle_back(self, lobby, player_name, player_data):
-        """从建筑子位置返回城镇"""
+        """从建筑返回城镇（仅 /home 使用）"""
         location = lobby.get_player_location(player_name)
-        # 已在城镇根位置
         if location == 'world_town':
             return "你已经在城镇中了。"
-        # 从建筑返回城镇
+        world = player_data.get('world', {})
+        town_map = world.get('town_map', 'starter_town')
+        town_pos = world.get('town_pos', [20, 12])
+        notify = self._switch_map(player_name, town_map, town_pos)
         lobby.set_player_location(player_name, 'world_town')
-        return {
+        self._save_world_state(player_name, player_data)
+        result = {
             'action': 'location_update',
             'send_to_caller': [
                 self._build_map_update(player_name),
@@ -169,6 +204,9 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
             ],
             'location': 'world_town',
         }
+        if notify:
+            result['send_to_players'] = notify
+        return result
 
     def handle_quit(self, lobby, player_name, player_data):
         """城镇是根位置，无法退出"""
@@ -178,7 +216,9 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
         player_name = player_data['name']
         self._ensure_player(player_name, player_data)
         ensure_attributes(player_data)
-        return {
+        # 通知同地图视口内玩家该玩家出现
+        notify = self._notify_entered(player_name)
+        result = {
             'action': 'location_update',
             'send_to_caller': [
                 self._build_map_update(player_name),
@@ -186,22 +226,72 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
             ],
             'location': 'world_town',
         }
+        if notify:
+            result['send_to_players'] = notify
+        return result
+
+    def _notify_entered(self, player_name: str) -> dict[str, list]:
+        """构建 player_entered 通知给同地图视口内的其他玩家"""
+        map_id = WorldEngine._maps.get(player_name)
+        pos = WorldEngine._positions.get(player_name)
+        if not map_id or not pos:
+            return {}
+        send_to: dict[str, list] = {}
+        for name in WorldEngine._map_players.get(map_id, ()):
+            if name == player_name:
+                continue
+            vr = self._player_viewport_range(name)
+            if vr and self._in_viewport(vr, pos[0], pos[1]):
+                obs_pos = WorldEngine._positions.get(name, [0, 0])
+                obs_vp = WorldEngine._viewports.get(name, (0, 0))
+                obs_ox = obs_pos[0] - obs_vp[0] // 2
+                obs_oy = obs_pos[1] - obs_vp[1] // 2
+                send_to.setdefault(name, []).append({
+                    'type': 'game_event',
+                    'game_type': 'world',
+                    'event': 'player_entered',
+                    'data': {
+                        'name': player_name,
+                        'x': pos[0] - obs_ox,
+                        'y': pos[1] - obs_oy,
+                    },
+                })
+        return send_to
 
     def get_commands(self, lobby, location, player_name, player_data):
-        """动态指令 — 根据位置返回操作指令"""
+        """动态指令 — 根据位置和玩家状态返回可用操作指令"""
         if location == 'world_town':
-            return [
-                {'name': 'enter', 'label': '进入建筑', 'desc': '在门口时进入建筑', 'tab': '操作'},
+            cmds = [
                 {'name': 'talk', 'label': '交谈', 'desc': '与附近的NPC或玩家交谈', 'tab': '操作'},
                 {'name': 'user', 'label': '玩家', 'desc': '查看附近玩家', 'tab': '操作'},
-                {'name': 'follow', 'label': '跟随', 'desc': '跟随附近玩家', 'tab': '操作'},
-                {'name': 'unfollow', 'label': '取消跟随', 'desc': '停止跟随', 'tab': '操作'},
-                {'name': 'map', 'label': '地图', 'desc': '刷新当前地图', 'tab': '操作'},
             ]
-        # 建筑子位置: 从游戏模块的 commands.json 加载
+            # 仅当站在门上时显示 /enter
+            pos = WorldEngine._positions.get(player_name)
+            if pos:
+                from .social import _check_on_door
+                map_id = WorldEngine._maps.get(player_name, 'starter_town')
+                map_data = load_map(map_id)
+                if map_data and _check_on_door(map_data, pos):
+                    cmds.insert(0, {'name': 'enter', 'label': '进入建筑',
+                                    'desc': '进入当前门口的建筑', 'tab': '操作'})
+            return cmds
+        # 建筑子位置: 游戏模块的 commands.json + 通用室内指令
         from . import _load_json
         local_cmds = _load_json('commands.json')
-        return local_cmds.get(location, [])
+        cmds = [
+            {'name': 'talk', 'label': '交谈', 'desc': '与NPC交谈', 'tab': '操作'},
+        ]
+        cmds.extend(local_cmds.get(location, []))
+        # 站在出口门上时显示 /enter
+        pos = WorldEngine._positions.get(player_name)
+        if pos:
+            from .social import _check_on_door
+            map_id = WorldEngine._maps.get(player_name, 'starter_town')
+            map_data = load_map(map_id)
+            if map_data and _check_on_door(map_data, pos):
+                cmds.insert(0, {'name': 'enter', 'label': '离开建筑',
+                                'desc': '从门口离开建筑', 'tab': '操作'})
+        return cmds
 
     def get_status_extras(self, player_name, player_data):
         """状态消息附加: 当前地图名和坐标"""
@@ -209,9 +299,18 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
         map_data = load_map(map_id)
         map_name = map_data.get('meta', {}).get('name', '') if map_data else ''
         pos = WorldEngine._positions.get(player_name, [0, 0])
+        # 城镇地图名称（建筑内时取 town_map，城镇时取当前）
+        world = player_data.get('world', {}) if player_data else {}
+        town_map_id = world.get('town_map', map_id)
+        if town_map_id == map_id:
+            town_name = map_name
+        else:
+            td = load_map(town_map_id)
+            town_name = td.get('meta', {}).get('name', '') if td else map_name
         return {
             'world_map': map_name,
             'world_pos': pos,
+            'town_map_name': town_name,
         }
 
     def get_player_room_data(self, player_name):

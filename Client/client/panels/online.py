@@ -25,7 +25,7 @@ from ..widgets import _set_pane_subtitle
 from ..widgets.helpers import render_tab_header, _widget_width, render_action_menu
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._card_render import render_card
+from ._render.card import render_card
 
 
 _TABS = ["friends", "all", "online", "search"]
@@ -156,35 +156,35 @@ class OnlineUsersPanel(InputBarMixin, Widget):
             self._scroll_offset = self._cursor + need - vh
         self._scroll_offset = max(0, self._scroll_offset)
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         if self._mode == _MODE_CARD:
             return
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
-                self._cursor = (self._cursor + 1) % len(items)
+                self._cursor = (self._cursor + count) % len(items)
         elif self._mode == _MODE_ACTION:
             items = self._current_items()
             if items and self._cursor < len(items):
                 actions = self._actions_for_user(items[self._cursor])
                 if actions:
-                    self._action_cursor = (self._action_cursor + 1) % len(actions)
+                    self._action_cursor = (self._action_cursor + count) % len(actions)
         self._ensure_scroll()
         self._render_list()
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         if self._mode == _MODE_CARD:
             return
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
-                self._cursor = (self._cursor - 1) % len(items)
+                self._cursor = (self._cursor - count) % len(items)
         elif self._mode == _MODE_ACTION:
             items = self._current_items()
             if items and self._cursor < len(items):
                 actions = self._actions_for_user(items[self._cursor])
                 if actions:
-                    self._action_cursor = (self._action_cursor - 1) % len(actions)
+                    self._action_cursor = (self._action_cursor - count) % len(actions)
         self._ensure_scroll()
         self._render_list()
 
@@ -543,7 +543,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         st = state.online
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
         self._tab = st.tab
         self._cursor = st.cursor
         self._search_query = st.search_query
@@ -551,6 +551,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
 
     def on_unmount(self):
         if self._state_mgr:
+            self._state_mgr.online.remove_listener(self._on_state_event)
             st = self._state_mgr.online
             st.tab = self._tab
             st.cursor = self._cursor

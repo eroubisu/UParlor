@@ -16,10 +16,10 @@ from ..config import (
 from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._card_render import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ._render.card import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
 from ..data import COLOR_PRESETS as _COLOR_PRESETS
 from ..data import EQUIPMENT_SLOT_LABELS
-from ._status_render import (
+from ._render.status import (
     StatusRenderMixin,
     _PAGES, _PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS,
     _PAGE_LABELS, _SETTINGS_ITEMS, _COLOR_MENU_ITEMS,
@@ -28,10 +28,14 @@ from ._status_render import (
 )
 
 # ── 删除流程 ──
-# ── 删除流程 ──
 _DEL_IDLE = ''
 _DEL_CONFIRM = 'confirm'
 _DEL_PASSWORD = 'password'
+
+# ── 改密流程 ──
+_PW_IDLE = ''
+_PW_NEW = 'new'
+_PW_CONFIRM = 'confirm'
 
 
 class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
@@ -54,6 +58,8 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         self._color_target: str = ''  # 'name_color' | 'motto_color'
         self._delete_step: str = _DEL_IDLE
         self._delete_username: str = ''
+        self._passwd_step: str = _PW_IDLE
+        self._passwd_new: str = ''
         self._wants_insert: bool = False
         self._state_mgr: ModuleStateManager | None = None
 
@@ -93,7 +99,11 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         self._equip_confirm = ''
         self._render_all()
 
-    def nav_up(self):
+    def nav_up(self, count=1):
+        for _ in range(count):
+            self._nav_up_step()
+
+    def _nav_up_step(self):
         if self._page == _PAGE_EQUIP:
             if self._equip_cursor > 0:
                 self._equip_cursor -= 1
@@ -117,7 +127,11 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
                 self._settings_cursor -= 1
             self._render_page()
 
-    def nav_down(self):
+    def nav_down(self, count=1):
+        for _ in range(count):
+            self._nav_down_step()
+
+    def _nav_down_step(self):
         if self._page == _PAGE_EQUIP:
             max_idx = len(EQUIPMENT_SLOT_LABELS) - 1
             if self._equip_cursor < max_idx:
@@ -197,6 +211,8 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             return
         if self._delete_step:
             return
+        if self._passwd_step:
+            return
         if self._settings_cursor >= len(_SETTINGS_ITEMS):
             return
         action_id, _ = _SETTINGS_ITEMS[self._settings_cursor]
@@ -230,6 +246,8 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             self._render_page()
         elif action_id == 'delete_account':
             self._start_delete()
+        elif action_id == 'change_password':
+            self._start_passwd()
 
     def nav_back(self) -> bool:
         if self._wants_insert:
@@ -270,6 +288,27 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             self.hide_input_bar()
             self._render_page()
             return
+        if self._passwd_step == _PW_NEW:
+            if len(text) < 6 or len(text) > 20:
+                self._log(f"{M_DIM}密码长度需要在6-20个字符之间，已取消。{M_END}")
+                self._reset_passwd()
+                return
+            self._passwd_new = text
+            self._passwd_step = _PW_CONFIRM
+            self._log(f"{M_DIM}请再次输入新密码确认：{M_END}")
+            self._wants_insert = True
+            return
+        if self._passwd_step == _PW_CONFIRM:
+            if text != self._passwd_new:
+                self._log(f"{M_DIM}两次输入的密码不一致，已取消。{M_END}")
+                self._reset_passwd()
+                return
+            # 先触发服务端 pending 流程，再发两次密码
+            self.app.send_command('/passwd')
+            self.app.send_command(self._passwd_new)
+            self.app.send_command(self._passwd_new)
+            self._reset_passwd()
+            return
         if self._delete_step == _DEL_CONFIRM:
             name = self._player_data.get('name', '')
             if text != name:
@@ -300,6 +339,10 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             self._wants_insert = False
             self.hide_input_bar()
             self._render_page()
+            return
+        if self._passwd_step:
+            self._log(f"{M_DIM}已取消修改密码。{M_END}")
+            self._reset_passwd()
             return
         if self._delete_step:
             self._log(f"{M_DIM}已取消注销。{M_END}")
@@ -355,6 +398,20 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         self._send_card_update({'card_fields': selected})
         self._render_page()
 
+    # ── 改密流程 ──
+
+    def _start_passwd(self):
+        self._passwd_step = _PW_NEW
+        self._log(f"{M_DIM}请输入新密码（6-20个字符）：{M_END}")
+        self._wants_insert = True
+        self.show_input_bar()
+
+    def _reset_passwd(self):
+        self._passwd_step = _PW_IDLE
+        self._passwd_new = ''
+        self._wants_insert = False
+        self.hide_input_bar()
+
     # ── 删除流程 ──
 
     def _start_delete(self):
@@ -402,7 +459,7 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         st = state.status
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
         self._page = st.page
         self._settings_cursor = st.settings_cursor
         if st.player_data:
@@ -411,6 +468,7 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
 
     def on_unmount(self):
         if self._state_mgr:
+            self._state_mgr.status.remove_listener(self._on_state_event)
             st = self._state_mgr.status
             st.page = self._page
             st.settings_cursor = self._settings_cursor

@@ -1,12 +1,10 @@
 {
     "world_blacksmith": [
         {"name": "forge", "label": "锻造", "desc": "打开锻造配方列表"},
-        {"name": "buy", "label": "购买", "desc": "购买武器装备"},
-        {"name": "sell", "label": "出售", "desc": "出售物品"}
+        {"name": "buy", "label": "购买", "desc": "购买武器装备"}
     ],
     "world_herbshop": [
         {"name": "buy", "label": "购买", "desc": "购买药草和药品"},
-        {"name": "sell", "label": "出售", "desc": "出售物品"},
         {"name": "brew", "label": "炼药", "desc": "使用配方炼制药品"}
     ],
     "world_guild": [

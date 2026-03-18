@@ -5,15 +5,15 @@ from __future__ import annotations
 from rich.text import Text as RichText
 from textual.widgets import RichLog
 
-from ..config import (
+from ...config import (
     M_BOLD, M_DIM, M_END, M_ACCENT, M_MUTED,
     COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
     COLOR_ACCENT,
 )
-from ..widgets.helpers import render_tab_header, _widget_width
-from ._card_render import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
-from ..data import COLOR_PRESETS as _COLOR_PRESETS
-from ..data import EQUIPMENT_SLOT_LABELS, ATTRIBUTE_LABELS
+from ...widgets.helpers import render_tab_header, _widget_width
+from .card import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ...data import COLOR_PRESETS as _COLOR_PRESETS
+from ...data import EQUIPMENT_SLOT_LABELS, ATTRIBUTE_LABELS
 
 # 页面常量
 _PAGE_STATUS = 'status'
@@ -26,9 +26,10 @@ _PAGE_LABELS = {_PAGE_STATUS: '状态', _PAGE_EQUIP: '装备', _PAGE_CARD: '名�
 # 设置菜单项
 _SETTINGS_ITEMS = [
     ('edit_motto', '修改签名'),
-    ('edit_colors', '颜色'),
+    ('edit_colors', '更改颜色'),
     ('switch_pattern', '切换花色'),
     ('edit_fields', '名片字段'),
+    ('change_password', '修改密码'),
     ('delete_account', '注销账号'),
 ]
 
@@ -57,7 +58,7 @@ class StatusRenderMixin:
         name = self._player_data.get('name', '') if self._player_data else ''
         if name:
             try:
-                from ..widgets.helpers import _set_pane_subtitle
+                from ...widgets.helpers import _set_pane_subtitle
                 _set_pane_subtitle(self, name)
             except Exception:
                 pass
@@ -141,7 +142,7 @@ class StatusRenderMixin:
             cur_mp = attr_data.get('current_mp', 0)
             max_mp = attr_data.get('max_mp', 0)
             log.write(RichText.from_markup(
-                f"  HP {cur_hp}/{max_hp}  MP {cur_mp}/{max_mp}"))
+                f"HP {cur_hp}/{max_hp}  MP {cur_mp}/{max_mp}"))
             stats = attr_data.get('stats', {})
             for key, label in ATTRIBUTE_LABELS.items():
                 if key in ('hp', 'mp'):
@@ -149,7 +150,7 @@ class StatusRenderMixin:
                 val = stats.get(key, 0)
                 if val:
                     log.write(RichText.from_markup(
-                        f"  {M_DIM}{label}{M_END} {val}"))
+                        f"{M_DIM}{label}{M_END} {val}"))
 
     def _render_equip_page(self):
         try:

@@ -152,23 +152,27 @@ class LoginPanel(InputBarMixin, Widget):
 
     # ── 导航 ──
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         if self._tab == 'settings' and self._settings_mode == _SETTINGS_MODE_LIST:
-            self._settings_cursor = (self._settings_cursor + 1) % len(_SETTINGS_OPTIONS)
+            self._settings_cursor = (self._settings_cursor + count) % len(_SETTINGS_OPTIONS)
             self._render_settings()
             return
         try:
-            self.query_one("#login-doc", VerticalScroll).scroll_down(animate=False)
+            vs = self.query_one("#login-doc", VerticalScroll)
+            for _ in range(count):
+                vs.scroll_down(animate=False)
         except Exception:
             pass
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         if self._tab == 'settings' and self._settings_mode == _SETTINGS_MODE_LIST:
-            self._settings_cursor = (self._settings_cursor - 1) % len(_SETTINGS_OPTIONS)
+            self._settings_cursor = (self._settings_cursor - count) % len(_SETTINGS_OPTIONS)
             self._render_settings()
             return
         try:
-            self.query_one("#login-doc", VerticalScroll).scroll_up(animate=False)
+            vs = self.query_one("#login-doc", VerticalScroll)
+            for _ in range(count):
+                vs.scroll_up(animate=False)
         except Exception:
             pass
 

@@ -218,7 +218,7 @@ def look_dm(state: ModuleStateManager, *, peer: str = "", count: int = 10, **_kw
             lines = []
             for t in tabs[:_MAX_DM_OVERVIEW]:
                 entries = chat.dm_entries.get(t, [])
-                unread = "未读" if t in chat.dm_unread else ""
+                unread = "未读" if chat.dm_unread.get(t, 0) > 0 else ""
                 if entries:
                     last = entries[-1]
                     preview = last[1][:20] + ("..." if len(last[1]) > 20 else "")
@@ -227,9 +227,9 @@ def look_dm(state: ModuleStateManager, *, peer: str = "", count: int = 10, **_kw
                 else:
                     lines.append(f"{t}: (无消息)")
             result = f"私聊对话 {len(tabs)} 个:\n" + "\n".join(lines)
-            unread_count = len(chat.dm_unread)
+            unread_count = sum(chat.dm_unread.values())
             if unread_count:
-                result += f"\n共 {unread_count} 个对话有未读消息"
+                result += f"\n共 {unread_count} 条未读消息"
             return result
         else:
             # 详细模式: 返回与指定用户的最近 count 条消息
@@ -344,7 +344,7 @@ class AwarenessSummary:
         try:
             chat = state.chat
             if chat.dm_tabs:
-                unread = len(chat.dm_unread)
+                unread = sum(chat.dm_unread.values())
                 if chat.active_tab != "global":
                     parts.append(f"正在和{chat.active_tab}私聊")
                 elif unread:

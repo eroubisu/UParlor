@@ -404,38 +404,38 @@ class InventoryPanel(InputBarMixin, Widget):
         self._render_header()
         self._refresh_content()
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         if self._mode in (_MODE_BROWSE, _MODE_SEARCH, _MODE_MULTI_SELECT, _MODE_SELECTED):
             if self._filtered:
-                self._cursor = (self._cursor + 1) % len(self._filtered)
+                self._cursor = (self._cursor + count) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
             item = self._filtered[self._cursor] if self._filtered else None
             actions = self._get_item_actions(item) if item else _BASE_ACTIONS
-            self._action_cursor = (self._action_cursor + 1) % len(actions)
+            self._action_cursor = (self._action_cursor + count) % len(actions)
         elif self._mode == _MODE_USE_SUB:
             if self._use_methods:
-                self._use_cursor = (self._use_cursor + 1) % len(self._use_methods)
+                self._use_cursor = (self._use_cursor + count) % len(self._use_methods)
         elif self._mode == _MODE_GIFT:
             if self._gift_friends:
-                self._gift_cursor = (self._gift_cursor + 1) % len(self._gift_friends)
+                self._gift_cursor = (self._gift_cursor + count) % len(self._gift_friends)
                 self._ensure_gift_scroll()
         self._ensure_scroll()
         self._refresh_content()
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         if self._mode in (_MODE_BROWSE, _MODE_SEARCH, _MODE_MULTI_SELECT, _MODE_SELECTED):
             if self._filtered:
-                self._cursor = (self._cursor - 1) % len(self._filtered)
+                self._cursor = (self._cursor - count) % len(self._filtered)
         elif self._mode == _MODE_ACTION:
             item = self._filtered[self._cursor] if self._filtered else None
             actions = self._get_item_actions(item) if item else _BASE_ACTIONS
-            self._action_cursor = (self._action_cursor - 1) % len(actions)
+            self._action_cursor = (self._action_cursor - count) % len(actions)
         elif self._mode == _MODE_USE_SUB:
             if self._use_methods:
-                self._use_cursor = (self._use_cursor - 1) % len(self._use_methods)
+                self._use_cursor = (self._use_cursor - count) % len(self._use_methods)
         elif self._mode == _MODE_GIFT:
             if self._gift_friends:
-                self._gift_cursor = (self._gift_cursor - 1) % len(self._gift_friends)
+                self._gift_cursor = (self._gift_cursor - count) % len(self._gift_friends)
                 self._ensure_gift_scroll()
         self._ensure_scroll()
         self._refresh_content()
@@ -1018,11 +1018,12 @@ class InventoryPanel(InputBarMixin, Widget):
         qual_items = self._build_quality_items()
         self._quality_cursor = next(
             (i for i, (v, _) in enumerate(qual_items) if v == self._quality_filter), 0)
-        self._state.set_listener(self._on_state_event)
+        self._state.add_listener(self._on_state_event)
         self._sync_from_state()
 
     def on_unmount(self):
         if self._state_mgr:
+            self._state_mgr.inventory.remove_listener(self._on_state_event)
             st = self._state_mgr.inventory
             st.cursor = self._cursor
             st.filter_tab = self._filter_tab

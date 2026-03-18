@@ -8,8 +8,8 @@ from __future__ import annotations
 from rich.text import Text as RichText
 from rich.cells import cell_len
 
-from ..config import COLOR_FG_SECONDARY, COLOR_FG_TERTIARY, COLOR_BORDER_LIGHT
-from ..data import CARD_FIELD_DEFS
+from ...config import COLOR_FG_SECONDARY, COLOR_FG_TERTIARY, COLOR_BORDER_LIGHT
+from ...data import CARD_FIELD_DEFS
 
 
 # ── 默认花色 ──

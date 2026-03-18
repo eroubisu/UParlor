@@ -64,11 +64,18 @@ class TabMenuBase(Vertical):
 
     def _current_items(self) -> list:
         if self._tabs and self._active_tab < len(self._tabs):
-            items = self._tabs[self._active_tab][1]
             if self._filter_text:
                 ft = self._filter_text.lower()
-                return [it for it in items if ft in self._item_name(it).lower()]
-            return items
+                all_items = []
+                seen = set()
+                for _, items in self._tabs:
+                    for it in items:
+                        key = id(it)
+                        if key not in seen and ft in self._item_name(it).lower():
+                            seen.add(key)
+                            all_items.append(it)
+                return all_items
+            return self._tabs[self._active_tab][1]
         return []
 
     # ── 导航 ──

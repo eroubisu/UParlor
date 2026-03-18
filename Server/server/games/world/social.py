@@ -1,4 +1,4 @@
-"""社交与交互指令 — enter, talk, user, addfriend, follow, unfollow, map
+"""社交与交互指令 — enter, talk, user, addfriend + 跟随机制
 
 独立函数 + SOCIAL_HANDLERS 路由表，与 building_handlers.py 模式一致。
 每个函数签名: cmd_X(engine, lobby, player_name, player_data, args, map_id, map_data)
@@ -6,24 +6,68 @@
 
 from __future__ import annotations
 
-from ...systems.town_map import check_door, get_nearby_targets, is_walkable
+from ...systems.town_map import check_door, get_nearby_targets, is_walkable, load_map
+
+
+def _check_on_door(map_data: dict, pos: list[int]) -> bool:
+    """玩家是否站在门上"""
+    return check_door(map_data, pos[0], pos[1]) is not None
 
 
 def cmd_enter(engine, lobby, player_name, player_data, args, map_id, map_data):
-    """进入建筑"""
+    """进入/离开建筑 — 站在门上时切换地图"""
     pos = engine._positions[player_name]
     door = check_door(map_data, pos[0], pos[1])
     if not door:
-        return "这里没有可进入的建筑。"
+        return "这里没有可通过的门。"
     location = door.get('location', '')
-    if location:
+    building_id = door.get('building_id', '')
+    if not location or not building_id:
+        return "这扇门暂时无法通过。"
+
+    current_location = lobby.get_player_location(player_name)
+
+    if current_location == 'world_town':
+        # 从城镇进入建筑
+        indoor_map = load_map(building_id)
+        if not indoor_map:
+            return f"{door['name']} 暂时无法进入。"
+        world = player_data.setdefault('world', {})
+        world['town_pos'] = list(pos)
+        world['town_map'] = map_id
+        notify = engine._switch_map(player_name, building_id, indoor_map.get('spawn', [4, 4]))
         lobby.set_player_location(player_name, location)
         engine._save_world_state(player_name, player_data)
-        return {
+        result = {
             'action': 'location_update',
-            'message': f"进入了 {door['name']}。",
+            'send_to_caller': [
+                engine._build_map_update(player_name),
+                {'type': 'game', 'text': f"进入了 {door['name']}。"},
+            ],
+            'location': location,
         }
-    return f"{door['name']} 暂时无法进入。"
+        if notify:
+            result['send_to_players'] = notify
+        return result
+    else:
+        # 从建筑返回城镇
+        world = player_data.get('world', {})
+        town_map = world.get('town_map', 'starter_town')
+        town_pos = world.get('town_pos', [20, 12])
+        notify = engine._switch_map(player_name, town_map, town_pos)
+        lobby.set_player_location(player_name, 'world_town')
+        engine._save_world_state(player_name, player_data)
+        result = {
+            'action': 'location_update',
+            'send_to_caller': [
+                engine._build_map_update(player_name),
+                {'type': 'game', 'text': "回到了城镇。"},
+            ],
+            'location': 'world_town',
+        }
+        if notify:
+            result['send_to_players'] = notify
+        return result
 
 
 def cmd_talk(engine, lobby, player_name, player_data, args, map_id, map_data):
@@ -103,7 +147,7 @@ def cmd_user(engine, lobby, player_name, player_data, args, map_id, map_data):
             return f"附近没有名为 {target_name} 的玩家。"
         friends = player_data.get('friends', [])
         items = [
-            {'label': f'跟随 {target_name}', 'command': f'/follow {target_name}'},
+            {'label': f'跟随 {target_name}', 'command': f'/_follow_player {target_name}'},
         ]
         if target_name not in friends:
             items.append({'label': '添加好友', 'command': f'/addfriend {target_name}'})
@@ -154,10 +198,10 @@ def cmd_addfriend(engine, lobby, player_name, player_data, args, map_id, map_dat
     }
 
 
-def cmd_follow(engine, lobby, player_name, player_data, args, map_id, map_data):
-    """跟随附近玩家"""
+def cmd_follow_player(engine, lobby, player_name, player_data, args, map_id, map_data):
+    """通过 user 面板触发跟随（非指令）"""
     if not args:
-        return "用法: /follow <玩家名>"
+        return ""
     target_name = args.strip()
     if target_name == player_name:
         return "不能跟随自己。"
@@ -186,20 +230,29 @@ def cmd_follow(engine, lobby, player_name, player_data, args, map_id, map_data):
             'action': 'follow_start',
             'send_to_caller': [
                 engine._build_map_update(player_name),
-                {'type': 'game', 'text': f"开始跟随 {target_name}。"},
+                {'type': 'game', 'text': f"开始跟随 {target_name}。移动可取消跟随。"},
+                {'type': 'game_event', 'game_type': 'world',
+                 'event': 'follow_started', 'data': {'target': target_name}},
             ],
             'send_to_players': send_to_players,
         }
     return f"开始跟随 {target_name}。"
 
 
-def cmd_unfollow(engine, lobby, player_name, player_data, args, map_id, map_data):
-    """取消跟随"""
+def cmd_cancel_follow(engine, lobby, player_name, player_data, args, map_id, map_data):
+    """取消跟随（任意移动键或客户端发送 cancel_follow）"""
     leader = engine._following.get(player_name)
     if not leader:
-        return "你没有在跟随任何人。"
+        return ""
     engine._unfollow(player_name)
-    return f"停止跟随 {leader}。"
+    return {
+        'action': 'follow_cancelled',
+        'send_to_caller': [
+            {'type': 'game', 'text': f"停止跟随 {leader}。"},
+            {'type': 'game_event', 'game_type': 'world',
+             'event': 'follow_cancelled', 'data': {}},
+        ],
+    }
 
 
 SOCIAL_HANDLERS = {
@@ -207,9 +260,8 @@ SOCIAL_HANDLERS = {
     'e': cmd_enter,
     'talk': cmd_talk,
     't': cmd_talk,
-    'map': cmd_map,
     'user': cmd_user,
     'addfriend': cmd_addfriend,
-    'follow': cmd_follow,
-    'unfollow': cmd_unfollow,
+    '_follow_player': cmd_follow_player,
+    '_cancel_follow': cmd_cancel_follow,
 }

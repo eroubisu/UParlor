@@ -27,8 +27,8 @@ def _chat_text(markup: str) -> RichText:
 
 
 def _fmt_msg(name: str, text: str, time_str: str = "") -> str:
-    """格式化一条聊天消息 markup: [HH:MM] name> text"""
-    t = time_str[:5] if time_str else ""
+    """格式化一条聊天消息 markup: [MM:SS] name> text"""
+    t = time_str[:5] if len(time_str) >= 5 else ""
     if t:
         return f"{M_DIM}{t}{M_END} {name}> {text}"
     return f"{name}> {text}"
@@ -92,25 +92,27 @@ class ChatPanel(InputBarMixin, Widget):
         self._active_tab = tabs[(idx - 1) % len(tabs)]
         self._sync_active_tab()
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         if self._active_tab == "settings":
             self._settings_nav.nav_down()
             self._replay_tab()
             return
         try:
             log: RichLog = self.query_one("#chat-log", RichLog)
-            log.scroll_down(animate=False)
+            for _ in range(count):
+                log.scroll_down(animate=False)
         except Exception:
             pass
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         if self._active_tab == "settings":
             self._settings_nav.nav_up()
             self._replay_tab()
             return
         try:
             log: RichLog = self.query_one("#chat-log", RichLog)
-            log.scroll_up(animate=False)
+            for _ in range(count):
+                log.scroll_up(animate=False)
         except Exception:
             pass
 
@@ -181,7 +183,7 @@ class ChatPanel(InputBarMixin, Widget):
         st = self._state_mgr
         if st and self._active_tab != "settings":
             st.chat.active_tab = self._active_tab
-            st.chat.dm_unread.discard(self._active_tab)
+            st.chat.dm_unread.pop(self._active_tab, None)
         if self._active_tab == "settings":
             self._settings_nav.reset(self._settings_items())
             self._settings_target = None
@@ -191,13 +193,22 @@ class ChatPanel(InputBarMixin, Widget):
         if hasattr(self.screen, 'update_badges'):
             self.screen.update_badges()
 
+    def on_panel_focus(self):
+        """面板聚焦时清除当前标签的未读"""
+        st = self._state_mgr
+        if st and self._active_tab not in ("global", "settings"):
+            st.chat.dm_unread.pop(self._active_tab, None)
+            self._render_header()
+            if hasattr(self.screen, 'update_badges'):
+                self.screen.update_badges()
+
     # ── 渲染 ──
 
     def _render_header(self):
         """渲染标签栏"""
         tabs = self._tab_list()
         st = self._state_mgr
-        unread = st.chat.dm_unread if st else set()
+        unread = st.chat.dm_unread if st else {}
         tab_parts = []
         for t in tabs:
             if t == "global":
@@ -384,7 +395,7 @@ class ChatPanel(InputBarMixin, Widget):
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         st = state.chat
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
         # 同步频道
         self.current_channel = st.current_channel
         self._active_tab = st.active_tab
@@ -395,6 +406,10 @@ class ChatPanel(InputBarMixin, Widget):
         # 显示当前时间
         self._update_time()
         self._time_timer = self.set_interval(30, self._update_time)
+
+    def on_unmount(self):
+        if self._state_mgr:
+            self._state_mgr.chat.remove_listener(self._on_state_event)
 
     def _update_time(self):
         _set_pane_subtitle(self, datetime.now().strftime('%H:%M'))

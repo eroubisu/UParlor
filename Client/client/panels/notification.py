@@ -69,26 +69,26 @@ class NotificationPanel(Widget):
             return _HANDLED_ACTIONS
         return _PENDING_ACTIONS
 
-    def nav_down(self):
+    def nav_down(self, count=1):
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
-                self._cursor = (self._cursor + 1) % len(items)
+                self._cursor = (self._cursor + count) % len(items)
         elif self._mode == _MODE_ACTION:
             actions = self._get_actions_for_current()
             if actions:
-                self._action_cursor = (self._action_cursor + 1) % len(actions)
+                self._action_cursor = (self._action_cursor + count) % len(actions)
         self._render_list()
 
-    def nav_up(self):
+    def nav_up(self, count=1):
         if self._mode == _MODE_LIST:
             items = self._current_items()
             if items:
-                self._cursor = (self._cursor - 1) % len(items)
+                self._cursor = (self._cursor - count) % len(items)
         elif self._mode == _MODE_ACTION:
             actions = self._get_actions_for_current()
             if actions:
-                self._action_cursor = (self._action_cursor - 1) % len(actions)
+                self._action_cursor = (self._action_cursor - count) % len(actions)
         self._render_list()
 
     def nav_enter(self):
@@ -288,13 +288,14 @@ class NotificationPanel(Widget):
     def restore(self, state: ModuleStateManager):
         self._state_mgr = state
         st = state.notify
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
         self._tab = st.tab
         self._cursor = st.cursor
         self._render_all()
 
     def on_unmount(self):
         if self._state_mgr:
+            self._state_mgr.notify.remove_listener(self._on_state_event)
             st = self._state_mgr.notify
             st.tab = self._tab
             st.cursor = self._cursor

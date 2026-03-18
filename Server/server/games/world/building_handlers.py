@@ -83,7 +83,7 @@ def cmd_buy(lobby, player_name, player_data, args, location):
     inv_add(inventory, item_id, 0)
     info = get_item_info(item_id)
     name = info.get('name', item_id) if info else item_id
-    PlayerManager.save_user(player_name, player_data)
+    PlayerManager.save_player_data(player_name, player_data)
     return {'action': 'status_refresh', 'message': f"购买了 {name}（-{price}G）。"}
 
 
@@ -95,10 +95,10 @@ def cmd_sell(lobby, player_name, player_data, args, location):
     if not args:
         inventory = player_data.get('inventory', {})
         items = []
-        for item_key, count in inventory.items():
-            if count <= 0:
+        for item_id, val in inventory.items():
+            total = inv_total(inventory, item_id)
+            if total <= 0:
                 continue
-            item_id, quality = parse_item_key(item_key)
             # 查找卖价
             base_price = 0
             for shop_data in _SHOPS.values():
@@ -112,8 +112,8 @@ def cmd_sell(lobby, player_name, player_data, args, location):
                 base_price = 10
             sell_price = max(1, int(base_price * sell_rate))
             name = get_item_name(item_id)
-            label = f"{name} x{count} — {sell_price}G"
-            items.append({'label': label, 'command': f'/sell {item_key}'})
+            label = f"{name} x{total} — {sell_price}G"
+            items.append({'label': label, 'command': f'/sell {item_id}'})
         return _menu_event('出售物品', items, '你没有可出售的物品。')
 
     item_id, quality = parse_item_key(args.strip())
@@ -138,7 +138,7 @@ def cmd_sell(lobby, player_name, player_data, args, location):
     player_data['gold'] = player_data.get('gold', 0) + sell_price
     info = get_item_info(item_id)
     name = info.get('name', item_id) if info else item_id
-    PlayerManager.save_user(player_name, player_data)
+    PlayerManager.save_player_data(player_name, player_data)
     return {'action': 'status_refresh', 'message': f"卖出了 {name}（+{sell_price}G）。"}
 
 
@@ -189,7 +189,7 @@ def cmd_forge(lobby, player_name, player_data, args, location):
         name = get_item_name(out['id'])
         msgs.append(f"获得 {name}x{out.get('count', 1)}")
 
-    PlayerManager.save_user(player_name, player_data)
+    PlayerManager.save_player_data(player_name, player_data)
     return {'action': 'status_refresh', 'message': f"锻造成功！{'，'.join(msgs)}。"}
 
 
@@ -212,7 +212,7 @@ def cmd_brew(lobby, player_name, player_data, args, location):
             return "材料不足: 需要治疗草药x2。"
         inv_sub(inventory, 'healing_herb', 0, 2)
         inv_add(inventory, 'exp_potion', 0, 1)
-        PlayerManager.save_user(player_name, player_data)
+        PlayerManager.save_player_data(player_name, player_data)
         return {'action': 'status_refresh', 'message': "炼药成功！获得 经验药水x1。"}
     return "未知配方。"
 
@@ -243,7 +243,7 @@ def cmd_rest(lobby, player_name, player_data, args, location):
     player_data['gold'] = gold - cost
     hp_healed = heal_hp(player_data, 9999)
     mp_healed = heal_mp(player_data, 9999)
-    PlayerManager.save_user(player_name, player_data)
+    PlayerManager.save_player_data(player_name, player_data)
     return {
         'action': 'status_refresh',
         'message': f"休息完毕（-{cost}G）。HP 恢复 {hp_healed}，MP 恢复 {mp_healed}。",
@@ -278,7 +278,6 @@ def cmd_board(lobby, player_name, player_data, args, location):
 
 BUILDING_HANDLERS = {
     'buy':    cmd_buy,
-    'sell':   cmd_sell,
     'forge':  cmd_forge,
     'brew':   cmd_brew,
     'rest':   cmd_rest,

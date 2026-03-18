@@ -68,11 +68,7 @@ class KeyboardMixin:
         if key == "j":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_down'):
-                try:
-                    w.nav_down(count)
-                except TypeError:
-                    for _ in range(count):
-                        w.nav_down()
+                w.nav_down(count)
             else:
                 for _ in range(count):
                     self._scroll_focused_down()
@@ -80,11 +76,7 @@ class KeyboardMixin:
         if key == "k":
             w = self._get_focused_widget()
             if w and hasattr(w, 'nav_up'):
-                try:
-                    w.nav_up(count)
-                except TypeError:
-                    for _ in range(count):
-                        w.nav_up()
+                w.nav_up(count)
             else:
                 for _ in range(count):
                     self._scroll_focused_up()

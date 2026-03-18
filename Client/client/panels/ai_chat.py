@@ -16,8 +16,8 @@ from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets import _set_pane_subtitle
 from ..widgets.prompt import InputBarMixin
-from ._ai_chat_render import _ChatRenderMixin, _TABS
-from ._ai_chat_views import (
+from ._render.ai_chat import _ChatRenderMixin, _TABS
+from ._render.ai_chat_views import (
     _ChatViewsMixin,
     _VIEW_SETUP, _VIEW_SELECT, _VIEW_CREATE, _VIEW_CHAT,
 )
@@ -157,7 +157,11 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     # ── 导航协议 ──
 
-    def nav_down(self):
+    def nav_down(self, count=1):
+        for _ in range(count):
+            self._nav_down_step()
+
+    def _nav_down_step(self):
         if self._view == _VIEW_SETUP:
             if self._setup_step == "provider":
                 from ..ai.provider import PROVIDER_NAMES
@@ -201,7 +205,11 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                 except Exception:
                     pass
 
-    def nav_up(self):
+    def nav_up(self, count=1):
+        for _ in range(count):
+            self._nav_up_step()
+
+    def _nav_up_step(self):
         if self._view == _VIEW_SETUP:
             if self._setup_step == "provider":
                 from ..ai.provider import PROVIDER_NAMES
@@ -501,7 +509,7 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
         self._panel_active = True
         self._state_mgr = state
         st = state.ai_chat
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
 
         self._refresh_char_list()
 
@@ -685,6 +693,8 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
 
     def on_unmount(self):
         self._panel_active = False
+        if self._state_mgr:
+            self._state_mgr.ai_chat.remove_listener(self._on_state_event)
         if self._streaming and self._state_mgr:
             self._state_mgr.ai_chat.streaming_interrupted = True
         if self._service:

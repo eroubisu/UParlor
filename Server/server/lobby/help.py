@@ -91,8 +91,9 @@ def get_games_list():
     return '\n'.join(lines)
 
 
-# ── 子菜单构建器注册 ──
+# ── 子菜单构建器 ──
 
+@register_sub_builder('play')
 def _sub_play(lobby, player_data):
     """生成 play 子菜单：可用游戏列表"""
     games = get_all_games()
@@ -103,6 +104,7 @@ def _sub_play(lobby, player_data):
     ]
 
 
+@register_sub_builder('settitle')
 def _sub_settitle(lobby, player_data):
     """生成 settitle 子菜单：玩家已拥有的头衔"""
     from ..systems.titles import TITLE_LIBRARY
@@ -119,13 +121,10 @@ def _sub_settitle(lobby, player_data):
     return sub
 
 
+@register_sub_builder('exit')
 def _sub_exit(lobby, player_data):
     return [
         {'name': 'exit y', 'label': 'y', 'desc': '确认关闭'},
         {'name': 'exit n', 'label': 'n', 'desc': '取消'},
     ]
 
-
-register_sub_builder('play', _sub_play)
-register_sub_builder('settitle', _sub_settitle)
-register_sub_builder('exit', _sub_exit)

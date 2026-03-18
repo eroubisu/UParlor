@@ -34,6 +34,14 @@ class WorldClientHandler:
             self._handle_player_delta(event, data, ctx)
             return True
 
+        if event == 'follow_started':
+            ctx.state.game_board.following = data.get('target', '')
+            return True
+
+        if event == 'follow_cancelled':
+            ctx.state.game_board.following = ''
+            return True
+
         return False
 
     def _handle_player_delta(self, event: str, data: dict, ctx: GameHandlerContext):

@@ -3,104 +3,219 @@
         "id": "starter_town",
         "name": "初始之镇",
         "width": 40,
-        "height": 30
+        "height": 25
     },
-
     "tile_types": {
-        ".": {"name": "草地", "walkable": true, "char": ".", "color": "#4a7a4a"},
-        "#": {"name": "墙壁", "walkable": false, "char": "#", "color": "#8a8a8a"},
-        "=": {"name": "石路", "walkable": true, "char": "=", "color": "#9a9a7a"},
-        "~": {"name": "水", "walkable": false, "char": "~", "color": "#4a6a9a"},
-        "+": {"name": "门", "walkable": true, "char": "+", "color": "#b89a6a", "enter": true},
-        "T": {"name": "树木", "walkable": false, "char": "T", "color": "#3a6a3a"},
-        "^": {"name": "屋顶", "walkable": false, "char": "^", "color": "#8a6a4a"},
-        " ": {"name": "室内地面", "walkable": false, "char": "\u00b7", "color": "#6a6a5a"},
-        ",": {"name": "泥土", "walkable": true, "char": ",", "color": "#8a7a5a"},
-        "B": {"name": "桥", "walkable": true, "char": "\u2550", "color": "#9a8a6a"},
-        "*": {"name": "灌木", "walkable": false, "char": "*", "color": "#3a5a3a"},
-        "<": {"name": "台阶", "walkable": true, "char": "\u2264", "color": "#8a8a7a"},
-        "|": {"name": "栅栏", "walkable": false, "char": "|", "color": "#7a6a5a"},
-        "O": {"name": "岩石", "walkable": false, "char": "O", "color": "#7a7a7a"},
-        "F": {"name": "花丛", "walkable": true, "char": "\u00a7", "color": "#7a9a5a"},
-        ":": {"name": "沙地", "walkable": true, "char": ":", "color": "#b8a878"},
-        "$": {"name": "可拾取", "walkable": true, "char": "$", "color": "#d4af37"},
-        "?": {"name": "可交互", "walkable": true, "char": "?", "color": "#b8b8b8"},
-        "%": {"name": "传送点", "walkable": true, "char": "%", "color": "#8a6ab8"}
+        ".": {
+            "name": "草地",
+            "walkable": true,
+            "char": ".",
+            "color": "#4a7a4a"
+        },
+        "#": {
+            "name": "墙壁",
+            "walkable": false,
+            "char": "#",
+            "color": "#8a8a8a"
+        },
+        "=": {
+            "name": "石路",
+            "walkable": true,
+            "char": "=",
+            "color": "#9a9a7a"
+        },
+        "~": {
+            "name": "水",
+            "walkable": false,
+            "char": "~",
+            "color": "#4a6a9a"
+        },
+        "+": {
+            "name": "门",
+            "walkable": true,
+            "char": "+",
+            "color": "#b89a6a",
+            "enter": true
+        },
+        "T": {
+            "name": "树木",
+            "walkable": false,
+            "char": "T",
+            "color": "#3a6a3a"
+        },
+        "^": {
+            "name": "屋顶",
+            "walkable": false,
+            "char": "^",
+            "color": "#8a6a4a"
+        },
+        ",": {
+            "name": "泥土",
+            "walkable": true,
+            "char": ",",
+            "color": "#8a7a5a"
+        },
+        "B": {
+            "name": "桥",
+            "walkable": true,
+            "char": "═",
+            "color": "#9a8a6a"
+        },
+        "*": {
+            "name": "灌木",
+            "walkable": false,
+            "char": "*",
+            "color": "#3a5a3a"
+        },
+        "|": {
+            "name": "栅栏",
+            "walkable": false,
+            "char": "|",
+            "color": "#7a6a5a"
+        },
+        "O": {
+            "name": "岩石",
+            "walkable": false,
+            "char": "O",
+            "color": "#7a7a7a"
+        },
+        "F": {
+            "name": "花丛",
+            "walkable": true,
+            "char": "§",
+            "color": "#7a9a5a"
+        },
+        ":": {
+            "name": "沙地",
+            "walkable": true,
+            "char": ":",
+            "color": "#b8a878"
+        },
+        "?": {
+            "name": "可交互",
+            "walkable": true,
+            "char": "?",
+            "color": "#b8b8b8"
+        },
+        "%": {
+            "name": "传送点",
+            "walkable": true,
+            "char": "%",
+            "color": "#8a6ab8"
+        }
     },
-
     "buildings": {
         "blacksmith": {
             "name": "铁匠铺",
             "location": "world_blacksmith",
-            "doors": [[14, 12]],
-            "npc": {"name": "铁匠", "pos": [15, 10], "char": "◇", "color": "#c8a882"}
+            "doors": [
+                [
+                    5,
+                    10
+                ]
+            ]
         },
         "herbshop": {
             "name": "药草店",
             "location": "world_herbshop",
-            "doors": [[25, 12]],
-            "npc": {"name": "药师", "pos": [26, 10], "char": "◇", "color": "#82c888"}
+            "doors": [
+                [
+                    26,
+                    4
+                ]
+            ]
         },
         "guild": {
             "name": "冒险者公会",
             "location": "world_guild",
-            "doors": [[7, 18]],
-            "npc": {"name": "公会接待", "pos": [8, 16], "char": "◇", "color": "#c8c882"}
+            "doors": [
+                [
+                    10,
+                    4
+                ]
+            ]
         },
         "gamehall": {
             "name": "棋馆",
             "location": "world_gamehall",
-            "doors": [[32, 18]],
-            "npc": {"name": "馆主", "pos": [33, 16], "char": "◇", "color": "#b882c8"}
+            "doors": [
+                [
+                    10,
+                    19
+                ]
+            ]
         },
         "tavern": {
             "name": "酒馆",
             "location": "world_tavern",
-            "doors": [[20, 22]],
-            "npc": {"name": "酒保", "pos": [21, 20], "char": "◇", "color": "#c8b882"}
+            "doors": [
+                [
+                    22,
+                    16
+                ]
+            ]
         }
     },
-
     "tiles": [
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "T......................................T",
-        "T......................................T",
-        "T......................................T",
-        "T....^^^^^^^^^^....^^^^^^^^^^..........T",
-        "T....^^^^^^^^^^....^^^^^^^^^^..........T",
-        "T....##########....##########..........T",
-        "T....##########....##########..........T",
-        "T....##      ##....##      ##..........T",
-        "T....##      ##....##      ##..........T",
-        "T....##      ##....##      ##..........T",
-        "T....##      ##....##      ##..........T",
-        "T....## +### ##....## +### ##..........T",
-        "T....=============================.....T",
-        "T....=============================.....T",
-        "T..^^^^^^^^^^.........^^^^^^^^^^.......T",
-        "T..^^^^^^^^^^.........^^^^^^^^^^.......T",
-        "T..##########.........##########.......T",
-        "T..## +### ##.........## +### ##.......T",
-        "T..##      ##.........##      ##.......T",
-        "T..##      ##..^^^....##      ##.......T",
-        "T..##      ##..^^^....##      ##.......T",
-        "T..##########..#+#....##########.......T",
-        "T..============= ==================...T",
-        "T..============= ==================...T",
-        "T.......~~~~~~...........~~~~~~........T",
-        "T.......~~~~~~...........~~~~~~........T",
-        "T......................................T",
-        "T......................................T",
+        "TTTTTTTTTTTTT*....==......*TTTTTTTTTTTTT",
+        "TTTTTTTT^^^^^^....==.....^^^^....*TTTTTT",
+        "TTTTT*..^^^^^^...==.F....^^^^....~~*TTTT",
+        "TTTT*...^^+^^^...==......^+^^....~~.*TTT",
+        "TTT*......==F================....~~.*TTT",
+        "TT*..O.F........==.............:~~..*TTT",
+        "TT*............==.....F........:~~..*TTT",
+        "TT*.^^^^.......==...,,,,.......:~~..*TTT",
+        "T*..^^^^========....,FF,...O..:.~~..*TTT",
+        "T*..^+^^......==....,,,,......:.~~..*TTT",
+        "T*.........F..==........F.....:~~...*TTT",
+        "T*....=======================..BB..*TTTT",
+        "TT*....F.......==.............:~~.*TTTTT",
+        "TT*.......O....==...^^^^^^....~~.*TTTTTT",
+        "TTT*............==..^^^^^^....~~*TTTTTTT",
+        "TTT*.........F..==..^^+^^^.....*TTTTTTTT",
+        "TTTT*...^^^^^...=========.....*TTTTTTTTT",
+        "TTTT*.O.^^^^^.F.==...........*TTTTTTTTTT",
+        "TTTTT*..^^+^^====..........*TTTTTTTTTTTT",
+        "TTTTTT*........==..F.....*TTTTTTTTTTTTTT",
+        "TTTTTTTT*......==......*TTTTTTTTTTTTTTTT",
+        "TTTTTTTTTT*....==....*TTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTT*..==..*TTTTTTTTTTTTTTTTTTTT",
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
     ],
-
-    "spawn": [20, 14],
-
-    "npcs": [
-        {"id": "guard", "name": "守卫", "pos": [20, 24], "char": "◇", "color": "#a0a0a0", "dialog": "欢迎来到初始之镇。"}
+    "spawn": [
+        15,
+        11
     ],
-
+    "npcs": [
+        {
+            "id": "elder",
+            "name": "长老",
+            "pos": [
+                16,
+                11
+            ],
+            "char": "◇",
+            "color": "#b8a090",
+            "dialog": "欢迎来到初始之镇。这里是冒险的起点。"
+        },
+        {
+            "id": "guard",
+            "name": "守卫",
+            "pos": [
+                16,
+                22
+            ],
+            "char": "◇",
+            "color": "#a0a0a0",
+            "dialog": "南方的道路通往荒野，做好准备再出发。"
+        }
+    ],
     "time_events": {
-        "night": {"start_hour": 20, "end_hour": 6, "effect": "商店关门，NPC回家"}
+        "night": {
+            "start_hour": 20,
+            "end_hour": 6,
+            "effect": "商店关门，NPC回家"
+        }
     }
 }

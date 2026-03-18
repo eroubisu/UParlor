@@ -6,8 +6,8 @@ import asyncio
 
 from textual.widgets import RichLog
 
-from ..config import M_DIM, M_END, COLOR_FG_TERTIARY
-from ..widgets import _set_pane_subtitle
+from ...config import M_DIM, M_END, COLOR_FG_TERTIARY
+from ...widgets import _set_pane_subtitle
 
 # 视图常量（ai_chat.py 共用）
 _VIEW_SETUP  = "setup"
@@ -70,12 +70,12 @@ class _ChatViewsMixin:
     # ── API Key ──
 
     def _get_api_key(self) -> str:
-        from ..ai.config import load_global_config
+        from ...ai.config import load_global_config
         return load_global_config().get("api_key", "")
 
     def _get_provider_info(self) -> tuple[str, dict]:
         """返回 (provider_name, provider_kwargs) 用于角色创建等独立 AI 调用"""
-        from ..ai.config import load_global_config
+        from ...ai.config import load_global_config
         cfg = load_global_config()
         name = cfg.get("provider", "google")
         kwargs: dict = {"model": cfg.get("model", "gemini-2.5-flash")}
@@ -85,7 +85,7 @@ class _ChatViewsMixin:
         return name, kwargs
 
     def _save_api_key(self, key: str):
-        from ..ai.config import load_global_config, save_global_config
+        from ...ai.config import load_global_config, save_global_config
         cfg = load_global_config()
         cfg["api_key"] = key
         save_global_config(cfg)
@@ -93,7 +93,7 @@ class _ChatViewsMixin:
     # ── SELECT 视图 ──
 
     def _refresh_char_list(self):
-        from ..ai.character import list_characters
+        from ...ai.character import list_characters
         self._char_list = list_characters()
 
     def _on_select_enter(self):
@@ -133,7 +133,7 @@ class _ChatViewsMixin:
         if self._state_mgr:
             self._state_mgr.ai_chat.current_char_id = char_id
 
-        from ..ai.config import load_global_config, save_global_config
+        from ...ai.config import load_global_config, save_global_config
         cfg = load_global_config()
         cfg["last_character_id"] = char_id
         save_global_config(cfg)
@@ -177,7 +177,7 @@ class _ChatViewsMixin:
 
     def _on_setup_provider_enter(self):
         """SETUP provider 步骤按 Enter 确认选择"""
-        from ..ai.provider import PROVIDER_NAMES
+        from ...ai.provider import PROVIDER_NAMES
         keys = list(PROVIDER_NAMES)
         chosen = keys[self._setup_provider_cursor]
         self._setup_provider = chosen
@@ -234,7 +234,7 @@ class _ChatViewsMixin:
 
     def _finish_setup(self, *, model: str):
         """SETUP 完成 — 一次性写入全局配置并重新初始化 service"""
-        from ..ai.config import load_global_config, save_global_config
+        from ...ai.config import load_global_config, save_global_config
         cfg = load_global_config()
         cfg["provider"] = self._setup_provider or cfg.get("provider", "google")
         cfg["base_url"] = self._setup_base_url
@@ -259,7 +259,7 @@ class _ChatViewsMixin:
             self.post_message(self.RequestInsert())
             return
         # 用 SETUP 暂存值创建临时 provider 验证
-        from ..ai.provider import create_provider
+        from ...ai.provider import create_provider
         prov_name = self._setup_provider or "google"
         base_url = self._setup_base_url
         provider = create_provider(prov_name)
@@ -329,7 +329,7 @@ class _ChatViewsMixin:
     async def _do_structurize(self):
         """调用 AI 结构化描述 → 进入确认步骤"""
         try:
-            from ..ai.character import structurize_description
+            from ...ai.character import structurize_description
             prov_name, prov_kwargs = self._get_provider_info()
             char, tokens = await structurize_description(
                 self._create_desc, self._get_api_key(),
@@ -362,7 +362,7 @@ class _ChatViewsMixin:
     async def _do_refine(self, feedback: str):
         """调用 AI 微调角色 → 更新确认视图"""
         try:
-            from ..ai.character import refine_character
+            from ...ai.character import refine_character
             prov_name, prov_kwargs = self._get_provider_info()
             self._create_char, tokens = await refine_character(
                 self._create_char, feedback, self._get_api_key(),
@@ -393,7 +393,7 @@ class _ChatViewsMixin:
     async def _do_save_char(self):
         """保存角色并进入聊天"""
         try:
-            from ..ai.character import save_character
+            from ...ai.character import save_character
             char = self._create_char
             save_character(char)
             self._refresh_char_list()
@@ -468,7 +468,7 @@ class _ChatViewsMixin:
         if self._model_picking:
             if self._setup_models:
                 chosen = self._setup_models[self._setup_model_cursor]
-                from ..ai.config import load_global_config, save_global_config
+                from ...ai.config import load_global_config, save_global_config
                 cfg = load_global_config()
                 cfg["model"] = chosen["name"]
                 save_global_config(cfg)
@@ -486,8 +486,8 @@ class _ChatViewsMixin:
             self._log(f"{M_DIM}>>> 输入新的 API Key{M_END}")
         elif idx == 1:
             # 切换供应商（循环）
-            from ..ai.config import load_global_config, save_global_config
-            from ..ai.provider import PROVIDER_NAMES
+            from ...ai.config import load_global_config, save_global_config
+            from ...ai.provider import PROVIDER_NAMES
             cfg = load_global_config()
             keys = list(PROVIDER_NAMES)
             cur = cfg.get("provider", "google")
@@ -511,13 +511,13 @@ class _ChatViewsMixin:
             self._refresh_content()
             asyncio.create_task(self._do_fetch_models_for_settings())
         elif idx == 4:
-            from ..ai.config import load_global_config, save_global_config
+            from ...ai.config import load_global_config, save_global_config
             cfg = load_global_config()
             cfg["auto_start"] = not cfg.get("auto_start", False)
             save_global_config(cfg)
             self._refresh_content()
         elif idx == 5:
-            from ..ai.config import load_global_config, save_global_config
+            from ...ai.config import load_global_config, save_global_config
             cfg = load_global_config()
             levels = ["quiet", "normal", "talkative"]
             cur = cfg.get("attention_level", "normal")
@@ -550,7 +550,7 @@ class _ChatViewsMixin:
         elif idx == 8:
             self._reset_confirming = False
             # 手动切回角色选择 → 取消自动启动
-            from ..ai.config import load_global_config, save_global_config
+            from ...ai.config import load_global_config, save_global_config
             cfg = load_global_config()
             if cfg.get('auto_start', False):
                 cfg['auto_start'] = False
@@ -581,7 +581,7 @@ class _ChatViewsMixin:
             self._setup_models = models
             self._setup_model_cursor = 0
             self._model_scroll_offset = 0
-            from ..ai.config import load_global_config
+            from ...ai.config import load_global_config
             current = load_global_config().get("model", "gemini-2.5-flash")
             for i, m in enumerate(models):
                 if m["name"] == current:
@@ -607,7 +607,7 @@ class _ChatViewsMixin:
                 self._refresh_content()
                 return
             # 使用 SETUP 暂存的 provider/base_url
-            from ..ai.provider import create_provider
+            from ...ai.provider import create_provider
             prov_name = self._setup_provider or "google"
             base_url = self._setup_base_url
             provider = create_provider(prov_name)
@@ -620,7 +620,7 @@ class _ChatViewsMixin:
             self._setup_models = models
             self._setup_model_cursor = 0
             self._model_scroll_offset = 0
-            from ..ai.config import load_global_config
+            from ...ai.config import load_global_config
             current_model = load_global_config().get("model", "")
             if current_model:
                 for i, m in enumerate(models):
@@ -714,7 +714,7 @@ class _ChatViewsMixin:
     def _upload_ai_sync(self):
         """将本地 AI 角色数据上传到服务器进行同步"""
         try:
-            from ..ai.config import export_all_chars, load_stats
+            from ...ai.config import export_all_chars, load_stats
             data = export_all_chars()
             if data:
                 self.app.network.send({

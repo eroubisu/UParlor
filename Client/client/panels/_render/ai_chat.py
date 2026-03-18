@@ -6,12 +6,12 @@ from rich.cells import cell_len
 from rich.text import Text as RichText
 from textual.widgets import RichLog, Static
 
-from ..config import (
+from ...config import (
     M_DIM, M_END,
     COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
     COLOR_BORDER_LIGHT, COLOR_ACCENT,
 )
-from ..widgets.helpers import build_tab_overflow, _widget_width, _set_pane_subtitle
+from ...widgets.helpers import build_tab_overflow, _widget_width, _set_pane_subtitle
 
 _MAX_MODEL_VISIBLE = 8
 
@@ -98,7 +98,7 @@ class _ChatRenderMixin:
             f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}",
         ]
         if self._setup_step == "provider":
-            from ..ai.provider import PROVIDER_NAMES
+            from ...ai.provider import PROVIDER_NAMES
             lines.append(f"[{COLOR_FG_SECONDARY}]选择 AI 供应商{M_END}")
             lines.append("")
             for i, (key, label) in enumerate(PROVIDER_NAMES.items()):
@@ -162,8 +162,8 @@ class _ChatRenderMixin:
         content.update("\n".join(lines))
 
         # 右下角显示当前 API 信息
-        from ..ai.config import load_global_config
-        from ..ai.provider import PROVIDER_NAMES
+        from ...ai.config import load_global_config
+        from ...ai.provider import PROVIDER_NAMES
         cfg = load_global_config()
         prov = cfg.get("provider", "google")
         model = cfg.get("model", "")
@@ -316,7 +316,7 @@ class _ChatRenderMixin:
     def _render_settings(self) -> list[str]:
         if self._model_picking:
             return self._render_model_pick()
-        from ..ai.config import load_global_config
+        from ...ai.config import load_global_config
         cfg = load_global_config()
         auto_start = cfg.get("auto_start", False)
         auto_label = "开启" if auto_start else "关闭"
@@ -325,7 +325,7 @@ class _ChatRenderMixin:
         attn_labels = {"quiet": "安静", "normal": "普通", "talkative": "话多"}
         attn_label = attn_labels.get(attn, attn)
 
-        from ..ai.provider import PROVIDER_NAMES
+        from ...ai.provider import PROVIDER_NAMES
         provider = cfg.get("provider", "google")
         provider_label = PROVIDER_NAMES.get(provider, provider)
         base_url = cfg.get("base_url", "")

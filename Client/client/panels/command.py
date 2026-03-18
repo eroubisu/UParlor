@@ -38,6 +38,7 @@ def format_command_echo(text: str) -> str:
 class CommandPanel(InputBarMixin, Widget):
     """记录面板：只读交互历史 + 指令输入"""
 
+    _state_mgr = None
     _input_bar_id = "cmd-input-bar"
     _scroll_target_id = "cmd-log"
 
@@ -79,8 +80,13 @@ class CommandPanel(InputBarMixin, Widget):
             log.clear()
 
     def restore(self, state: ModuleStateManager):
+        self._state_mgr = state
         st = state.cmd
-        st.set_listener(self._on_state_event)
+        st.add_listener(self._on_state_event)
         log: RichLog = self.query_one("#cmd-log", RichLog)
         for line in st.lines:
             log.write(line)
+
+    def on_unmount(self):
+        if self._state_mgr:
+            self._state_mgr.cmd.remove_listener(self._on_state_event)

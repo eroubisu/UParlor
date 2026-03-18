@@ -47,7 +47,7 @@
 | `config.py`                 | 端口、路径、位置层级树、指令表加载                                     |
 | `msg_types.py`              | 消息类型常量（GAME, ROOM_UPDATE, CHAT 等）                             |
 | `lobby/engine.py`           | 指令路由（全局→导航→游戏引擎）、位置管理、引擎生命周期                 |
-| `lobby/command_registry.py` | 全局指令处理器注册表 + 子菜单构建器注册表                              |
+| `lobby/command_registry.py` | 全局指令处理器注册表（@register_global 装饰器）+ 子菜单构建器注册表    |
 | `lobby/help.py`             | 帮助文档生成                                                           |
 | `lobby/account.py`          | 账号操作（改密、改名、删号）                                           |
 | `lobby/confirmation.py`     | 多步确认流程                                                           |
@@ -66,7 +66,7 @@
 ### Client/client/
 
 | 目录/文件              | 职责                                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------------------- |
+| ---------------------- | ----------------------------------------------------------------------------------------- | --- | ----------------- | ----------------------------------------------------- |
 | `app.py`               | Textual App 生命周期、网络接收、Ping 心跳、AI 定时器                                      |
 | `config.py`            | 唯一色板（灰度）、网络端口、面板行数限制、Rich 语义常量                                   |
 | `state.py`             | 8 个 State 类（业务数据 SSOT）+ ModuleStateManager                                        |
@@ -83,7 +83,7 @@
 | `ui/vim_mode.py`       | VimMode — 双模态 + IME 切换 + 数字前缀                                                    |
 | `ui/layout.py`         | 窗格树（PaneNode/SplitNode）— 拆分/关闭/导航/序列化                                       |
 | `ui/space_menu.py`     | SpaceMenuMixin — Space 快捷菜单                                                           |
-| `panels/`              | UI 面板实现（chat/game_board/inventory/online/status/ai_chat/notification/command/login） |
+| `panels/`              | UI 面板实现（chat/game_board/inventory/online/status/ai_chat/notification/command/login） | \n  | `panels/_render/` | 面板渲染辅助模块（card/status/ai_chat/ai_chat_views） |
 | `widgets/`             | 共享组件（input_bar/menu_nav/tab_menu/prompt/scrollbar）                                  |
 | `games/`               | 游戏客户端模块（world_handler + world_renderer）                                          |
 | `ai/`                  | AI 伙伴系统（service/attention/memory/mood/social/persona/character/impression）          |
@@ -180,16 +180,18 @@ GameHandlerContext 提供:
 ## 状态管理模式
 
 ```
-State 类 (state.py)          Panel/Widget
-─────────────────           ──────────────
-业务数据存储                  纯 UI 渲染
-set_listener(cb)  ─────→    _on_state_event(event, *args)
-_notify(event)    ─────→    更新渲染
+BaseState (state.py)           Panel/Widget
+─────────────────             ──────────────
+业务数据存储                    纯 UI 渲染
+add_listener(cb)   ─────→    _on_state_event(event, *args)
+remove_listener(cb) ←─────   on_unmount() 中清理
+_notify(event)     ─────→    更新渲染
 ```
 
+- 所有 State 类继承 `BaseState`，提供统一的多监听器通知机制
 - 业务数据只存 State，面板从 State 读取
-- Widget 创建时调用 restore(state) 恢复全部内容
-- CmdState 支持多 listener（\_listeners: list）
+- Widget 创建时调用 `restore(state)` 恢复全部内容，注册 `add_listener`
+- Widget 销毁时调用 `remove_listener` 清理（`on_unmount`）
 
 8 个 State 类: ChatState, CmdState, StatusState, OnlineState, GameBoardState, InventoryState, AIChatState, NotificationState + ModuleStateManager 统一管理
 
