@@ -403,7 +403,6 @@ class OpenAIProvider(AIProvider):
 
     async def validate_key(self, api_key: str, **kwargs) -> tuple[bool, str]:
         base_url = kwargs.get("base_url") or None
-        model = kwargs.get("model", "gpt-4o-mini")
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)

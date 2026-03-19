@@ -92,8 +92,7 @@ def _make_justified_line(label_t: RichText, value_t: RichText, inner_width: int,
     lw = cell_len(label_t.plain)
     vw = cell_len(value_t.plain)
     gap = inner_width - 2 - lw - vw
-    if gap < 1:
-        gap = 1
+    gap = max(gap, 1)
     t.append(' ' * gap)
     t.append_text(value_t)
     t.append(' ')
@@ -161,7 +160,6 @@ def build_card_lines(card_data: dict, fields: list[str] | None = None) -> list[R
         fw = cell_len(lbl) + cell_len(val) + 3  # padding + gap
         max_field_w = max(max_field_w, fw)
     inner_width = max(_CARD_MIN_WIDTH, min(_CARD_MAX_WIDTH, max(name_w + 4, max_field_w)))
-    card_width = inner_width + 2  # +2 for borders
 
     lines: list[RichText] = []
 

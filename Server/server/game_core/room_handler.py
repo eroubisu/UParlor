@@ -62,7 +62,7 @@ class BaseRoomCommandHandler:
 
     def _cmd_rank(self, player_data):
         """显示段位信息"""
-        from ..systems.ranks import get_rank_info, get_rank_index
+        from ..systems.ranks import get_rank_info
 
         game_data = player_data.get(self.game_key, {})
         rank_id = game_data.get('rank', 'novice_1')
@@ -92,7 +92,7 @@ class BaseRoomCommandHandler:
         """邀请玩家"""
         engine = self.engine
         if not args or not args.startswith('@'):
-            return "用法: /invite @玩家名"
+            return "用法: invite @玩家名"
 
         target = args[1:].strip()
         room = engine.get_player_room(player_name)
@@ -163,7 +163,7 @@ class BaseRoomCommandHandler:
             return f"请先返回{self.game_name}大厅再加入房间。"
 
         if not args:
-            return "用法: /join <房间ID>\n使用 /rooms 查看房间列表。"
+            return "用法: join <房间ID>\n使用 rooms 查看房间列表。"
 
         room_id = args.strip()
         room = engine.get_room(room_id)
@@ -189,7 +189,7 @@ class BaseRoomCommandHandler:
         lobby.set_player_location(player_name, self.room_location)
         pos = room.get_position(player_name)
 
-        join_msg = f"* 加入房间成功\n\n"
+        join_msg = "* 加入房间成功\n\n"
         join_msg += f"  房间ID:  {room.room_id}\n"
         join_msg += f"  位置:    {room.POSITIONS[pos]}\n"
         join_msg += f"  房主:    {room.host}\n\n"
@@ -197,7 +197,7 @@ class BaseRoomCommandHandler:
 
         notify_msg = f"{player_name} 加入了房间"
         if room.is_full():
-            notify_msg += "\n人已齐！房主可以输入 /start 开始游戏"
+            notify_msg += "\n人已齐！房主可以输入 start 开始游戏"
 
         table_data = room.get_table_data()
         return {
@@ -248,13 +248,13 @@ class BaseRoomCommandHandler:
         bot_names = ', '.join(added_bots)
         notify_msg = f"机器人 {bot_names} 加入了房间"
         if room.is_full():
-            notify_msg += f"\n人已齐！房主可以输入 /start 开始"
+            notify_msg += "\n人已齐！房主可以输入 start 开始"
 
         table_data = room.get_table_data()
         return {
             'action': f'{self.action_prefix}_room_update',
             'send_to_caller': [
-                {'type': GAME, 'text': f"* 已添加机器人: {bot_names}" + ("\n人已齐，输入 /start 开始" if room.is_full() else "")},
+                {'type': GAME, 'text': f"* 已添加机器人: {bot_names}" + ("\n人已齐，输入 start 开始" if room.is_full() else "")},
                 {'type': ROOM_UPDATE, 'room_data': table_data},
             ],
             'send_to_players': self._build_notify_players(
@@ -282,7 +282,7 @@ class BaseRoomCommandHandler:
                     players_list.append(f"  {i+1}. {p}{mark}")
             if not players_list:
                 return "房间里没有其他玩家可以踢出。"
-            return "用法: /kick <编号> 或 /kick @名字\n\n当前玩家:\n" + '\n'.join(players_list)
+            return "用法: kick <编号> 或 kick @名字\n\n当前玩家:\n" + '\n'.join(players_list)
 
         target = args.strip()
         target_name = None
@@ -303,7 +303,7 @@ class BaseRoomCommandHandler:
                     break
 
         if not target_name:
-            return f"找不到玩家: {target}\n用法: /kick <编号> 或 /kick @名字"
+            return f"找不到玩家: {target}\n用法: kick <编号> 或 kick @名字"
 
         is_bot = room.is_bot(target_name)
         pos = room.remove_player(target_name)

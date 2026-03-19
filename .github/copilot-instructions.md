@@ -51,7 +51,7 @@
 | 添加游戏指令（建筑类） | `games/world/building_handlers.py` 看模式                   | 指令 JSON + handlers 文件 + 路由表                                                                            |
 | 添加游戏指令（地图类） | `games/world/engine.py` 的 handle_command                   | engine.py 的 handle_command + 指令 JSON                                                                       |
 | 添加全局指令           | `lobby/command_registry.py` 看模式                          | `data/commands.json` + `command_registry.py`                                                                  |
-| 添加消息类型           | `net/messages.py` + `net/dispatch.py`                       | `msg_types.py` + `messages.py`(\_PARSERS) + `dispatch.py`                                                     |
+| 添加消息类型           | `handlers/` + `net/dispatch.py`                             | `msg_types.py` + `messages.py`(\_PARSERS) + `dispatch.py`                                                     |
 | 修改面板 UI            | 目标面板文件 + 对应 State                                   | 面板文件 + state.py(如需新状态)                                                                               |
 | 修改移动/冷却          | `games/world/movement.py`                                   | movement.py                                                                                                   |
 | 修改跟随系统           | `games/world/follow.py`                                     | follow.py                                                                                                     |

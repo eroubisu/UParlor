@@ -81,7 +81,7 @@ def _extract_json(text: str) -> dict:
         if first_nl != -1:
             text = text[first_nl + 1:]
         if text.endswith("```"):
-            text = text[:-3]
+            text = text.removesuffix("```")
         text = text.strip()
     start = text.find("{")
     if start == -1:

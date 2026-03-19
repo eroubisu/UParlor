@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...game.protocol import BaseGameEngine
+from ...game_core.protocol import BaseGameEngine
 
 
 class GameEngine(BaseGameEngine):

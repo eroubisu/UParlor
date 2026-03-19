@@ -71,11 +71,6 @@ class WorldRenderer:
                     else:
                         result.append(char, style="#808080")
 
-        # 门口提示
-        door = room_data.get('door')
-        if door:
-            result.append(f"\n [{door['name']}] /enter 进入", style="#b8b8b8")
-
         return result
 
 

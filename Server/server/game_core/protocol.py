@@ -105,7 +105,6 @@ class BaseGameEngine:
 
     def leave_room(self, player_name: str) -> None:
         """离开房间"""
-        pass
 
 
 # ── 游戏事件数据结构 ──

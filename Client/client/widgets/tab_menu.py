@@ -126,6 +126,7 @@ class TabMenuBase(Vertical):
             self._active_tab = 0
             self._selected_idx = 0
             self._scroll_offset = 0
+            self._filter_text = ''
             self._refresh_display()
             return None
         return item
@@ -158,6 +159,7 @@ class TabMenuBase(Vertical):
             self._tabs = state['tabs']
             self._active_tab = state['active_tab']
             self._on_restore_stack(state)
+        self._active_tab = 0
         self._selected_idx = 0
         self._scroll_offset = 0
         self._refresh_display()
@@ -175,7 +177,6 @@ class TabMenuBase(Vertical):
 
     def _on_restore_stack(self, state: dict):
         """子类可重写以恢复额外状态"""
-        pass
 
     def _ensure_scroll(self):
         if self._selected_idx < self._scroll_offset:
@@ -204,6 +205,9 @@ class TabMenuBase(Vertical):
             pass
 
     def _render_tabs(self) -> str:
+        if self._filter_text:
+            return f"  [{COLOR_HINT_TAB_ACTIVE}]补全[/]"
+
         if self._nav_stack:
             return f"  [{COLOR_HINT_TAB_ACTIVE}]<[/] [bold {COLOR_HINT_TAB_ACTIVE}]{self._tabs[0][0]}[/]"
 
@@ -278,9 +282,6 @@ class TabMenuBase(Vertical):
 
         visible = items[offset:offset + MAX_TAB_VISIBLE]
 
-        if not visible:
-            return f"[{COLOR_HINT_TAB_DIM}]  暂无可用项目[/]"
-
         need_sb = total > MAX_TAB_VISIBLE
 
         table = Table(
@@ -297,24 +298,45 @@ class TabMenuBase(Vertical):
             track_space = MAX_TAB_VISIBLE - thumb_size
             thumb_start = round(offset / max_off * track_space) if track_space > 0 else 0
 
-        for i, item in enumerate(visible):
-            real_idx = offset + i
-            if real_idx == self._selected_idx:
-                arrow = f"[bold {COLOR_HINT_TAB_ACTIVE}]● [/]"
-            else:
-                arrow = "  "
-            row = [arrow, self._item_name(item), self._item_desc(item)]
+        if not visible:
+            # 无可用项目时仍保持 4 行
+            empty_row = ["", "", ""]
             if need_sb:
-                if thumb_start <= i < thumb_start + thumb_size:
-                    row.append(f"[{COLOR_HINT_TAB_ACTIVE}]█[/]")
+                empty_row.append("")
+            table.add_row("", f"[{COLOR_HINT_TAB_DIM}]暂无可用项目[/]", "") if not need_sb else table.add_row("", f"[{COLOR_HINT_TAB_DIM}]暂无可用项目[/]", "", "")
+            for _ in range(MAX_TAB_VISIBLE - 1):
+                row = ["", "", ""]
+                if need_sb:
+                    row.append("")
+                table.add_row(*row)
+        else:
+            for i, item in enumerate(visible):
+                real_idx = offset + i
+                if real_idx == self._selected_idx:
+                    arrow = f"[bold {COLOR_HINT_TAB_ACTIVE}]● [/]"
                 else:
-                    row.append(f"[{COLOR_HINT_TAB_DIM}]│[/]")
-            table.add_row(*row)
+                    arrow = "  "
+                row = [arrow, self._item_name(item), self._item_desc(item)]
+                if need_sb:
+                    if thumb_start <= i < thumb_start + thumb_size:
+                        row.append(f"[{COLOR_HINT_TAB_ACTIVE}]█[/]")
+                    else:
+                        row.append(f"[{COLOR_HINT_TAB_DIM}]│[/]")
+                table.add_row(*row)
 
-        for _ in range(MAX_TAB_VISIBLE - len(visible)):
-            row = ["", "", ""]
-            if need_sb:
-                row.append("")
-            table.add_row(*row)
+            for _ in range(MAX_TAB_VISIBLE - len(visible)):
+                row = ["", "", ""]
+                if need_sb:
+                    row.append("")
+                table.add_row(*row)
+
+        # 底部过滤行（始终显示）
+        if self._filter_text:
+            filter_row = ["", f"[{COLOR_HINT_TAB_DIM}]> {self._filter_text}[/]", ""]
+        else:
+            filter_row = ["", "", ""]
+        if need_sb:
+            filter_row.append("")
+        table.add_row(*filter_row)
 
         return table

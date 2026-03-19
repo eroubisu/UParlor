@@ -304,11 +304,10 @@ def dispatch_result(server, client_socket, name, player_data, result):
             handler(server, client_socket, name, player_data, result)
 
         # ── 通用游戏动作分发 ──
+        elif 'send_to_caller' in result or 'send_to_players' in result:
+            dispatch_game_result(server, result, client_socket, name, player_data)
         else:
-            if 'send_to_caller' in result or 'send_to_players' in result:
-                dispatch_game_result(server, result, client_socket, name, player_data)
-            else:
-                handle_simple_result(server, client_socket, name, player_data, result)
+            handle_simple_result(server, client_socket, name, player_data, result)
     else:
         server.send_to(client_socket, {'type': GAME, 'text': result})
         PlayerManager.save_player_data(name, player_data)

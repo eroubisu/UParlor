@@ -98,6 +98,9 @@ def get_all_games():
 # 注册所有游戏（添加新游戏只需在此添加两行）
 from . import world
 register_game('world', world)
+
+from . import wordle
+register_game('wordle', wordle)
 # from . import xxx
 # register_game('xxx', xxx)
 #

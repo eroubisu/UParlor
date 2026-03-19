@@ -40,6 +40,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self.current_location = "lobby"
         self._input_buffer = ""
         self._focused_pane_id = ""
+        self._cmd_select_mode = False
+        self._cmd_select_sticky = False
         self.state = ModuleStateManager()
         self._layout_loaded = False
         tree = None
@@ -71,6 +73,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if focus_id:
             self._set_focused_pane(focus_id)
         self._restore_all_modules()
+        self.state.status.add_listener(self._on_status_state)
         from ..config import DEFAULT_HOST
         self.app.connect_to_server(DEFAULT_HOST)
         self._enter_insert()
@@ -124,7 +127,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def canvas(self) -> Canvas:
         return self.query_one("#canvas", Canvas)
 
-    def _get_module(self, module_name: str):
+    def get_module(self, module_name: str):
         return self.canvas.get_module_widget(module_name)
 
     def _get_pane_for_module(self, module_name: str) -> PaneNode | None:
@@ -173,22 +176,22 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if target in ('chat', 'cmd', 'game_board'):
             return True
         if target == 'login':
-            w = self._get_module('login')
+            w = self.get_module('login')
             if isinstance(w, LoginPanel) and w._tab == 'settings':
                 return False
             return True
         if target == 'inventory':
-            w = self._get_module('inventory')
+            w = self.get_module('inventory')
             return isinstance(w, InventoryPanel) and getattr(w, 'wants_insert', False)
         if target == 'ai':
-            w = self._get_module('ai')
+            w = self.get_module('ai')
             if isinstance(w, AIChatPanel):
                 if w.wants_insert:
                     return True
                 return w._view == "chat" and w._menu_tab in ("chat", "action")
             return False
         if target == 'online':
-            w = self._get_module('online')
+            w = self.get_module('online')
             if isinstance(w, OnlineUsersPanel):
                 if w.wants_insert:
                     return True
@@ -196,7 +199,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             return False
         if target == 'status':
             from ..panels.status import StatusPanel
-            w = self._get_module('status')
+            w = self.get_module('status')
             return isinstance(w, StatusPanel) and getattr(w, 'wants_insert', False)
         return False
 
@@ -208,6 +211,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
 
     def action_enter_normal(self):
         self._wk.close()
+        if self._cmd_select_mode:
+            self._close_cmd_select()
         if self.vim.mode == Mode.INSERT:
             self._input_buffer = ""
             self._hide_panel_prompt()
@@ -227,6 +232,14 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def _enter_insert(self):
         if not self._can_input():
             return
+        # 游戏面板: 仅当游戏有 input prefix 时才能进入 INSERT
+        if self._input_target == 'game_board':
+            board = self.get_module('game_board')
+            if board and board._get_input_prefix() == '/':
+                return  # 无游戏输入前缀，禁止 INSERT
+        # 关闭指令栏（互斥）
+        if self._cmd_select_mode:
+            self._close_cmd_select()
         self._input_buffer = ""
         self.vim.enter_insert()
         # 游戏面板/指令面板: 输入的是 /cmd 英文指令，保持英文 IME
@@ -246,13 +259,37 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         """聚焦当前面板的 InputTextArea"""
         from ..widgets.input_bar import InputTextArea
         mod = self._focused_module()
-        widget = self._get_module(mod) if mod else None
+        widget = self.get_module(mod) if mod else None
         if widget:
             try:
                 ta = widget.query_one(InputTextArea)
                 ta.focus()
             except Exception:
                 pass
+
+    # ── CMD_SELECT 模式（指令栏）──
+
+    def _open_cmd_select(self, sticky: bool = False):
+        """打开指令栏（p/P）"""
+        if self._focused_module() != 'game_board':
+            return
+        if self.vim.mode == Mode.INSERT:
+            self._close_insert_mode()
+        board = self.get_module('game_board')
+        if board:
+            board.show_hint_bar()
+        self._cmd_select_mode = True
+        self._cmd_select_sticky = sticky
+        self._cmd_filter_buf = ''
+
+    def _close_cmd_select(self):
+        """关闭指令栏"""
+        self._cmd_select_mode = False
+        self._cmd_select_sticky = False
+        self._cmd_filter_buf = ''
+        board = self.get_module('game_board')
+        if board:
+            board.hide_hint_bar()
 
     # ── InputTextArea 自定义消息 ──
 
@@ -261,15 +298,13 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if self.vim.mode == Mode.INSERT:
             self._input_buffer = event.text_area.text
             if self._input_target == 'online':
-                w = self._get_module('online')
+                w = self.get_module('online')
                 if isinstance(w, OnlineUsersPanel):
                     w.on_search_change(self._input_buffer)
             elif self._input_target == 'inventory':
-                w = self._get_module('inventory')
+                w = self.get_module('inventory')
                 if isinstance(w, InventoryPanel):
                     w.on_search_change(self._input_buffer)
-            elif self._input_target == 'game_board':
-                self._hint_filter(self._input_buffer)
 
     def on_input_text_area_submit(self, event) -> None:
         """Enter / Ctrl+Enter 提交"""
@@ -283,29 +318,23 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def on_input_text_area_tab_press(self, event) -> None:
         """Tab 指令补全"""
         if self.vim.mode == Mode.INSERT:
-            self._complete_command()
-
-    def on_input_text_area_passthrough(self, event) -> None:
-        """HJKL hint 导航"""
-        if self.vim.mode == Mode.INSERT:
-            nav_map = {"H": "left", "L": "right", "J": "down", "K": "up"}
-            direction = nav_map.get(event.character)
-            if direction:
-                self._hint_nav(direction)
+            if self._input_target != 'game_board':
+                self._complete_command()
 
     def on_input_text_area_empty_backspace(self, event) -> None:
         """空文本 Backspace — 指令面板 hint_back"""
         if self.vim.mode == Mode.INSERT:
-            self._hint_back()
+            if self._input_target == 'cmd':
+                self._hint_back()
 
     def on_ai_chat_panel_request_insert(self, event) -> None:
         """AI 面板异步步骤完成后请求进入 INSERT 模式"""
         self._enter_insert()
 
     def on_game_board_panel_request_insert(self, event) -> None:
-        """服务端推送选择菜单 → 确保输入框打开"""
-        if self.vim.mode == Mode.NORMAL:
-            self._enter_insert()
+        """服务端推送选择菜单 → 打开指令栏（一次性）"""
+        if self.vim.mode == Mode.NORMAL and not self._cmd_select_mode:
+            self._open_cmd_select(sticky=False)
 
     def _update_mode_indicator(self):
         indicator = self.query_one("#mode-indicator", Static)
@@ -338,13 +367,13 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
 
     def _show_panel_prompt(self, text: str):
         mod = self._focused_module()
-        widget = self._get_module(mod) if mod else None
+        widget = self.get_module(mod) if mod else None
         if widget and hasattr(widget, 'show_prompt'):
             widget.show_prompt(text)
 
     def _update_panel_prompt(self, text: str):
         mod = self._focused_module()
-        widget = self._get_module(mod) if mod else None
+        widget = self.get_module(mod) if mod else None
         if widget and hasattr(widget, 'update_prompt'):
             widget.update_prompt(text)
 
@@ -385,7 +414,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                 self._restore_module(pane.module)
 
     def _restore_module(self, module_name: str):
-        widget = self._get_module(module_name)
+        widget = self.get_module(module_name)
         if not widget:
             return
         if hasattr(widget, 'restore'):
@@ -480,8 +509,15 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         self.current_location = location
         self.state.location = location
 
-        old_game = old_location.split('_')[0] if old_location else ''
-        new_game = location.split('_')[0] if location else ''
+        # 位置变更时清理输入状态
+        if old_location != location:
+            if self._cmd_select_mode:
+                self._close_cmd_select()
+            if self.vim.mode == Mode.INSERT:
+                self._close_insert_mode()
+
+        old_game = old_location.split('_', 1)[0] if old_location else ''
+        new_game = location.split('_', 1)[0] if location else ''
         game_changed = old_game != new_game
 
         if game_changed:
@@ -489,19 +525,30 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                 old_handler = get_handler(old_game)
                 if old_handler:
                     ctx = GameHandlerContext(
-                        self.state, self._get_module, self.app.set_timer,
-                        self._ensure_module_panel, self._remove_module_panel)
+                        self.state, self.get_module, self.app.set_timer,
+                        self._ensure_module_panel, self._remove_module_panel,
+                        self.app.send_command)
                     old_handler.on_leave_game(ctx)
             new_handler = get_handler(new_game)
             if new_handler:
                 ctx = GameHandlerContext(
-                    self.state, self._get_module, self.app.set_timer,
-                    self._ensure_module_panel, self._remove_module_panel)
+                    self.state, self.get_module, self.app.set_timer,
+                    self._ensure_module_panel, self._remove_module_panel,
+                    self.app.send_command)
                 new_handler.on_enter_game(ctx)
 
         indicator = self.query_one("#location-indicator", Static)
         display = location_path or location
         indicator.update(display)
+
+    def _on_status_state(self, event: str, *args):
+        if event == 'update_location_path':
+            (path,) = args
+            try:
+                indicator = self.query_one("#location-indicator", Static)
+                indicator.update(path)
+            except Exception:
+                pass
 
     # ── 键位处理由 KeyboardMixin 提供 ──
     # ── 输入处理由 InputMixin 提供 ──

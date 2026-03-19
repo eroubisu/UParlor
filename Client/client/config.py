@@ -43,12 +43,16 @@ COLOR_HINT_BORDER = '#a0a0a0'     # 指令提示框边框
 COLOR_HINT_TAB_ACTIVE = '#a0a0a0' # 活动标签页
 COLOR_HINT_TAB_DIM = '#606060'    # 非活动标签页
 
+# 指令名称色（淡紫，用于帮助文本/提示中高亮指令名）
+COLOR_CMD = '#b39ddb'
+
 # ── Rich Markup 语义常量（全局统一，禁止硬编码 [dim]/[b] 等） ──
 # 用法：f"{M_DIM}文本{M_END}", f"{M_BOLD}标题{M_END}"
 M_DIM     = f'[{COLOR_FG_TERTIARY}]'       # 弱化文本（替代 [dim]）
 M_BOLD    = f'[bold {COLOR_FG_PRIMARY}]'    # 加粗标题（替代 [b]）
 M_ACCENT  = f'[{COLOR_ACCENT}]'             # 强调
 M_MUTED   = f'[{COLOR_FG_SECONDARY}]'       # 次要文本
+M_CMD     = f'[bold {COLOR_CMD}]'             # 指令名称（淡紫色）
 M_END     = '[/]'                            # 关闭标记
 
 # ── 面板行数限制 ──

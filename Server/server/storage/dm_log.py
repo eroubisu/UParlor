@@ -2,9 +2,8 @@
 
 import os
 import json
-from datetime import timedelta
 
-from ..config import DM_LOG_DIR, DM_HISTORY_DIR, MAINTENANCE_HOUR
+from ..config import DM_LOG_DIR, DM_HISTORY_DIR
 from .chat_log import get_beijing_now, get_today_date_str
 
 
@@ -139,7 +138,6 @@ class DMLogManager:
         peers = self.get_all_peers(player_name)
         result = {}
         for peer_lower in peers:
-            pair = _pair_key(player_name, peer_lower)
             msgs = self.get_history(player_name, peer_lower, limit=limit_per_peer)
             if not msgs:
                 continue

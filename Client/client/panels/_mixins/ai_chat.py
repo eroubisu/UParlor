@@ -94,7 +94,7 @@ class _ChatRenderMixin:
             return
 
         lines = [
-            f"[b]设置 API[/b]",
+            "[b]设置 API[/b]",
             f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}",
         ]
         if self._setup_step == "provider":
@@ -182,7 +182,7 @@ class _ChatRenderMixin:
             return
 
         lines = [
-            f"[b]创建新角色[/b]",
+            "[b]创建新角色[/b]",
             f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}",
         ]
         if self._create_step == "desc":
@@ -208,7 +208,7 @@ class _ChatRenderMixin:
         def _w(markup: str):
             log.write(RichText.from_markup(markup, overflow="fold"))
 
-        _w(f"[b]创建新角色[/b]")
+        _w("[b]创建新角色[/b]")
         _w(f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}")
         _w(f"[{COLOR_FG_SECONDARY}]步骤 2/2 — 确认角色信息{M_END}")
         _w(f"[{COLOR_BORDER_LIGHT}]{'─' * 24}{M_END}")
@@ -220,7 +220,7 @@ class _ChatRenderMixin:
             _w(f"[b]外貌:[/b] {c.appearance}")
             _w(f"[b]背景:[/b] {c.backstory}")
             if c.custom_rules:
-                _w(f"[b]特殊规则:[/b]")
+                _w("[b]特殊规则:[/b]")
                 for rule in c.custom_rules:
                     _w(f"  - {rule}")
         _w("")
@@ -329,19 +329,19 @@ class _ChatRenderMixin:
         provider = cfg.get("provider", "google")
         provider_label = PROVIDER_NAMES.get(provider, provider)
         base_url = cfg.get("base_url", "")
-        base_url_display = base_url if base_url else "(默认)"
+        base_url_display = base_url or "(默认)"
 
         settings_items = [
-            f"修改 API Key",
+            "修改 API Key",
             f"供应商: {provider_label}",
             f"Base URL: {base_url_display}",
             f"切换模型: {current_model}",
             f"自动启动: {auto_label}",
             f"注意力: {attn_label}",
-            f"清空屏幕",
-            f"重置所有记忆",
-            f"切换角色",
-            f"删除此角色",
+            "清空屏幕",
+            "重置所有记忆",
+            "切换角色",
+            "删除此角色",
         ]
         # 动态替换确认状态的标签
         if self._reset_confirming:

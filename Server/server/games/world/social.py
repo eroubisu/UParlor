@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from ...systems.town_map import check_door, get_nearby_targets, is_walkable, load_map
+from .building_handlers import _menu_event
 
 
 def _check_on_door(map_data: dict, pos: list[int]) -> bool:
@@ -37,12 +38,15 @@ def cmd_enter(engine, lobby, player_name, player_data, args, map_id, map_data):
         world['town_map'] = map_id
         notify = engine._switch_map(player_name, building_id, indoor_map.get('spawn', [4, 4]))
         lobby.set_player_location(player_name, location)
-        engine._save_world_state(player_name, player_data)
+        engine._save_world_state(player_name, player_data, location)
+        building_name = door['name']
+        map_update = engine._build_map_update(player_name)
+        map_update.setdefault('room_data', {})['ai_description'] = f"玩家进入了{building_name}"
         result = {
             'action': 'location_update',
             'send_to_caller': [
-                engine._build_map_update(player_name),
-                {'type': 'game', 'text': f"进入了 {door['name']}。"},
+                map_update,
+                {'type': 'game', 'text': f"进入了 {building_name}。"},
             ],
             'location': location,
         }
@@ -56,11 +60,13 @@ def cmd_enter(engine, lobby, player_name, player_data, args, map_id, map_data):
         town_pos = world.get('town_pos', [20, 12])
         notify = engine._switch_map(player_name, town_map, town_pos)
         lobby.set_player_location(player_name, 'world_town')
-        engine._save_world_state(player_name, player_data)
+        engine._save_world_state(player_name, player_data, 'world_town')
+        map_update = engine._build_map_update(player_name)
+        map_update.setdefault('room_data', {})['ai_description'] = '玩家离开建筑回到了城镇'
         result = {
             'action': 'location_update',
             'send_to_caller': [
-                engine._build_map_update(player_name),
+                map_update,
                 {'type': 'game', 'text': "回到了城镇。"},
             ],
             'location': 'world_town',
@@ -115,19 +121,7 @@ def cmd_talk(engine, lobby, player_name, player_data, args, map_id, map_data):
             p = engine._positions.get(name)
             if p and abs(p[0] - pos[0]) <= 2 and abs(p[1] - pos[1]) <= 2:
                 items.append({'label': f'@ {name}', 'command': f"/talk {name}"})
-    return {
-        'action': 'select_menu',
-        'send_to_caller': [{
-            'type': 'game_event',
-            'game_type': 'world',
-            'event': 'select_menu',
-            'data': {
-                'title': '与谁交谈？',
-                'items': items,
-                'empty_msg': '附近没有可以交谈的人。' if not items else '',
-            },
-        }],
-    }
+    return _menu_event('与谁交谈？', items, '附近没有可以交谈的人。' if not items else '')
 
 
 def cmd_map(engine, lobby, player_name, player_data, args, map_id, map_data):
@@ -151,40 +145,17 @@ def cmd_user(engine, lobby, player_name, player_data, args, map_id, map_data):
         ]
         if target_name not in friends:
             items.append({'label': '添加好友', 'command': f'/addfriend {target_name}'})
-        return {
-            'action': 'select_menu',
-            'send_to_caller': [{
-                'type': 'game_event',
-                'game_type': 'world',
-                'event': 'select_menu',
-                'data': {
-                    'title': target_name,
-                    'items': items,
-                },
-            }],
-        }
+        return _menu_event(target_name, items)
     # /user 无参
     nearby = engine._get_nearby_players(player_name, radius=2)
     items = [{'label': f'@ {n}', 'command': f'/user {n}'} for n in nearby]
-    return {
-        'action': 'select_menu',
-        'send_to_caller': [{
-            'type': 'game_event',
-            'game_type': 'world',
-            'event': 'select_menu',
-            'data': {
-                'title': '附近玩家',
-                'items': items,
-                'empty_msg': '附近没有其他玩家。' if not items else '',
-            },
-        }],
-    }
+    return _menu_event('附近玩家', items, '附近没有其他玩家。' if not items else '')
 
 
 def cmd_addfriend(engine, lobby, player_name, player_data, args, map_id, map_data):
     """添加好友"""
     if not args:
-        return "用法: /addfriend <玩家名>"
+        return "用法: addfriend <玩家名>"
     target_name = args.strip()
     if target_name == player_name:
         return "不能添加自己为好友。"

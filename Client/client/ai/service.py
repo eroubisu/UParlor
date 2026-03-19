@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from datetime import date
-from pathlib import Path
 from typing import AsyncIterator
 
 from .config import (
@@ -25,7 +23,7 @@ from .impression import ImpressionState
 from . import memory as mem
 from .attention import TOOLS, AwarenessSummary, AttentionBuffer
 from .provider import (
-    TOOL_SCHEMAS, create_provider, AIProvider, PROVIDER_NAMES,
+    TOOL_SCHEMAS, create_provider, AIProvider,
 )
 from ..state import ModuleStateManager
 
@@ -43,7 +41,7 @@ _SUMMARY_TEMPERATURE = 0.3
 
 
 def _strip_model(name: str) -> str:
-    return name.split("/")[-1] if "/" in name else name
+    return name.rsplit("/", 1)[-1] if "/" in name else name
 
 
 class AIService:
@@ -91,8 +89,7 @@ class AIService:
         self._recent = load_json(d / "recent.json", [])
         self._display_from = status.get("display_from", 0)
         # 如果 display_from 超过 recent 长度，修正
-        if self._display_from > len(self._recent):
-            self._display_from = len(self._recent)
+        self._display_from = min(self._display_from, len(self._recent))
         self._summary = load_text(d / "summary.txt")
         self._load_today_tokens()
         self._mood.decay()
@@ -569,7 +566,7 @@ class AIService:
             title = pd.get("title", "")
             if title:
                 info_lines.append(f"称号: {title}")
-            parts.append(f"# 玩家状态\n" + ", ".join(info_lines))
+            parts.append("# 玩家状态\n" + ", ".join(info_lines))
 
         # 环境感知摘要（~30 token 代替完整数据）
         level = self.attention_level

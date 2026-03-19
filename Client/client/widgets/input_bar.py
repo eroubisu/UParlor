@@ -53,31 +53,20 @@ class InputTextArea(TextArea):
 
     class Submit(Message):
         """提交输入"""
-        pass
 
     class Escape(Message):
         """退出输入"""
-        pass
 
     class TabPress(Message):
         """Tab 补全"""
-        pass
-
-    class Passthrough(Message):
-        """透传字符（cmd 面板 HJKL hint 导航）"""
-        def __init__(self, character: str) -> None:
-            super().__init__()
-            self.character = character
 
     class EmptyBackspace(Message):
         """空文本时按 Backspace"""
-        pass
 
     def __init__(
         self,
         *,
         submit_on_enter: bool = True,
-        passthrough_chars: set[str] | None = None,
         **kwargs,
     ):
         kwargs.setdefault("soft_wrap", True)
@@ -87,7 +76,6 @@ class InputTextArea(TextArea):
         kwargs.setdefault("highlight_cursor_line", False)
         super().__init__(**kwargs)
         self._submit_on_enter = submit_on_enter
-        self._passthrough_chars: set[str] = passthrough_chars or set()
 
     async def _on_key(self, event: events.Key) -> None:
         # Space — 显式处理，确保空格始终可输入
@@ -133,12 +121,6 @@ class InputTextArea(TextArea):
             event.stop()
             self.post_message(self.Submit())
             return
-        # Passthrough 字符（如 cmd 面板的 HJKL）
-        if event.character and event.character in self._passthrough_chars:
-            event.prevent_default()
-            event.stop()
-            self.post_message(self.Passthrough(event.character))
-            return
         await super()._on_key(event)
 
     def action_delete_left(self) -> None:
@@ -157,13 +139,11 @@ class InputBar(Vertical):
         title: str = "",
         *,
         submit_on_enter: bool = True,
-        passthrough_chars: set[str] | None = None,
         **kw,
     ):
         super().__init__(**kw)
         self._prompt_id = prompt_id
         self._submit_on_enter = submit_on_enter
-        self._passthrough_chars = passthrough_chars or set()
         if title:
             self.border_title = title
 
@@ -171,7 +151,6 @@ class InputBar(Vertical):
         yield InputTextArea(
             id=self._prompt_id,
             submit_on_enter=self._submit_on_enter,
-            passthrough_chars=self._passthrough_chars,
         )
 
     def _ta(self) -> InputTextArea | None:

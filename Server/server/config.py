@@ -12,7 +12,7 @@ def _get_server_version():
         if os.path.exists(version_file):
             with open(version_file, 'r', encoding='utf-8') as f:
                 return f.read().strip()
-    except:
+    except Exception:
         pass
     return "dev"
 

@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ..net import register
-from ..player.manager import PlayerManager
-from ..infra import maintenance
+from . import register
+from ..storage import maintenance
 from ..msg_types import CHAT, PRIVATE_CHAT, SYSTEM
 
 
@@ -60,6 +59,6 @@ def handle_private_chat(server, client_socket, name, player_data, msg):
             cname = info.get('name')
             if info.get('state') != 'playing':
                 continue
-            if cname == target or cname == name:
+            if cname in (target, name):
                 server.send_to(client, dm_msg)
     print(f"[DM][{name} \u2192 {target}] {text}")

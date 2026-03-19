@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..net import register
+from . import register
 from ..player.manager import PlayerManager
 from ..msg_types import ACTION, GAME, LOGIN_PROMPT
 
@@ -15,13 +15,18 @@ def handle_viewport(server, client_socket, name, player_data, msg):
         return
     with server.lock:
         server.clients[client_socket]['viewport'] = (w, h)
-    engine = server.lobby_engine._get_engine('world', name)
-    if engine and hasattr(engine, 'set_viewport'):
-        engine.set_viewport(name, w, h)
-        room_data = engine.get_player_room_data(name)
-        if room_data:
-            from ..msg_types import ROOM_UPDATE
-            server.send_to(client_socket, {'type': ROOM_UPDATE, 'room_data': room_data})
+    # 仅当玩家在 world 游戏中时才更新视口并刷新地图
+    lobby = server.lobby_engine
+    location = lobby.get_player_location(name)
+    game_id = lobby._get_game_for_location(location)
+    if game_id == 'world':
+        engine = lobby._get_engine('world', name)
+        if engine and hasattr(engine, 'set_viewport'):
+            engine.set_viewport(name, w, h)
+            room_data = engine.get_player_room_data(name)
+            if room_data:
+                from ..msg_types import ROOM_UPDATE
+                server.send_to(client_socket, {'type': ROOM_UPDATE, 'room_data': room_data})
 
 
 @register('save_layout')

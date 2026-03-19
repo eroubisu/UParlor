@@ -6,8 +6,8 @@ from rich.text import Text as RichText
 from textual.widgets import RichLog
 
 from ...config import (
-    M_BOLD, M_DIM, M_END, M_ACCENT, M_MUTED,
-    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
+    M_BOLD, M_DIM, M_END, M_MUTED,
+    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
     COLOR_ACCENT,
 )
 from ...widgets.helpers import render_tab_header, _widget_width
@@ -197,13 +197,12 @@ class StatusRenderMixin:
                 else:
                     log.write(RichText.from_markup(
                         f"    {M_DIM}{slot_label}{M_END} {name}"))
+            elif selected:
+                log.write(RichText.from_markup(
+                    f"  [{COLOR_ACCENT}]●[/] {M_DIM}{slot_label} —{M_END}"))
             else:
-                if selected:
-                    log.write(RichText.from_markup(
-                        f"  [{COLOR_ACCENT}]●[/] {M_DIM}{slot_label} —{M_END}"))
-                else:
-                    log.write(RichText.from_markup(
-                        f"    {M_DIM}{slot_label} —{M_END}"))
+                log.write(RichText.from_markup(
+                    f"    {M_DIM}{slot_label} —{M_END}"))
             lines_written += 1
             if confirming and lines_written < vh:
                 log.write(RichText.from_markup(

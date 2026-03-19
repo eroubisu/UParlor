@@ -10,9 +10,9 @@ from textual.widget import Widget
 
 from ..config import (
     M_DIM, M_BOLD, M_END, VERSION,
-    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_ACCENT,
+    COLOR_FG_SECONDARY, COLOR_ACCENT,
 )
-from ..widgets.input_bar import InputBar, InputTextArea
+from ..widgets.input_bar import InputBar
 from ..widgets.helpers import render_tab_header
 from ..widgets.prompt import InputBarMixin
 from ..state import ModuleStateManager

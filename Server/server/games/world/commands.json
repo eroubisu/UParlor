@@ -14,5 +14,8 @@
     "world_tavern": [
         {"name": "rest", "label": "休息", "desc": "休息恢复HP和MP"},
         {"name": "rumor", "label": "打听消息", "desc": "听听酒馆里的传言"}
+    ],
+    "world_gamehall": [
+        {"name": "play", "label": "游戏", "desc": "选择并进入小游戏"}
     ]
 }

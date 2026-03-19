@@ -98,7 +98,7 @@ def _handle_exit(lobby, player_name, player_data, args, location):
         return {'action': 'exit'}
     if arg == 'n':
         return '已取消退出。'
-    return '输入 /exit y 确认退出。'
+    return '输入 exit y 确认退出。'
 
 
 @register_sub_builder('exit')
@@ -123,6 +123,27 @@ def _handle_settitle(lobby, player_name, player_data, args, location):
 def _handle_passwd(lobby, player_name, player_data, args, location):
     lobby.pending_confirms[player_name] = {'type': 'password_start'}
     return '请输入新密码（6-20个字符）：'
+
+
+@register_global('help')
+def _handle_help(lobby, player_name, player_data, args, location):
+    """上下文感知帮助：在游戏中显示该游戏帮助，否则显示主帮助"""
+    from .help import get_main_help, get_game_help_text
+    game_id = lobby._get_game_for_location(location) if location else None
+    if game_id and game_id != 'world':
+        help_text = get_game_help_text(game_id)
+        if help_text:
+            from ..msg_types import ROOM_UPDATE
+            return {
+                'action': 'game_help',
+                'send_to_caller': [
+                    {'type': ROOM_UPDATE, 'room_data': {
+                        'game_type': game_id,
+                        'doc': help_text,
+                    }},
+                ],
+            }
+    return get_main_help()
 
 
 

@@ -1,6 +1,7 @@
 {
     "*": [
-        {"name": "home",      "label": "回城镇",   "desc": "直接返回城镇",       "tab": "导航"},
+        {"name": "back",      "label": "返回",     "desc": "返回上一层",           "tab": "导航"},
+        {"name": "help",      "label": "帮助",     "desc": "显示帮助信息",       "tab": "系统"},
         {"name": "clear",     "label": "清屏",     "desc": "清空指令面板",       "tab": "系统"},
         {"name": "exit",      "label": "退出",     "desc": "关闭程序",           "tab": "系统"}
     ],

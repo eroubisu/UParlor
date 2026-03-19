@@ -9,6 +9,18 @@ from textual.widgets import RichLog
 from ...config import M_DIM, M_END, COLOR_FG_TERTIARY
 from ...widgets import _set_pane_subtitle
 
+
+def _clean_base_url(raw: str) -> str:
+    """清理 base_url：补 https、剥离 SDK 自动拼接的尾部路径"""
+    url = raw.strip().rstrip("/")
+    if url and not url.startswith("http"):
+        url = "https://" + url
+    for suffix in ("/chat/completions", "/completions", "/models"):
+        if url.endswith(suffix):
+            url = url[:-len(suffix)]
+            break
+    return url
+
 # 视图常量（ai_chat.py 共用）
 _VIEW_SETUP  = "setup"
 _VIEW_SELECT = "select"
@@ -194,18 +206,10 @@ class _ChatViewsMixin:
         self._refresh_content()
 
     def _on_setup_submit(self, text: str):
-        if not text.strip() and self._setup_step not in ("base_url",):
+        if not text.strip() and self._setup_step != "base_url":
             return
         if self._setup_step == "base_url":
-            url = text.strip().rstrip("/")
-            if url and not url.startswith("http"):
-                url = "https://" + url
-            # 用户可能粘贴了完整端点 URL，剥离 SDK 会自动拼接的尾部路径
-            for suffix in ("/chat/completions", "/completions", "/models"):
-                if url.endswith(suffix):
-                    url = url[:-len(suffix)]
-                    break
-            self._setup_base_url = url
+            self._setup_base_url = _clean_base_url(text)
             self._setup_step = "api_key"
             self._wants_insert = True
             self._create_status = ""

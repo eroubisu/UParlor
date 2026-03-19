@@ -26,11 +26,9 @@ class GameClientHandler:
 
     def on_enter_game(self, ctx: GameHandlerContext) -> None:
         """进入游戏时调用"""
-        pass
 
     def on_leave_game(self, ctx: GameHandlerContext) -> None:
         """离开游戏时调用"""
-        pass
 
 
 # 模块导入时自动注册

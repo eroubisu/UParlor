@@ -1,10 +1,10 @@
 """游戏大厅指令引擎"""
 
-from ..config import COMMAND_TABLE, LOCATION_HIERARCHY, SERVER_VERSION
+from ..config import COMMAND_TABLE, LOCATION_HIERARCHY
 from .confirmation import handle_lobby_pending
 from .command_registry import find_global_handler
 from . import help as lobby_help
-from ..games import get_game, get_all_games, GAMES
+from ..games import get_game, GAMES
 
 
 class LobbyEngine:
@@ -22,9 +22,10 @@ class LobbyEngine:
         self.invite_callback = callback
 
     def register_player(self, player_name, player_data):
-        """注册在线玩家 — 默认进入世界城镇"""
+        """注册在线玩家 — 恢复上次位置"""
         self.online_players[player_name] = player_data
-        self.player_locations[player_name] = 'world_town'
+        saved_location = player_data.get('world', {}).get('location', 'world_town')
+        self.player_locations[player_name] = saved_location
         self.pending_confirms.pop(player_name, None)
         # 自动初始化世界引擎并加载玩家位置
         self._ensure_engine('world', player_name)
@@ -170,11 +171,15 @@ class LobbyEngine:
         else:
             game_cmds = copy.deepcopy(COMMAND_TABLE.get(location, []))
 
+        # 位置指令覆盖同名全局指令
+        loc_names = {c.get('name') for c in game_cmds if c.get('name')}
+        global_filtered = [c for c in global_cmds if c.get('name') not in loc_names]
+
         # 在游戏中时，游戏标签页在前；大厅中时，全局在前
         if game_id:
-            commands = game_cmds + global_cmds
+            commands = game_cmds + global_filtered
         else:
-            commands = global_cmds + game_cmds
+            commands = global_filtered + game_cmds
 
         if player_data:
             self._inject_sub_menus(commands, player_data)
@@ -267,9 +272,11 @@ class LobbyEngine:
         if global_handler is not None:
             return global_handler(self, player_name, player_data, args, location)
 
-        # ── 3. 导航指令 /home ──
+        # ── 3. 导航指令 /home, /back ──
         if cmd == '/home':
             return self._handle_navigation(player_name, player_data, location)
+        if cmd == '/back':
+            return self._handle_back(player_name, player_data, location)
 
         # ── 4. 游戏内指令路由 ──
         game_id = self._get_game_for_location(location)
@@ -290,6 +297,21 @@ class LobbyEngine:
 
     # ── 进入游戏 ──
 
+    def _handle_back(self, player_name, player_data, location):
+        """处理 /back — 逐级返回"""
+        game_id = self._get_game_for_location(location)
+        if game_id:
+            engine = self._get_engine(game_id, player_name)
+            if engine:
+                result = engine.handle_back(self, player_name, player_data)
+                # 跨游戏过渡: 离开当前游戏后落在另一个游戏内，重新进入父游戏
+                new_loc = self.get_player_location(player_name)
+                new_game = self._get_game_for_location(new_loc)
+                if new_game and new_game != game_id:
+                    return self._enter_game(player_name, player_data, new_game)
+                return result
+        return '无法再返回了。'
+
     def _handle_navigation(self, player_name, player_data, location):
         """处理 /home 导航"""
         root = LOCATION_HIERARCHY.get(location)
@@ -301,7 +323,13 @@ class LobbyEngine:
         if game_id:
             engine = self._get_engine(game_id, player_name)
             if engine:
-                return engine.handle_quit(self, player_name, player_data)
+                result = engine.handle_quit(self, player_name, player_data)
+                # 跨游戏过渡: 离开后落在另一个游戏内
+                new_loc = self.get_player_location(player_name)
+                new_game = self._get_game_for_location(new_loc)
+                if new_game and new_game != game_id:
+                    return self._enter_game(player_name, player_data, new_game)
+                return result
 
         # 非游戏位置：直接回城镇
         self.set_player_location(player_name, 'world_town')
@@ -322,21 +350,24 @@ class LobbyEngine:
 
         info = self._get_game_info(game_id)
 
-        # 设置位置 — 用游戏根位置
+        # 设置位置 — 用游戏根位置（parent 不在游戏自身 locations 中的那个）
         locations = info.get('locations', {})
         root_location = game_id  # 默认
-        for loc_key in locations:
-            parent = locations[loc_key][1]
-            if parent == 'lobby':
+        for loc_key, (_, parent) in locations.items():
+            if parent is None or parent not in locations:
                 root_location = loc_key
                 break
         self.set_player_location(player_name, root_location)
 
         # 获取欢迎信息
         result = engine.get_welcome_message(player_data)
-        # 确保客户端收到 location 更新
-        if isinstance(result, dict) and 'location' not in result:
-            result['location'] = root_location
+        if isinstance(result, dict):
+            # 确保 dispatch_result 走富协议路径
+            if 'send_to_caller' in result and 'action' not in result:
+                result['action'] = 'enter_game'
+            # 确保客户端收到 location 更新
+            if 'location' not in result:
+                result['location'] = root_location
         return result
 
     # ── 背包/头衔指令 ──  → title_commands.py

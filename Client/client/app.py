@@ -91,7 +91,7 @@ class UParlorApp(App):
             self.network.connect(ip)
         except Exception as e:
             if isinstance(screen, GameScreen):
-                login = screen._get_module('login')
+                login = screen.get_module('login')
                 if isinstance(login, LoginPanel):
                     login.add_message(f"{M_DIM}连接失败: {e}{M_END}")
             return
@@ -132,15 +132,15 @@ class UParlorApp(App):
         screen = self.screen
         if isinstance(screen, GameScreen):
             screen.state.game_board.clear()
-            board = screen._get_module('game_board')
+            board = screen.get_module('game_board')
             if board and hasattr(board, 'clear'):
                 board.clear()
-            login = screen._get_module('login')
+            login = screen.get_module('login')
             if isinstance(login, LoginPanel):
                 login.add_message(f"{M_DIM}连接已断开{M_END}")
             else:
                 screen.state.cmd.add_line(f"{M_DIM}连接已断开{M_END}")
-                cmd = screen._get_module('cmd')
+                cmd = screen.get_module('cmd')
                 if isinstance(cmd, CommandPanel):
                     cmd.add_message(f"{M_DIM}连接已断开{M_END}")
             try:
@@ -207,7 +207,7 @@ class UParlorApp(App):
         if not isinstance(screen, GameScreen):
             return
         try:
-            panel = screen._get_module('ai')
+            panel = screen.get_module('ai')
             if not panel or not hasattr(panel, '_service'):
                 return
             if not getattr(panel, '_panel_active', False):
@@ -227,7 +227,7 @@ class UParlorApp(App):
         if not isinstance(screen, GameScreen):
             return
         try:
-            panel = screen._get_module('ai')
+            panel = screen.get_module('ai')
             if panel and hasattr(panel, '_service') and panel._service:
                 panel._service.on_exit()
         except Exception:
@@ -249,7 +249,9 @@ class UParlorApp(App):
 
 def _uninstall():
     """卸载 uparlor：删除外部数据 + pip uninstall"""
-    import shutil, subprocess, sys
+    import shutil
+    import subprocess
+    import sys
     from pathlib import Path
 
     data_dir = Path.home() / ".uparlor"

@@ -13,12 +13,14 @@ class GameHandlerContext:
     """处理器与大厅交互的受控接口（State-first）"""
 
     def __init__(self, state, get_module, set_timer=None,
-                 ensure_panel=None, remove_panel=None):
+                 ensure_panel=None, remove_panel=None,
+                 send_command=None):
         self._state = state
-        self._get_module = get_module
+        self.get_module = get_module
         self._set_timer = set_timer
         self._ensure_panel = ensure_panel
         self._remove_panel = remove_panel
+        self._send_command = send_command
 
     @property
     def state(self):
@@ -26,7 +28,7 @@ class GameHandlerContext:
 
     def _widget_call(self, module: str, method: str, *args, **kwargs):
         """安全调用 Widget 方法"""
-        w = self._get_module(module)
+        w = self.get_module(module)
         if w and hasattr(w, method):
             getattr(w, method)(*args, **kwargs)
 
@@ -46,13 +48,23 @@ class GameHandlerContext:
 
     def ensure_panel(self, module_name: str):
         """确保模块面板存在于布局中（不存在则自动添加）"""
+
+    def show_select_menu(self, title: str, items: list[dict], empty_msg: str = ''):
+        """在游戏面板上显示选择菜单"""
+        self._widget_call('game_board', 'show_select_menu',
+                          title=title, items=items, empty_msg=empty_msg)
         if self._ensure_panel:
-            self._ensure_panel(module_name)
+            self._ensure_panel('game_board')
 
     def remove_panel(self, module_name: str):
         """从布局中移除模块面板"""
         if self._remove_panel:
             self._remove_panel(module_name)
+
+    def send_command(self, command: str):
+        """发送指令到服务器"""
+        if self._send_command:
+            self._send_command(command)
 
 
 # ── 处理器协议 ──

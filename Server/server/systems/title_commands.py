@@ -60,15 +60,15 @@ def cmd_mytitle(player_data):
 
     total_titles = len(TITLE_LIBRARY)
     text += f"\n已收集: {len(owned)}/{total_titles}"
-    text += "\n\n/settitle <编号> - 切换显示（最多3个）"
-    text += "\n/settitle clear - 清除所有显示"
-    text += "\n/title - 查看头衔图鉴"
+    text += "\n\nsettitle <编号> - 切换显示（最多3个）"
+    text += "\nsettitle clear - 清除所有显示"
+    text += "\ntitle - 查看头衔图鉴"
     return text
 
 
 def cmd_alltitle(player_data, args):
     """查看头衔图鉴"""
-    from .titles import TITLE_LIBRARY, TITLE_SOURCES, get_title_name
+    from .titles import TITLE_LIBRARY, TITLE_SOURCES
     titles = player_data.get('titles', {'owned': ['newcomer'], 'displayed': ['newcomer']})
     owned = titles.get('owned', [])
 
@@ -105,13 +105,13 @@ def cmd_alltitle(player_data, args):
 
 def cmd_title(player_name, player_data, args):
     """切换头衔显示"""
-    from .titles import TITLE_LIBRARY, get_title_name
+    from .titles import get_title_name
     titles = player_data.get('titles', {'owned': ['newcomer'], 'displayed': ['newcomer']})
     owned = titles.get('owned', [])
     displayed = titles.get('displayed', [])
 
     if not args:
-        return "用法: /title <编号> 或 /title clear"
+        return "用法: title <编号> 或 title clear"
 
     if args.strip() == 'clear':
         titles['displayed'] = []
@@ -122,7 +122,7 @@ def cmd_title(player_name, player_data, args):
     try:
         idx = int(args.strip())
     except ValueError:
-        return "用法: /title <编号> 或 /title clear"
+        return "用法: title <编号> 或 title clear"
 
     if idx < 1 or idx > len(owned):
         return f"无效的编号。你有 {len(owned)} 个头衔。"

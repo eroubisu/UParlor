@@ -15,7 +15,6 @@ class KeyboardMixin:
 
     def on_paste(self, event: events.Paste) -> None:
         """INSERT 模式粘贴 — TextArea 自行处理，无需拦截"""
-        pass
 
     def on_key(self, event) -> None:
         vim = self.vim
@@ -38,6 +37,36 @@ class KeyboardMixin:
             vim.pending_key = ""
             if key == "g":
                 self._scroll_focused_top()
+            return
+
+        # ── CMD_SELECT 模式（指令栏打开时）──
+        if self._cmd_select_mode:
+            vim._count_buffer = ""
+            if key == "escape":
+                self._close_cmd_select()
+            elif key == "J":
+                self._hint_nav('down')
+            elif key == "K":
+                self._hint_nav('up')
+            elif key == "H":
+                self._hint_nav('left')
+            elif key == "L":
+                self._hint_nav('right')
+            elif key == "enter":
+                chain_done = self._hint_enter()
+                if chain_done and not self._cmd_select_sticky:
+                    self._close_cmd_select()
+            elif key == "tab":
+                self._hint_tab_complete()
+            elif key == "backspace":
+                if self._cmd_filter_buf:
+                    self._cmd_filter_buf = self._cmd_filter_buf[:-1]
+                    self._hint_filter(self._cmd_filter_buf)
+                else:
+                    self._hint_back()
+            elif len(key) == 1 and key.islower():
+                self._cmd_filter_buf += key
+                self._hint_filter(self._cmd_filter_buf)
             return
 
         # 数字前缀累积（vim 风格: 5j = 向下移动5步）
@@ -136,6 +165,10 @@ class KeyboardMixin:
         # 单键
         if key == "space":
             self._open_space_menu()
+        elif key == "p":
+            self._open_cmd_select(sticky=False)
+        elif key == "P":
+            self._open_cmd_select(sticky=True)
         elif key == "i":
             # 物品栏: i 进入搜索模式
             w = self._get_focused_widget()
@@ -166,13 +199,13 @@ class KeyboardMixin:
         pane = find_pane(self._layout_tree, self._focused_pane_id)
         if not pane or not pane.module:
             return None
-        return self._get_module(pane.module)
+        return self.get_module(pane.module)
 
     def _get_focused_log(self) -> RichLog | None:
         pane = find_pane(self._layout_tree, self._focused_pane_id)
         if not pane or not pane.module:
             return None
-        widget = self._get_module(pane.module)
+        widget = self.get_module(pane.module)
         if widget is None:
             return None
         try:

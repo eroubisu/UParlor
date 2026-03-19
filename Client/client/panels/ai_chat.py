@@ -11,13 +11,14 @@ from textual.message import Message
 from textual.widgets import RichLog, Static
 from textual.widget import Widget
 
-from ..config import M_DIM, M_END, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY
+from ..config import M_DIM, M_END, COLOR_FG_TERTIARY
+from ..panels._mixins.ai_chat_views import _clean_base_url
 from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets import _set_pane_subtitle
 from ..widgets.prompt import InputBarMixin
-from ._render.ai_chat import _ChatRenderMixin, _TABS
-from ._render.ai_chat_views import (
+from ._mixins.ai_chat import _ChatRenderMixin, _TABS
+from ._mixins.ai_chat_views import (
     _ChatViewsMixin,
     _VIEW_SETUP, _VIEW_SELECT, _VIEW_CREATE, _VIEW_CHAT,
 )
@@ -577,14 +578,13 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                     self._set_view(_VIEW_SELECT)
                     self._show_static()
                     self._refresh_content()
-        else:
+        elif st.current_char_id and st.view == _VIEW_CHAT:
             # 自动启动关闭 — 有进行中的对话时恢复，否则选择界面
-            if st.current_char_id and st.view == _VIEW_CHAT:
-                self._enter_character(st.current_char_id)
-            else:
-                self._set_view(_VIEW_SELECT)
-                self._show_static()
-                self._refresh_content()
+            self._enter_character(st.current_char_id)
+        else:
+            self._set_view(_VIEW_SELECT)
+            self._show_static()
+            self._refresh_content()
 
         # 流式输出被窗口操作中断 — 提示用户
         if st.streaming_interrupted:
@@ -631,19 +631,13 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                 elif getattr(self, "_editing_base_url", False):
                     from ..ai.config import load_global_config, save_global_config
                     cfg = load_global_config()
-                    url = text.strip().rstrip("/")
-                    if url and not url.startswith("http"):
-                        url = "https://" + url
-                    for suffix in ("/chat/completions", "/completions", "/models"):
-                        if url.endswith(suffix):
-                            url = url[:-len(suffix)]
-                            break
+                    url = _clean_base_url(text)
                     cfg["base_url"] = url
                     save_global_config(cfg)
                     if self._service:
                         self._service._api_config["base_url"] = url
                         self._service._init_provider()
-                    label = url if url else "(默认)"
+                    label = url or "(默认)"
                     self._log(f"{M_DIM}>>> Base URL 已设为 {label}{M_END}")
                     self._editing_base_url = False
                     self._wants_insert = False

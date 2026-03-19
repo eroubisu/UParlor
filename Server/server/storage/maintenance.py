@@ -6,7 +6,7 @@ from datetime import datetime
 from .chat_log import get_beijing_now, get_today_date_str
 from ..config import MAINTENANCE_HOUR
 from ..player.manager import PlayerManager
-from ..systems.titles import grant_title, check_all_titles
+from ..systems.titles import check_all_titles
 from ..msg_types import ACTION, SYSTEM
 
 

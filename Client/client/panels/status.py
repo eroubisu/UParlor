@@ -9,20 +9,18 @@ from textual.widget import Widget
 
 from ..config import (
     MAX_LINES_STATUS,
-    M_BOLD, M_DIM, M_END, M_ACCENT, M_MUTED,
-    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
-    COLOR_ACCENT,
+    M_DIM, M_END,
 )
 from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._render.card import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ._mixins.card import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
 from ..data import COLOR_PRESETS as _COLOR_PRESETS
 from ..data import EQUIPMENT_SLOT_LABELS
-from ._render.status import (
+from ._mixins.status import (
     StatusRenderMixin,
     _PAGES, _PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS,
-    _PAGE_LABELS, _SETTINGS_ITEMS, _COLOR_MENU_ITEMS,
+    _SETTINGS_ITEMS, _COLOR_MENU_ITEMS,
     _SUB_NONE, _SUB_COLOR_MENU, _SUB_COLOR_PICK, _SUB_PATTERN_PICK,
     _SUB_MOTTO_INPUT, _SUB_FIELD_PICK,
 )

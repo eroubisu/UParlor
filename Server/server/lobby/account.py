@@ -10,7 +10,6 @@ def do_rename(lobby, player_name, player_data, new_name, quality=0):
         return f"用户名 '{new_name}' 已被使用。"
 
     inventory = player_data.get('inventory', {})
-    rename_cards = inv_get(inventory, 'rename_card', quality)
 
     old_name = player_name
     success = PlayerManager.rename_player(old_name, new_name)

@@ -3,8 +3,8 @@
 import re
 
 from .manager import PlayerManager
-from ..infra import maintenance
-from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
+from ..storage import maintenance
+from ..msg_types import FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
 
@@ -70,7 +70,7 @@ class AuthMixin:
             player_data = PlayerManager.load_player_data(name)
         except Exception as e:
             print(f"[!] 注册失败 {name}: {e}")
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': f'注册失败，请重试。\n请输入用户名：'})
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '注册失败，请重试。\n请输入用户名：'})
             with self.lock:
                 self.clients[client_socket]['state'] = 'login'
                 self.clients[client_socket]['name'] = None

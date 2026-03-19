@@ -131,8 +131,7 @@ def next_pane_id(node: LayoutNode) -> str:
     for p in panes:
         try:
             num = int(p.pane_id.split('-')[1])
-            if num > max_id:
-                max_id = num
+            max_id = max(max_id, num)
         except (IndexError, ValueError):
             pass
     return f"pane-{max_id + 1}"

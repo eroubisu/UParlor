@@ -48,7 +48,7 @@ class NetworkManager:
         if self.socket:
             try:
                 self.socket.close()
-            except:
+            except OSError:
                 pass
     
     def send(self, data):
@@ -59,5 +59,5 @@ class NetworkManager:
             msg = json.dumps(data) + '\n'
             self.socket.send(msg.encode('utf-8'))
             return True
-        except:
+        except OSError:
             return False

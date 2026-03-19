@@ -41,32 +41,33 @@
 
 ### Server/server/
 
-| 目录/文件                   | 职责                                                                   |
-| --------------------------- | ---------------------------------------------------------------------- |
-| `chat_server.py`            | TCP 服务器主循环、连接管理、认证、消息 IO                              |
-| `config.py`                 | 端口、路径、位置层级树、指令表加载                                     |
-| `msg_types.py`              | 消息类型常量（GAME, ROOM_UPDATE, CHAT 等）                             |
-| `lobby/engine.py`           | 指令路由（全局→导航→游戏引擎）、位置管理、引擎生命周期                 |
-| `lobby/command_registry.py` | 全局指令处理器注册表（@register_global 装饰器）+ 子菜单构建器注册表    |
-| `lobby/help.py`             | 帮助文档生成                                                           |
-| `lobby/account.py`          | 账号操作（改密、改名、删号）                                           |
-| `lobby/confirmation.py`     | 多步确认流程                                                           |
-| `game/protocol.py`          | **GameEngine Protocol** + BaseGameEngine + GameEvent                   |
-| `game/result_dispatcher.py` | Rich Result → 多目标消息分发、Action 处理器注册表                      |
-| `game/room_handler.py`      | 房间制游戏基类模板（棋牌类）                                           |
-| `games/__init__.py`         | 游戏注册框架（自动注入位置/段位/头衔/物品/配方到全局）                 |
-| `games/world/`              | 开放世界游戏模块                                                       |
-| `player/manager.py`         | 玩家数据文件 IO                                                        |
-| `player/schema.py`          | 玩家数据模板 + 游戏字段注入 + 迁移                                     |
-| `player/auth.py`            | 登录/注册逻辑                                                          |
-| `systems/`                  | 跨游戏系统（ranks/titles/items/recipes/equipment/leveling/attributes） |
-| `infra/`                    | 基础设施（聊天日志、私聊日志、维护任务、文本工具）                     |
-| `data/`                     | 全局 JSON 数据（commands/ranks/titles/items/levels）                   |
+| 目录/文件                        | 职责                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `chat_server.py`                 | TCP 服务器主循环、连接管理、认证、消息 IO                              |
+| `config.py`                      | 端口、路径、位置层级树、指令表加载                                     |
+| `msg_types.py`                   | 消息类型常量（GAME, ROOM_UPDATE, CHAT 等）                             |
+| `lobby/engine.py`                | 指令路由（全局→导航→游戏引擎）、位置管理、引擎生命周期                 |
+| `lobby/command_registry.py`      | 全局指令处理器注册表（@register_global 装饰器）+ 子菜单构建器注册表    |
+| `lobby/help.py`                  | 帮助文档生成                                                           |
+| `lobby/account.py`               | 账号操作（改密、改名、删号）                                           |
+| `lobby/confirmation.py`          | 多步确认流程                                                           |
+| `game_core/protocol.py`          | **GameEngine Protocol** + BaseGameEngine + GameEvent                   |
+| `game_core/result_dispatcher.py` | Rich Result → 多目标消息分发、Action 处理器注册表                      |
+| `game_core/room_handler.py`      | 房间制游戏基类模板（棋牌类）                                           |
+| `handlers/`                      | 消息处理器（chat/friends/profile/status_builder/client_state）         |
+| `games/__init__.py`              | 游戏注册框架（自动注入位置/段位/头衔/物品/配方到全局）                 |
+| `games/world/`                   | 开放世界游戏模块                                                       |
+| `player/manager.py`              | 玩家数据文件 IO                                                        |
+| `player/schema.py`               | 玩家数据模板 + 游戏字段注入 + 迁移                                     |
+| `player/auth.py`                 | 登录/注册逻辑                                                          |
+| `systems/`                       | 跨游戏系统（ranks/titles/items/recipes/equipment/leveling/attributes） |
+| `storage/`                       | 存储与工具（聊天日志、私聊日志、维护任务、文本工具）                   |
+| `data/`                          | 全局 JSON 数据（commands/ranks/titles/items/levels）                   |
 
 ### Client/client/
 
 | 目录/文件              | 职责                                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------------------- | --- | ----------------- | ----------------------------------------------------- |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
 | `app.py`               | Textual App 生命周期、网络接收、Ping 心跳、AI 定时器                                      |
 | `config.py`            | 唯一色板（灰度）、网络端口、面板行数限制、Rich 语义常量                                   |
 | `state.py`             | 8 个 State 类（业务数据 SSOT）+ ModuleStateManager                                        |
@@ -83,14 +84,15 @@
 | `ui/vim_mode.py`       | VimMode — 双模态 + IME 切换 + 数字前缀                                                    |
 | `ui/layout.py`         | 窗格树（PaneNode/SplitNode）— 拆分/关闭/导航/序列化                                       |
 | `ui/space_menu.py`     | SpaceMenuMixin — Space 快捷菜单                                                           |
-| `panels/`              | UI 面板实现（chat/game_board/inventory/online/status/ai_chat/notification/command/login） | \n  | `panels/_render/` | 面板渲染辅助模块（card/status/ai_chat/ai_chat_views） |
+| `panels/`              | UI 面板实现（chat/game_board/inventory/online/status/ai_chat/notification/command/login） |
+| `panels/_mixins/`      | 面板 Mixin 辅助模块（card/status/ai_chat/ai_chat_views/inventory）                        |
 | `widgets/`             | 共享组件（input_bar/menu_nav/tab_menu/prompt/scrollbar）                                  |
 | `games/`               | 游戏客户端模块（world_handler + world_renderer）                                          |
 | `ai/`                  | AI 伙伴系统（service/attention/memory/mood/social/persona/character/impression）          |
 
 ## 核心 Protocol 接口
 
-### 服务端 GameEngine（game/protocol.py）
+### 服务端 GameEngine（game_core/protocol.py）
 
 ```
 必须实现:
@@ -123,9 +125,15 @@ GameHandlerContext 提供:
   .cmd_add_line(text)        — 指令面板追加行（State + Widget）
   .cmd_widget_add_line(text) — 仅 Widget（动画用）
   .set_timer(delay, cb)      — 延时回调
+  .send_command(cmd)         — 发送指令到服务器
   .ensure_panel(module)      — 确保面板在布局中
   .remove_panel(module)      — 移除面板
-  ._get_module(name)         — 获取面板实例（通过 _widget_call 安全调用）
+  .get_module(name)          — 获取面板实例（通过 _widget_call 安全调用）
+
+可选（游戏按需实现）:
+  on_nav(direction, count, ctx)   — 导航键（hjkl/enter）委托，返回时面板不做任何操作
+  on_nav_cancel(ctx)              — 取消导航（Backspace/Escape）
+  on_room_update(room_data, ctx)  — 收到 room_update 时通知 Handler
 ```
 
 ### 客户端 GameRenderer（protocol/renderer.py）

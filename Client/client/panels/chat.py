@@ -14,9 +14,8 @@ from ..widgets import InputBar, _set_pane_subtitle, MenuNav, render_menu_lines
 from ..widgets.prompt import InputBarMixin
 from ..widgets.helpers import update_tab_header
 from ..config import (
-    MAX_LINES_CHAT, CHANNEL_NAMES, M_DIM, M_BOLD, M_END,
-    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
-    COLOR_ACCENT, COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
+    MAX_LINES_CHAT, M_DIM, M_END,
+    COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_ACCENT, COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM,
 )
 from ..state import ModuleStateManager, MSG, SYS, HISTORY
 
@@ -387,7 +386,7 @@ class ChatPanel(InputBarMixin, Widget):
                     log.clear()
                 log.write(_chat_text(_fmt_msg(from_name, text, time_str)))
 
-        elif event == 'dm_history_loaded':
+        elif event == 'update_dm_history':
             # 私聊历史批量加载完毕，刷新标签栏和当前视图
             self._render_header()
             self._replay_tab()

@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.message import Message
 from textual.widgets import Static
 from textual.widget import Widget
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 
 from ..config import M_DIM, M_END
 from ..state import ModuleStateManager
@@ -14,7 +14,7 @@ from ..widgets import TabMenuBase, InputBar, InputBarMixin
 
 
 class GameHintBar(TabMenuBase):
-    """游戏指令菜单 — 显示 scope='game' 的指令，始终可见"""
+    """游戏指令菜单 — 纯菜单选择器，p/P 打开，HJKL 导航"""
 
     _tabs_widget_id = "game-hint-tabs"
     _content_widget_id = "game-hint-content"
@@ -49,21 +49,17 @@ class GameBoardPanel(InputBarMixin, Widget):
     _input_bar_id = "game-input-bar"
     _scroll_target_id = ""
     _last_room_data: dict | None = None
-    _pending_moves: int = 0
-    _pending_move_dir: str = ''
-    _move_timer = None
-    _last_move_sent: float = 0.0
 
     def compose(self) -> ComposeResult:
         yield Static("", id="game-board-toast")
-        yield Static("", id="game-board-log")
+        with VerticalScroll(id="game-board-scroll"):
+            yield Static("", id="game-board-log")
         with Vertical(id="game-cmd-bar"):
             yield GameHintBar(id="game-hint-bar")
             yield InputBar(
                 prompt_id="game-prompt",
                 id="game-input-bar",
                 submit_on_enter=True,
-                passthrough_chars={"H", "J", "K", "L"},
             )
 
     def on_mount(self) -> None:
@@ -78,8 +74,9 @@ class GameBoardPanel(InputBarMixin, Widget):
     def _send_viewport(self) -> None:
         """Notify server of panel dimensions"""
         try:
-            display = self.query_one("#game-board-log", Static)
-            w, h = display.size.width, display.size.height
+            scroll = self.query_one("#game-board-scroll")
+            region = scroll.content_region
+            w, h = region.width, region.height
             if w > 0 and h > 0:
                 self.app.network.send({"type": "viewport", "w": w, "h": h})
         except Exception:
@@ -120,22 +117,58 @@ class GameBoardPanel(InputBarMixin, Widget):
             bar.update_tabs(tabs)
 
     def on_input_submit(self, text: str):
-        self._cancel_pending_moves()
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx and hasattr(handler, 'on_nav_cancel'):
+            handler.on_nav_cancel(ctx)
         if not text:
             return
-        if not text.startswith("/"):
-            text = "/" + text
+        prefix = self._get_input_prefix()
+        if prefix != '/':
+            # 游戏输入模式: 一律走游戏前缀，指令只通过 hint bar 选择
+            text = prefix + text
         self.app.send_command(text)
 
-    def show_input_bar(self):
+    def _get_input_prefix(self) -> str:
+        """获取原始文本输入的指令前缀（游戏 handler 可自定义）"""
+        if self._game_type:
+            from ..protocol.handler import get_handler
+            handler = get_handler(self._game_type)
+            if handler:
+                fn = getattr(handler, 'get_input_prefix', None)
+                if fn:
+                    location = self._state_mgr.location if self._state_mgr else ''
+                    prefix = fn(location)
+                    if prefix:
+                        return prefix
+        return '/'
+
+    def show_hint_bar(self):
+        """显示指令栏（c/C 打开）"""
         try:
-            self.query_one("#game-cmd-bar").add_class("visible")
+            self.query_one("#game-hint-bar").add_class("visible")
+        except Exception:
+            pass
+
+    def hide_hint_bar(self):
+        """隐藏指令栏"""
+        try:
+            bar = self.query_one("#game-hint-bar", GameHintBar)
+            bar.remove_class("visible")
+            bar.reset_to_root()
+        except Exception:
+            pass
+
+    def show_input_bar(self):
+        """显示游戏输入框（i/I 打开）"""
+        try:
+            self.query_one("#game-input-bar").add_class("visible")
         except Exception:
             pass
 
     def hide_input_bar(self):
+        """隐藏游戏输入框"""
         try:
-            self.query_one("#game-cmd-bar").remove_class("visible")
+            self.query_one("#game-input-bar").remove_class("visible")
         except Exception:
             pass
 
@@ -166,105 +199,59 @@ class GameBoardPanel(InputBarMixin, Widget):
         bar._refresh_display()
         self.post_message(self.RequestInsert())
 
-    # ── 导航（NORMAL 模式 j/k/h/l → 角色移动）──
+    # ── 导航（NORMAL 模式 j/k/h/l → 委托给游戏 Handler）──
 
-    def _send_world_move(self, direction: str, count: int):
-        """发起多步移动：立即执行第一步，后续步等待服务器确认后继续"""
-        import time
-        self._cancel_pending_moves()
-        self._pending_moves = count - 1
-        self._pending_move_dir = direction
-        self._last_move_sent = time.monotonic()
-        self.app.send_command(direction)
-        if self._pending_moves > 0:
-            self._move_timer = self.set_timer(0.5, self._tick_pending_move)
-
-    def _tick_pending_move(self):
-        """回退定时器：服务器未及时响应时重试下一步"""
-        import time
-        self._move_timer = None
-        if self._pending_moves > 0 and self._pending_move_dir:
-            self._pending_moves -= 1
-            self._last_move_sent = time.monotonic()
-            self.app.send_command(self._pending_move_dir)
-            if self._pending_moves > 0:
-                self._move_timer = self.set_timer(0.5, self._tick_pending_move)
-
-    def _on_move_success(self):
-        """移动成功（收到地图更新）后立即发送下一步"""
-        import time
-        if self._pending_moves > 0 and self._pending_move_dir:
-            now = time.monotonic()
-            elapsed = now - self._last_move_sent
-            if elapsed < 0.3:
-                # 距上次发送太近，让定时器处理（避免被服务端冷却拒绝导致步数丢失）
-                return
-            if self._move_timer:
-                self._move_timer.stop()
-                self._move_timer = None
-            self._pending_moves -= 1
-            self._last_move_sent = now
-            self.app.send_command(self._pending_move_dir)
-            if self._pending_moves > 0:
-                self._move_timer = self.set_timer(0.5, self._tick_pending_move)
-
-    def _cancel_pending_moves(self):
-        """取消待执行的多步移动"""
-        self._pending_moves = 0
-        self._pending_move_dir = ''
-        if self._move_timer:
-            self._move_timer.stop()
-            self._move_timer = None
+    def _get_handler_ctx(self):
+        """获取当前游戏 handler 和 context（缓存不必要，调用不频繁）"""
+        if not self._game_type:
+            return None, None
+        from ..protocol.handler import get_handler, GameHandlerContext
+        handler = get_handler(self._game_type)
+        if not handler or not hasattr(handler, 'on_nav'):
+            return handler, None
+        ctx = GameHandlerContext(
+            state=self._state_mgr,
+            get_module=self.app.screen.get_module if hasattr(self.app, 'screen') else lambda n: None,
+            set_timer=self.app.set_timer,
+            send_command=self.app.send_command,
+        )
+        return handler, ctx
 
     def nav_down(self, count=1):
-        if self._game_type == 'world':
-            self._send_world_move('/j', count)
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx:
+            handler.on_nav('down', count, ctx)
 
     def nav_up(self, count=1):
-        if self._game_type == 'world':
-            self._send_world_move('/k', count)
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx:
+            handler.on_nav('up', count, ctx)
 
     def nav_tab_prev(self, count=1):
-        if self._game_type == 'world':
-            self._send_world_move('/h', count)
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx:
+            handler.on_nav('left', count, ctx)
 
     def nav_tab_next(self, count=1):
-        if self._game_type == 'world':
-            self._send_world_move('/l', count)
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx:
+            handler.on_nav('right', count, ctx)
 
     def nav_enter(self):
-        self._cancel_pending_moves()
-        bar = self._hint_bar()
-        # 仅在已进入子菜单时处理 hint bar 选择
-        if bar and bar._nav_stack:
-            item = bar.enter()
-            if item:
-                self.app.send_command(item.command)
-                bar.reset_to_root()
-                bar._active_tab = 0
-                bar._refresh_display()
-                return
-        # 在门口时发送 /enter（进入/离开建筑）
-        if self._game_type == 'world':
-            rd = self._last_room_data
-            if rd and rd.get('door'):
-                self.app.send_command('/enter')
+        handler, ctx = self._get_handler_ctx()
+        if handler and ctx:
+            handler.on_nav('enter', 1, ctx)
 
     def nav_back(self) -> bool:
-        self._cancel_pending_moves()
-        bar = self._hint_bar()
-        if bar:
-            return bar.back()
+        handler, ctx = self._get_handler_ctx()
+        if handler and hasattr(handler, 'on_nav_cancel'):
+            handler.on_nav_cancel(ctx)
         return False
 
     def nav_escape(self) -> bool:
-        self._cancel_pending_moves()
-        bar = self._hint_bar()
-        if bar and bar._nav_stack:
-            bar.reset_to_root()
-            bar._active_tab = 0
-            bar._refresh_display()
-            return True
+        handler, ctx = self._get_handler_ctx()
+        if handler and hasattr(handler, 'on_nav_cancel'):
+            handler.on_nav_cancel(ctx)
         return False
 
     def show_toast(self, text: str):
@@ -286,7 +273,10 @@ class GameBoardPanel(InputBarMixin, Widget):
         if event == 'update_room':
             (room_data,) = args
             self._render_room(room_data)
-            self._on_move_success()
+            # 通知游戏 Handler（如有 on_room_update 方法）
+            handler, ctx = self._get_handler_ctx()
+            if handler and hasattr(handler, 'on_room_update'):
+                handler.on_room_update(room_data, ctx)
         elif event == 'clear':
             display = self.query_one("#game-board-log", Static)
             display.update("")

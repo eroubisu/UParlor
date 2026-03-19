@@ -96,12 +96,17 @@ RichLog {
     border: round $color-accent;
 }
 
-#game-board-log {
+#game-board-scroll {
     height: 1fr;
     width: 1fr;
-    content-align: center middle;
-    overflow: hidden hidden;
+    background: transparent;
     scrollbar-size: 0 0;
+}
+
+#game-board-log {
+    width: 1fr;
+    height: auto;
+    background: transparent;
 }
 
 RichLog:focus {
@@ -218,31 +223,38 @@ InputTextArea:focus {
     display: block;
 }
 
-/* ── 游戏面板指令+输入统一容器 ── */
+/* ── 游戏面板指令栏+输入框容器 ── */
 #game-cmd-bar {
     height: auto;
-    border: round $color-accent;
     padding: 0;
-    display: none;
     background: transparent;
-}
-
-#game-cmd-bar.visible {
-    display: block;
 }
 
 #game-cmd-bar #game-hint-bar {
     height: auto;
     max-height: 8;
-    border: none;
+    border: round $color-accent;
     padding: 0 1;
+    display: none;
+}
+
+#game-cmd-bar #game-hint-bar.visible {
+    display: block;
 }
 
 #game-cmd-bar #game-input-bar {
     height: auto;
-    max-height: 7;
-    border: none;
+    border: round $color-accent;
     padding: 0 1;
+    display: none;
+}
+
+#game-cmd-bar #game-input-bar.visible {
+    display: block;
+}
+
+#game-cmd-bar InputTextArea {
+    max-height: 1;
 }
 
 #chat-input-bar {
@@ -271,7 +283,7 @@ InputTextArea:focus {
 }
 
 .hint-content {
-    height: 4;
+    height: 5;
     width: 100%;
     color: $color-fg-secondary;
     padding: 0 1 0 0;

@@ -142,6 +142,34 @@ def look_player_status(state: ModuleStateManager, **_kw) -> str:
             val = pd.get(key, "")
             if val not in ("", None, 0):
                 lines.append(f"{label}: {val}")
+        # 属性 (HP/MP/战斗属性)
+        attrs = pd.get("attributes")
+        if isinstance(attrs, dict):
+            hp = attrs.get('current_hp')
+            max_hp = attrs.get('max_hp')
+            if hp is not None and max_hp:
+                lines.append(f"HP: {hp}/{max_hp}")
+            mp = attrs.get('current_mp')
+            max_mp = attrs.get('max_mp')
+            if mp is not None and max_mp:
+                lines.append(f"MP: {mp}/{max_mp}")
+            stats = attrs.get('stats')
+            if isinstance(stats, dict):
+                stat_parts = [f"{k}:{v}" for k, v in stats.items()]
+                if stat_parts:
+                    lines.append(f"属性: {', '.join(stat_parts)}")
+        # 装备
+        equip = pd.get("equipment")
+        if isinstance(equip, dict) and equip:
+            eq_parts = [f"{slot}: {info.get('name', info.get('id', '?'))}"
+                        for slot, info in equip.items()
+                        if isinstance(info, dict)]
+            if eq_parts:
+                lines.append(f"装备: {', '.join(eq_parts)}")
+        # 位置
+        loc_path = state.status.location_path
+        if loc_path:
+            lines.append(f"位置: {loc_path}")
         # game_stats（由 send_player_status 传输）
         gs = pd.get("game_stats")
         if isinstance(gs, dict):

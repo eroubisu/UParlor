@@ -1,5 +1,5 @@
 {
     "TODO_location_id": [
-        {"command": "/example", "desc": "示例指令", "group": "基本"}
+        {"command": "example", "desc": "示例指令", "group": "基本"}
     ]
 }

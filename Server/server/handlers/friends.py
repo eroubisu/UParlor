@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ..net import register
+from . import register
 from ..player.manager import PlayerManager
-from ..msg_types import FRIEND_LIST, FRIEND_REQUEST, SYSTEM
+from ..msg_types import FRIEND_REQUEST, SYSTEM
 
 
 @register('friend_request')

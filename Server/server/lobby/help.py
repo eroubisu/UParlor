@@ -9,7 +9,7 @@ from ..games import get_game, get_all_games
 
 def get_main_help():
     """获取主帮助文本（从 commands.json 自动生成）"""
-    from ..infra.text_utils import pad_left
+    from ..storage.text_utils import pad_left
 
     all_cmds = COMMAND_TABLE.get('*', []) + COMMAND_TABLE.get('lobby', [])
     lines = ['HOME 指令', '']
@@ -18,8 +18,8 @@ def get_main_help():
         label = c.get('label', name)
         lines.append(f"  {pad_left(name, 14)}{label}")
 
-    # 动态游戏列表
-    games = get_all_games()
+    # 动态游戏列表（排除主世界等 per_player 引擎）
+    games = [g for g in get_all_games() if not g.get('per_player')]
     if games:
         lines.append('')
         lines.append('可用游戏')
@@ -34,6 +34,28 @@ def get_main_help():
 
 
 _GAME_NAV_PREFIX = "  back → 返回大厅    home → 回到首页\n"
+
+
+def get_game_help_text(game_id) -> str | None:
+    """获取游戏帮助原始文本（用于游戏面板内显示，不含导航前缀）"""
+    game_module = get_game(game_id)
+    if not game_module:
+        return None
+
+    get_help = getattr(game_module, 'get_help_text', None)
+    if get_help:
+        return get_help()
+
+    import os
+    for filename in ('help.md', 'help.txt'):
+        try:
+            help_path = os.path.join(
+                os.path.dirname(game_module.__file__), filename)
+            with open(help_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except (OSError, AttributeError):
+            pass
+    return None
 
 
 def get_game_help(game_id, page=None):
@@ -73,8 +95,8 @@ def get_game_help(game_id, page=None):
 
 def get_games_list():
     """获取游戏列表"""
-    from ..infra.text_utils import pad_left
-    games = get_all_games()
+    from ..storage.text_utils import pad_left
+    games = [g for g in get_all_games() if not g.get('per_player')]
     if not games:
         return '暂无可用游戏'
     lines = ['可用游戏', '']
@@ -96,7 +118,7 @@ def get_games_list():
 @register_sub_builder('play')
 def _sub_play(lobby, player_data):
     """生成 play 子菜单：可用游戏列表"""
-    games = get_all_games()
+    games = [g for g in get_all_games() if not g.get('per_player')]
     return [
         {'name': f"play {g['id']}", 'label': g.get('name', g['id']),
          'desc': f"{g.get('min_players','?')}-{g.get('max_players','?')}人"}

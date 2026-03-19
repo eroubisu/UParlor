@@ -10,11 +10,11 @@ import json
 from .config import HOST, PORT, USERS_DIR
 from .player.manager import PlayerManager
 from .lobby.engine import LobbyEngine
-from .infra.chat_log import ChatLogManager
-from .infra.dm_log import DMLogManager
-from .infra import maintenance
+from .storage.chat_log import ChatLogManager
+from .storage.dm_log import DMLogManager
+from .storage import maintenance
 from .player.auth import AuthMixin
-from .game.result_dispatcher import (
+from .game_core.result_dispatcher import (
     dispatch_game_result as _dispatch_game_result_impl,
     dispatch_result as _dispatch_result_impl,
     inject_location_path as _inject_location_path_impl,
@@ -25,7 +25,7 @@ from .msg_types import (
 )
 
 # 触发消息处理器注册
-from .net import client_state, friends, profile, chat  # noqa: F401
+from .handlers import client_state, friends, profile, chat  # noqa: F401
 
 
 class ChatServer(AuthMixin):
@@ -111,7 +111,7 @@ class ChatServer(AuthMixin):
             ip = s.getsockname()[0]
             s.close()
             return ip
-        except:
+        except OSError:
             return "127.0.0.1"
 
     def broadcast(self, message, exclude=None, channel=None):
@@ -128,14 +128,14 @@ class ChatServer(AuthMixin):
         for client in clients_to_send:
             try:
                 client.send(data.encode('utf-8'))
-            except:
+            except OSError:
                 pass
 
     def send_to(self, client_socket, message):
         try:
             data = json.dumps(message) + '\n'
             client_socket.send(data.encode('utf-8'))
-        except:
+        except OSError:
             pass
 
     def broadcast_online_users(self):
@@ -157,8 +157,8 @@ class ChatServer(AuthMixin):
 
     def _send_friend_list(self, client_socket, player_data):
         """向指定客户端发送好友列表"""
-        friends = player_data.get('friends', [])
-        self.send_to(client_socket, {'type': FRIEND_LIST, 'friends': friends})
+        friend_list = player_data.get('friends', [])
+        self.send_to(client_socket, {'type': FRIEND_LIST, 'friends': friend_list})
 
     def _send_all_users(self, client_socket):
         """向指定客户端发送所有注册用户名"""
@@ -210,7 +210,7 @@ class ChatServer(AuthMixin):
                     if msg_str:
                         msg = json.loads(msg_str)
                         self.process_message(client_socket, msg)
-            except:
+            except Exception:
                 break
         
         self.remove_client(client_socket)
@@ -321,16 +321,16 @@ class ChatServer(AuthMixin):
                 self.send_to(client_socket, {'type': GAME, 'text': '未知指令。'})
         
         else:
-            from .net import dispatch_playing
+            from .handlers import dispatch_playing
             dispatch_playing(self, client_socket, name, player_data, msg)
 
     def send_player_status(self, client_socket, player_data):
         """发送游戏大厅状态"""
         try:
-            from .net.status_builder import build_status_message
+            from .handlers.status_builder import build_status_message
             msg = build_status_message(self, player_data)
             self.send_to(client_socket, msg)
-        except:
+        except Exception:
             pass
 
     def remove_client(self, client_socket):
@@ -350,7 +350,7 @@ class ChatServer(AuthMixin):
                 
                 try:
                     client_socket.close()
-                except:
+                except OSError:
                     pass
                 
                 if name and info.get('state') == 'playing':
@@ -398,7 +398,7 @@ class ChatServer(AuthMixin):
                 thread = threading.Thread(target=self.handle_client, args=(client,))
                 thread.daemon = True
                 thread.start()
-            except:
+            except OSError:
                 break
 
     def stop(self):

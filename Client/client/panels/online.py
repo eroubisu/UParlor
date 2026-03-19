@@ -25,7 +25,7 @@ from ..widgets import _set_pane_subtitle
 from ..widgets.helpers import render_tab_header, _widget_width, render_action_menu
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._render.card import render_card
+from ._mixins.card import render_card
 
 
 _TABS = ["friends", "all", "online", "search"]
@@ -491,7 +491,7 @@ class OnlineUsersPanel(InputBarMixin, Widget):
         name_max = avail - prefix_w - right_w
         display_name = name
         name_w = cell_len(name)
-        if name_w > name_max and name_max >= 2:
+        if name_w > name_max >= 2:
             display_name = _truncate_name(name, name_max)
             name_w = cell_len(display_name)
 

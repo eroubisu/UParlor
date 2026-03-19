@@ -64,7 +64,6 @@ def handle_lobby_pending(lobby, player_name, player_data, cmd, command, pending)
     lobby.pending_confirms.pop(player_name, None)
 
     raw_input = command.strip()
-    if raw_input.startswith('/'):
-        raw_input = raw_input[1:]
+    raw_input = raw_input.removeprefix('/')
 
     return handler(lobby, player_name, player_data, cmd, raw_input, pending_data)

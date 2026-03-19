@@ -1,0 +1,13 @@
+{
+    "wordle_lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"}
+    ],
+    "wordle_room": [
+        {"name": "start", "label": "开始", "desc": "开始游戏"}
+    ],
+    "wordle_playing": [
+        {"name": "back", "label": "返回", "desc": "放弃并返回房间", "tab": "导航", "confirm": "确定放弃？"}
+    ],
+    "wordle_finished": []
+}

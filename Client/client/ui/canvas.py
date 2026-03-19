@@ -12,12 +12,11 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.widget import Widget
-from textual.widgets import Static, RichLog
+from textual.widgets import Static
 from textual.containers import Horizontal, Vertical
 
 from .layout import (
     LayoutNode, PaneNode, SplitNode,
-    all_panes, find_pane, find_module_pane,
 )
 from ..registry import get_module_info, get_module_labels
 

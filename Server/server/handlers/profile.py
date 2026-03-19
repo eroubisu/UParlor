@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..net import register
+from . import register
 from ..player.manager import PlayerManager
 from ..systems.titles import get_title_name
 from ..systems.items import get_item_info

@@ -36,7 +36,7 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
     high_priority=False : AttentionBuffer only（被动感知，不触发搭话）
     """
     try:
-        panel = screen._get_module('ai')
+        panel = screen.get_module('ai')
         if panel and _is_ai_chatting(panel):
             svc = panel._service
             svc._attention.push(event)
@@ -49,7 +49,7 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
 def _get_ai_attention_level(screen) -> str:
     """获取 AI 当前的 attention_level（quiet/normal/talkative）"""
     try:
-        panel = screen._get_module('ai')
+        panel = screen.get_module('ai')
         if panel and _is_ai_chatting(panel):
             return panel._service.attention_level
     except Exception:
@@ -84,7 +84,7 @@ def _handle_version_check(app, screen, latest: str):
         cur = tuple(int(x) for x in current.split("."))
         lat = tuple(int(x) for x in latest.split("."))
         if lat > cur:
-            login = screen._get_module('login')
+            login = screen.get_module('login')
             msg = f"{M_DIM}发现新版本 v{latest}（当前 v{current}），请更新: pip install --upgrade uparlor{M_END}"
             if login and hasattr(login, 'add_message'):
                 login.add_message(msg)
@@ -99,7 +99,7 @@ def _handle_version_check(app, screen, latest: str):
 
 
 def _on_login_prompt(parsed, app, screen, st):
-    login = screen._get_module('login')
+    login = screen.get_module('login')
     if login and hasattr(login, 'add_message'):
         login.add_message(parsed.text)
     else:
@@ -133,12 +133,7 @@ def _on_chat_history(parsed, app, screen, st):
 
 def _on_status_update(parsed, app, screen, st):
     if parsed.location_path:
-        try:
-            from textual.widgets import Static
-            indicator = screen.query_one("#location-indicator", Static)
-            indicator.update(parsed.location_path)
-        except Exception:
-            pass
+        st.status.update_location_path(parsed.location_path)
     layout_data = parsed.data.get('window_layout')
     if layout_data:
         app._saved_layout = layout_data
@@ -264,10 +259,11 @@ def _on_game_event(parsed, app, screen, st):
     if handler:
         ctx = GameHandlerContext(
             state=st,
-            get_module=screen._get_module,
+            get_module=screen.get_module,
             set_timer=app.set_timer,
             ensure_panel=screen._ensure_module_panel,
             remove_panel=screen._remove_module_panel,
+            send_command=app.send_command,
         )
         handler.handle_event(parsed.event, parsed.data, ctx)
     d = parsed.data or {}

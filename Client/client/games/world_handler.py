@@ -1,6 +1,8 @@
-"""开放世界客户端处理器 — 处理世界事件、切换面板"""
+"""开放世界客户端处理器 — 处理世界事件、导航移动、切换面板"""
 
 from __future__ import annotations
+
+import time
 
 from ..protocol.handler import register_handler, GameHandlerContext
 
@@ -10,17 +12,93 @@ class WorldClientHandler:
 
     game_type = 'world'
 
+    def __init__(self):
+        self._pending_moves: int = 0
+        self._pending_move_dir: str = ''
+        self._move_timer = None
+        self._last_move_sent: float = 0.0
+
+    # ── 导航移动状态机 ──
+
+    _NAV_DIR_MAP = {
+        'down': '/j', 'up': '/k', 'left': '/h', 'right': '/l',
+    }
+
+    def on_nav(self, direction: str, count: int, ctx: GameHandlerContext):
+        """处理导航键：hjkl 移动角色，enter 进入门口"""
+        if direction == 'enter':
+            self._cancel_pending_moves(ctx)
+            room_data = ctx.state.game_board.room_data
+            if room_data and room_data.get('door'):
+                ctx.send_command('/enter')
+            return
+        cmd = self._NAV_DIR_MAP.get(direction)
+        if cmd:
+            self._send_move(cmd, count, ctx)
+
+    def on_nav_cancel(self, ctx: GameHandlerContext):
+        """取消待执行的多步移动"""
+        self._cancel_pending_moves(ctx)
+
+    def _send_move(self, direction: str, count: int, ctx: GameHandlerContext):
+        """发起多步移动：立即执行第一步，后续步等待服务器确认后继续"""
+        self._cancel_pending_moves(ctx)
+        self._pending_moves = count - 1
+        self._pending_move_dir = direction
+        self._last_move_sent = time.monotonic()
+        ctx.send_command(direction)
+        if self._pending_moves > 0:
+            self._move_timer = ctx.set_timer(0.5, lambda: self._tick_pending_move(ctx))
+
+    def _tick_pending_move(self, ctx: GameHandlerContext):
+        """回退定时器：服务器未及时响应时重试下一步"""
+        self._move_timer = None
+        if self._pending_moves > 0 and self._pending_move_dir:
+            self._pending_moves -= 1
+            self._last_move_sent = time.monotonic()
+            ctx.send_command(self._pending_move_dir)
+            if self._pending_moves > 0:
+                self._move_timer = ctx.set_timer(0.5, lambda: self._tick_pending_move(ctx))
+
+    def on_room_update(self, room_data: dict, ctx: GameHandlerContext):
+        """移动成功（收到地图更新）后立即发送下一步 + 门口提示"""
+        # 多步移动续发
+        if self._pending_moves > 0 and self._pending_move_dir:
+            now = time.monotonic()
+            elapsed = now - self._last_move_sent
+            if elapsed >= 0.3:
+                if self._move_timer:
+                    self._move_timer.stop()
+                    self._move_timer = None
+                self._pending_moves -= 1
+                self._last_move_sent = now
+                ctx.send_command(self._pending_move_dir)
+                if self._pending_moves > 0:
+                    self._move_timer = ctx.set_timer(0.5, lambda: self._tick_pending_move(ctx))
+
+        # 门口提示
+        door = room_data.get('door')
+        if door:
+            from ..panels.game_board import GameBoardPanel
+            board = ctx.get_module('game_board')
+            if isinstance(board, GameBoardPanel):
+                board.show_toast(f"[{door['name']}] enter 进入")
+
+    def _cancel_pending_moves(self, ctx: GameHandlerContext):
+        self._pending_moves = 0
+        self._pending_move_dir = ''
+        if self._move_timer:
+            self._move_timer.stop()
+            self._move_timer = None
+
     def handle_event(self, event: str, data: dict, ctx: GameHandlerContext) -> bool:
         """处理世界特有事件"""
         if event == 'select_menu':
-            from ..panels.game_board import GameBoardPanel
-            board = ctx._get_module('game_board')
-            if isinstance(board, GameBoardPanel):
-                board.show_select_menu(
-                    title=data.get('title', ''),
-                    items=data.get('items', []),
-                    empty_msg=data.get('empty_msg', ''),
-                )
+            ctx.show_select_menu(
+                title=data.get('title', ''),
+                items=data.get('items', []),
+                empty_msg=data.get('empty_msg', ''),
+            )
             return True
 
         if event == 'dm_player':
@@ -78,9 +156,37 @@ class WorldClientHandler:
 
         # 触发重新渲染（不经过 update_room 避免替换 room_data）
         from ..panels.game_board import GameBoardPanel
-        board = ctx._get_module('game_board')
+        board = ctx.get_module('game_board')
         if isinstance(board, GameBoardPanel):
             board._render_room(room_data)
+
+    # ── AI 感知 ──
+
+    def ai_describe(self, room_data: dict) -> str:
+        """为 AI 旅伴生成人类可读的世界状态描述"""
+        parts = []
+        map_view = room_data.get('map', {})
+        map_name = map_view.get('map_name', '')
+        if map_name:
+            parts.append(f"当前地图: {map_name}")
+        pos = room_data.get('pos')
+        if pos:
+            parts.append(f"坐标: ({pos[0]}, {pos[1]})")
+        # 门口
+        door = room_data.get('door')
+        if door:
+            parts.append(f"门口: {door.get('name', '未知')}")
+        # 视野内 NPC
+        npcs = map_view.get('npcs', [])
+        if npcs:
+            npc_names = [n.get('name', '?') for n in npcs[:8]]
+            parts.append(f"附近NPC: {', '.join(npc_names)}")
+        # 视野内其他玩家
+        players = map_view.get('players', [])
+        if players:
+            names = [p.get('name', '?') for p in players[:8]]
+            parts.append(f"附近玩家: {', '.join(names)}")
+        return ' | '.join(parts) if parts else '在世界中探索'
 
     def on_enter_game(self, ctx: GameHandlerContext) -> None:
         """进入开放世界 — 确保 game_board 面板显示"""
@@ -88,7 +194,6 @@ class WorldClientHandler:
 
     def on_leave_game(self, ctx: GameHandlerContext) -> None:
         """离开开放世界"""
-        pass
 
 
 register_handler(WorldClientHandler())

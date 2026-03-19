@@ -47,7 +47,7 @@ def register_use_handler(item_id: str, handler=None):
 
 def cmd_use(lobby, player_name, player_data, args, location):
     if not args:
-        return "用法: /use <物品ID> [方式]"
+        return "用法: use <物品ID> [方式]"
 
     parts = args.split(None, 1)
     item_key = parts[0]
@@ -74,7 +74,7 @@ def cmd_use(lobby, player_name, player_data, args, location):
     if method_id is None:
         lines = ["请选择使用方式:"]
         for m in use_methods:
-            lines.append(f"  /use {item_key} {m['id']} — {m['name']}")
+            lines.append(f"  use {item_key} {m['id']} — {m['name']}")
         return "\n".join(lines)
 
     valid = {m['id'] for m in use_methods}
@@ -121,7 +121,7 @@ def _dispatch_use(lobby, player_name, player_data, item_id, quality, method_id, 
 
 def cmd_gift(lobby, player_name, player_data, args, location):
     if not args:
-        return "用法: /gift <物品ID>"
+        return "用法: gift <物品ID>"
 
     parts = args.split(None, 1)
     item_key = parts[0]
@@ -145,7 +145,7 @@ def cmd_gift(lobby, player_name, player_data, args, location):
 
 def cmd_drop(lobby, player_name, player_data, args, location):
     if not args:
-        return "用法: /drop <物品ID>"
+        return "用法: drop <物品ID>"
 
     parts = args.split(None, 2)
     item_key = parts[0]

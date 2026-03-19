@@ -13,8 +13,8 @@ from ...systems.items import (
     get_item_info, get_item_name,
     inv_get, inv_add, inv_sub, inv_total, parse_item_key,
 )
-from ...systems.recipes import get_recipe, get_recipes
-from ...systems.attributes import heal_hp, heal_mp, get_max_hp, get_max_mp
+from ...systems.recipes import get_recipes
+from ...systems.attributes import heal_hp, heal_mp
 from ...player.manager import PlayerManager
 
 _dir = os.path.dirname(__file__)
@@ -273,6 +273,39 @@ def cmd_board(lobby, player_name, player_data, args, location):
 
 
 # ══════════════════════════════════════════════════
+#  棋馆 — /play
+# ══════════════════════════════════════════════════
+
+# 建筑 → 可玩游戏映射
+_BUILDING_GAMES = {
+    'world_gamehall': ['wordle'],
+}
+
+
+def cmd_play(lobby, player_name, player_data, args, location):
+    available = _BUILDING_GAMES.get(location)
+    if not available:
+        return "这里没有可以玩的游戏。"
+
+    if not args:
+        from ...games import get_game
+        items = []
+        for gid in available:
+            module = get_game(gid)
+            if module:
+                info = getattr(module, 'GAME_INFO', {})
+                name = info.get('name', gid)
+                items.append({'label': name, 'command': f'/play {gid}'})
+        return _menu_event('选择游戏', items, '暂无可用游戏。')
+
+    game_id = args.strip().split()[0]
+    if game_id not in available:
+        return "这里没有这个游戏。"
+
+    return lobby._enter_game(player_name, player_data, game_id)
+
+
+# ══════════════════════════════════════════════════
 #  路由表
 # ══════════════════════════════════════════════════
 
@@ -284,4 +317,5 @@ BUILDING_HANDLERS = {
     'rumor':  cmd_rumor,
     'quest':  cmd_quest,
     'board':  cmd_board,
+    'play':   cmd_play,
 }

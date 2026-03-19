@@ -21,6 +21,7 @@ class CommandInfo:
     tab: str = "其他"      # 标签页分组
     scope: str = "cmd"     # 归属面板: cmd=指令面板, inventory=物品栏
     sub: list | None = None  # 子菜单项列表（递归 CommandInfo）
+    confirm: str = ""  # 非空时执行前显示确认子菜单
 
 
 # ── 当前位置指令集（唯一缓存）──
@@ -45,6 +46,7 @@ def _parse_command(c: dict) -> CommandInfo:
         tab=c.get('tab', '其他'),
         scope=c.get('scope', 'cmd'),
         sub=sub,
+        confirm=c.get('confirm', ''),
     )
 
 
@@ -68,8 +70,14 @@ def get_command_tabs() -> list[tuple[str, list[CommandInfo]]]:
 
 
 def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
-    """获取游戏指令标签页（同 get_command_tabs，保持接口兼容）"""
-    return list(_tabs)
+    """获取游戏指令标签页（过滤掉全局指令 back/help/clear/exit）"""
+    _global_cmds = {'/help', '/clear', '/exit'}
+    result = []
+    for tab_name, items in _tabs:
+        filtered = [c for c in items if c.command not in _global_cmds]
+        if filtered:
+            result.append((tab_name, filtered))
+    return result
 
 
 def filter_commands(prefix: str) -> list[CommandInfo]:

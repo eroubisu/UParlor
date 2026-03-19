@@ -97,7 +97,7 @@ class ChatState(BaseState):
                 (m.get('from', ''), m.get('text', ''), m.get('time', ''))
                 for m in msgs
             ]
-        self._notify('dm_history_loaded')
+        self._notify('update_dm_history')
 
     def open_private_tab(self, peer_name: str):
         """打开（或切换到）一个私聊标签页"""
@@ -180,12 +180,17 @@ class StatusState(BaseState):
     def __init__(self):
         super().__init__()
         self.player_data: dict = {}
+        self.location_path: str = ''
         self.page: str = 'status'     # status | card | settings
         self.settings_cursor: int = 0
 
     def update_player_info(self, player_data: dict):
         self.player_data = player_data
         self._notify('update_player_info', player_data)
+
+    def update_location_path(self, path: str):
+        self.location_path = path
+        self._notify('update_location_path', path)
 
     def clear(self):
         self.player_data = {}
@@ -298,9 +303,8 @@ class InventoryState(BaseState):
                             'count': info['count'],
                             'use_methods': info.get('use_methods', []),
                         })
-                else:
+                elif isinstance(info, int) and info > 0:
                     # 兼容旧格式 {item_id: count}
-                    if isinstance(info, int) and info > 0:
                         items.append({
                             'id': item_id,
                             'name': item_id,
