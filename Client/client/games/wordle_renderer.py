@@ -30,7 +30,7 @@ _KEYBOARD_ROWS = [
 
 # 文档中需要高亮的指令词
 _DOC_COMMANDS = {
-    'create', 'start', 'giveup', 'leave', 'back', 'home', 'rooms', 'help',
+    'create', 'start', 'leave', 'back', 'home', 'rooms', 'help',
 }
 
 

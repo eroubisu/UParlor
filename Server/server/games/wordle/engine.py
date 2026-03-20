@@ -191,10 +191,10 @@ class WordleEngine(BaseGameEngine):
 
     def handle_quit(self, lobby, player_name, player_data):
         self._remove_player(player_name)
-        lobby.set_player_location(player_name, 'world_gamehall')
+        lobby.set_player_location(player_name, 'world_library')
         return {
             'action': 'location_update',
-            'location': 'world_gamehall',
+            'location': 'world_library',
             'message': '离开了 Wordle。',
             'refresh_commands': True,
         }

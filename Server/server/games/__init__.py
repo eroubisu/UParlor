@@ -101,6 +101,9 @@ register_game('world', world)
 
 from . import wordle
 register_game('wordle', wordle)
+
+from . import mahjong
+register_game('mahjong', mahjong)
 # from . import xxx
 # register_game('xxx', xxx)
 #

@@ -157,6 +157,10 @@ class LobbyEngine:
         if loc_info and loc_info[1] is None:
             global_cmds = [c for c in global_cmds if c.get('name') != 'home']
 
+        # 建筑内（world_ 非城镇）隐藏 back，必须通过门移动
+        if location.startswith('world_') and location != 'world_town':
+            global_cmds = [c for c in global_cmds if c.get('name') != 'back']
+
         # 尝试引擎动态指令
         game_id = self._get_game_for_location(location)
         dynamic = None
@@ -350,14 +354,16 @@ class LobbyEngine:
 
         info = self._get_game_info(game_id)
 
-        # 设置位置 — 用游戏根位置（parent 不在游戏自身 locations 中的那个）
+        # 设置位置 — 如果当前已在该游戏的某个子位置，保留；否则用根位置
         locations = info.get('locations', {})
-        root_location = game_id  # 默认
-        for loc_key, (_, parent) in locations.items():
-            if parent is None or parent not in locations:
-                root_location = loc_key
-                break
-        self.set_player_location(player_name, root_location)
+        current_loc = self.get_player_location(player_name)
+        if current_loc not in locations:
+            root_location = game_id  # 默认
+            for loc_key, (_, parent) in locations.items():
+                if parent is None or parent not in locations:
+                    root_location = loc_key
+                    break
+            self.set_player_location(player_name, root_location)
 
         # 获取欢迎信息
         result = engine.get_welcome_message(player_data)

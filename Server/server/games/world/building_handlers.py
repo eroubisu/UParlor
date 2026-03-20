@@ -278,7 +278,8 @@ def cmd_board(lobby, player_name, player_data, args, location):
 
 # 建筑 → 可玩游戏映射
 _BUILDING_GAMES = {
-    'world_gamehall': ['wordle'],
+    'world_gamehall': ['mahjong'],
+    'world_library':  ['wordle'],
 }
 
 

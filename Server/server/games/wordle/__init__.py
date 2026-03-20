@@ -8,12 +8,12 @@ from .engine import WordleEngine
 
 GAME_INFO = {
     'id': 'wordle',
-    'name': 'Wordle',
+    'name': 'wordle',
     'icon': 'W',
     'per_player': False,
     'create_engine': WordleEngine,
     'locations': {
-        'wordle_lobby':   ('Wordle', 'world_gamehall'),
+        'wordle_lobby':   ('wordle', 'world_library'),
         'wordle_room':    ('房间', 'wordle_lobby'),
         'wordle_playing': ('游戏中', 'wordle_room'),
     },

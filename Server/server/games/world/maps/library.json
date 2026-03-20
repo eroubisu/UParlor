@@ -1,7 +1,7 @@
 {
     "meta": {
-        "id": "gamehall",
-        "name": "棋牌室",
+        "id": "library",
+        "name": "书屋",
         "width": 12,
         "height": 10
     },
@@ -25,8 +25,14 @@
             "color": "#b89a6a",
             "enter": true
         },
-        "-": {
-            "name": "桌子",
+        "b": {
+            "name": "书架",
+            "walkable": false,
+            "char": "H",
+            "color": "#7a5a3a"
+        },
+        "d": {
+            "name": "书桌",
             "walkable": false,
             "char": "-",
             "color": "#7a6a5a"
@@ -40,13 +46,13 @@
     },
     "tiles": [
         "############",
+        "#bbbbbbbbbb#",
         "#..........#",
-        "#.--..--...#",
-        "#.cc..cc...#",
+        "#..dd..dd..#",
+        "#..cc..cc..#",
         "#..........#",
-        "#.--..--...#",
-        "#.cc..cc...#",
-        "#..........#",
+        "#..dd..dd..#",
+        "#..cc..cc..#",
         "#..........#",
         "#####+######"
     ],
@@ -63,15 +69,15 @@
     },
     "npcs": [
         {
-            "id": "gamehall_npc",
-            "name": "馆主",
+            "id": "library_npc",
+            "name": "书屋主人",
             "pos": [
                 5,
-                1
+                2
             ],
             "char": "*",
-            "color": "#b882c8",
-            "dialog": "开一局麻将吗？随时奉陪。"
+            "color": "#90a8c0",
+            "dialog": "这里有各种文字谜题，你可以试试 Wordle。"
         }
     ]
 }

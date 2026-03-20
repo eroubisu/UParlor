@@ -9,6 +9,7 @@ requires-python = ">=3.10"
 dependencies = [
     "werkzeug",
     "english-words",
+    "mahjong",
 ]
 
 [project.scripts]

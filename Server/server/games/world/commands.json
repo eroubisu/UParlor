@@ -17,5 +17,8 @@
     ],
     "world_gamehall": [
         {"name": "play", "label": "游戏", "desc": "选择并进入小游戏"}
+    ],
+    "world_library": [
+        {"name": "play", "label": "游戏", "desc": "选择并进入小游戏"}
     ]
 }
