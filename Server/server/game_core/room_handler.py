@@ -89,19 +89,45 @@ class BaseRoomCommandHandler:
         return text
 
     def _cmd_invite(self, lobby, player_name, player_data, args):
-        """邀请玩家"""
+        """邀请好友"""
         engine = self.engine
-        if not args or not args.startswith('@'):
-            return "用法: invite @玩家名"
-
-        target = args[1:].strip()
         room = engine.get_player_room(player_name)
         if not room:
             return "你还没有创建或加入房间。"
+
+        if not args or not args.startswith('@'):
+            # 无参数 → 弹出在线好友子菜单
+            friends = set(player_data.get('friends', []))
+            items = []
+            for name in lobby.online_players:
+                if name not in friends:
+                    continue
+                if engine.get_player_room(name):
+                    continue
+                items.append({
+                    'label': name,
+                    'command': f'/invite @{name}',
+                })
+            return {
+                'action': 'select_menu',
+                'send_to_caller': [{
+                    'type': 'game_event',
+                    'game_type': self.game_key,
+                    'event': 'select_menu',
+                    'data': {
+                        'title': '邀请好友',
+                        'items': items,
+                        'empty_msg': '没有可邀请的在线好友。',
+                    },
+                }],
+            }
+
+        target = args[1:].strip()
+        friends = player_data.get('friends', [])
+        if target not in friends:
+            return f"{target} 不是你的好友。"
         if target not in lobby.online_players:
-            return f"玩家 {target} 不在线。"
-        if target == player_name:
-            return "不能邀请自己。"
+            return f"好友 {target} 不在线。"
         if engine.get_player_room(target):
             return f"{target} 已经在一个房间中了。"
 
@@ -114,7 +140,7 @@ class BaseRoomCommandHandler:
                 'from': player_name,
                 'game': self.game_key,
                 'room_id': room.room_id,
-                'message': f" {player_name} 邀请你加入{self.game_name}房间！\n输入 /play {self.game_key} 然后 /accept 接受邀请"
+                'expires_in': getattr(engine, '_INVITE_EXPIRE', 300),
             })
 
         return f"已向 {target} 发送邀请"

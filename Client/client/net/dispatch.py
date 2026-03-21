@@ -11,14 +11,19 @@ from .messages import (
     parse_server_message,
     LoginPrompt, LoginSuccess,
     SystemMessage, GameMessage, ChatMessage, ChatHistory,
-    StatusUpdate, OnlineUsers, GameInvite,
+    StatusUpdate, OnlineUsers, GameInvite, GameInviteResult,
     RoomUpdate, RoomLeave, GameQuit, LocationUpdate,
     CommandsUpdate, GameEvent, ActionCommand, AISyncDown,
     FriendList, AllUsers, PrivateChat, FriendRequest, DMHistory,
     ProfileCard,
 )
+import re as _re
+
 from ..protocol.handler import GameHandlerContext, get_handler
 
+def _strip_markup(text: str) -> str:
+    """去除 Rich markup 标签，返回纯文本"""
+    return _re.sub(r'\[/?[^\]]*\]', '', text)
 
 def _is_ai_chatting(panel) -> bool:
     """AI 面板是否处于聊天视图（仅此时算"已启动"）"""
@@ -121,6 +126,12 @@ def _on_system_message(parsed, app, screen, st):
 
 def _on_game_message(parsed, app, screen, st):
     st.cmd.add_line(parsed.text, update_last=parsed.update_last)
+    plain = _strip_markup(parsed.text).strip()
+    if plain:
+        if parsed.update_last and st.game_board.recent_events:
+            st.game_board.recent_events[-1] = plain
+        else:
+            st.game_board.push_event(plain)
 
 
 def _on_chat_message(parsed, app, screen, st):
@@ -132,6 +143,8 @@ def _on_chat_history(parsed, app, screen, st):
 
 
 def _on_status_update(parsed, app, screen, st):
+    if parsed.location:
+        st.status.update_location(parsed.location)
     if parsed.location_path:
         st.status.update_location_path(parsed.location_path)
     layout_data = parsed.data.get('window_layout')
@@ -204,10 +217,18 @@ def _on_profile_card(parsed, app, screen, st):
 
 def _on_game_invite(parsed, app, screen, st):
     inv = parsed.raw
-    from ..config import M_BOLD, M_END
-    invite_text = f"{M_BOLD}游戏邀请{M_END}: {inv.get('from', '?')} 邀请你加入 {inv.get('game', '?')}"
-    st.cmd.add_line(invite_text)
-    _push_ai_event(screen, f"{inv.get('from', '?')}邀请你玩{inv.get('game', '?')}", high_priority=True)
+    from_name = inv.get('from', '?')
+    game = inv.get('game', '?')
+    room_id = inv.get('room_id', '')
+    expires_in = inv.get('expires_in', 300)
+    st.notify.add_game_invite(from_name, game, room_id, expires_in)
+    _push_ai_event(screen, f"{from_name}邀请你玩{game}", high_priority=True)
+    screen.update_badges()
+
+
+def _on_game_invite_result(parsed, app, screen, st):
+    st.notify.mark_game_invite(parsed.from_name, parsed.game, parsed.status)
+    screen.update_badges()
 
 
 def _on_room_update(parsed, app, screen, st):
@@ -223,6 +244,16 @@ def _on_room_update(parsed, app, screen, st):
             room_state = rd.get('state') or rd.get('status', '')
             desc = ai_desc or f"{game} {room_state}".strip()
             _push_ai_event(screen, f"房间更新: {desc}", high_priority=(priority == 'high'))
+        # 游戏结束时主动通知 AI 旅伴
+        elif rd.get('room_state') == 'finished':
+            game = rd.get('game_type', '')
+            handler = get_handler(game)
+            if handler and hasattr(handler, 'ai_describe'):
+                desc = handler.ai_describe(rd)
+            else:
+                desc = f'{game} 游戏结束'
+            st.game_board.push_event(desc)
+            _push_ai_event(screen, desc, high_priority=True)
     if parsed.message:
         st.cmd.add_line(parsed.message)
 
@@ -340,6 +371,7 @@ _DISPATCH = {
     FriendRequest: _on_friend_request,
     ProfileCard: _on_profile_card,
     GameInvite: _on_game_invite,
+    GameInviteResult: _on_game_invite_result,
     RoomUpdate: _on_room_update,
     RoomLeave: _on_room_leave,
     GameQuit: _on_room_leave,

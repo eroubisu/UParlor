@@ -19,7 +19,7 @@ from ..data import COLOR_PRESETS as _COLOR_PRESETS
 from ..data import EQUIPMENT_SLOT_LABELS
 from ._mixins.status import (
     StatusRenderMixin,
-    _PAGES, _PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS,
+    _PAGES, _PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS, _PAGE_GAME,
     _SETTINGS_ITEMS, _COLOR_MENU_ITEMS,
     _SUB_NONE, _SUB_COLOR_MENU, _SUB_COLOR_PICK, _SUB_PATTERN_PICK,
     _SUB_MOTTO_INPUT, _SUB_FIELD_PICK,
@@ -50,6 +50,9 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         self._equip_cursor: int = 0
         self._equip_confirm: str = ''
         self._equip_scroll: int = 0
+        self._game_cursor: int = 0
+        self._game_confirm: str = ''
+        self._game_scroll: int = 0
         self._sub_mode: str = _SUB_NONE
         self._sub_cursor: int = 0
         self._sub_items: list = []
@@ -84,17 +87,21 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
     def nav_tab_next(self):
         if self._wants_insert or self._sub_mode:
             return
-        idx = _PAGES.index(self._page) if self._page in _PAGES else 0
-        self._page = _PAGES[(idx + 1) % len(_PAGES)]
+        pages = self._get_pages()
+        idx = pages.index(self._page) if self._page in pages else 0
+        self._page = pages[(idx + 1) % len(pages)]
         self._equip_confirm = ''
+        self._game_confirm = ''
         self._render_all()
 
     def nav_tab_prev(self):
         if self._wants_insert or self._sub_mode:
             return
-        idx = _PAGES.index(self._page) if self._page in _PAGES else 0
-        self._page = _PAGES[(idx - 1) % len(_PAGES)]
+        pages = self._get_pages()
+        idx = pages.index(self._page) if self._page in pages else 0
+        self._page = pages[(idx - 1) % len(pages)]
         self._equip_confirm = ''
+        self._game_confirm = ''
         self._render_all()
 
     def nav_up(self, count=1):
@@ -106,6 +113,12 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             if self._equip_cursor > 0:
                 self._equip_cursor -= 1
                 self._equip_confirm = ''
+                self._render_page()
+            return
+        if self._page == _PAGE_GAME:
+            if self._game_cursor > 0:
+                self._game_cursor -= 1
+                self._game_confirm = ''
                 self._render_page()
             return
         if self._page in (_PAGE_CARD, _PAGE_STATUS):
@@ -135,6 +148,16 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             if self._equip_cursor < max_idx:
                 self._equip_cursor += 1
                 self._equip_confirm = ''
+                self._render_page()
+            return
+        if self._page == _PAGE_GAME:
+            from ..data import GAME_STATUS_CONFIG
+            game_type = self._current_game_type()
+            slots = GAME_STATUS_CONFIG.get(game_type, {}).get('slots', {}) if game_type else {}
+            max_idx = len(slots) - 1
+            if self._game_cursor < max_idx:
+                self._game_cursor += 1
+                self._game_confirm = ''
                 self._render_page()
             return
         if self._page in (_PAGE_CARD, _PAGE_STATUS):
@@ -186,6 +209,26 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
                         self._equip_confirm = ''
                     else:
                         self._equip_confirm = slot_key
+                    self._render_page()
+            return
+        if self._page == _PAGE_GAME:
+            from ..data import GAME_STATUS_CONFIG
+            game_type = self._current_game_type()
+            slots = list((GAME_STATUS_CONFIG.get(game_type, {}).get('slots', {})).keys()) if game_type else []
+            if 0 <= self._game_cursor < len(slots):
+                slot_key = slots[self._game_cursor]
+                pd = self._player_data
+                equip_data = pd.get('equipment', {}) if pd else {}
+                item = equip_data.get(slot_key)
+                if item and isinstance(item, dict):
+                    if self._game_confirm == slot_key:
+                        try:
+                            self.app.network.send({'type': 'unequip', 'slot': slot_key})
+                        except Exception:
+                            pass
+                        self._game_confirm = ''
+                    else:
+                        self._game_confirm = slot_key
                     self._render_page()
             return
         if self._page != _PAGE_SETTINGS:
@@ -446,6 +489,18 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         if event == 'update_player_info':
             (player_data,) = args
             self._player_data = player_data
+            self._render_all()
+        elif event == 'update_location':
+            (location,) = args
+            # 进入游戏时自动切换到游戏标签页
+            pages = self._get_pages()
+            if _PAGE_GAME in pages and self._page != _PAGE_GAME:
+                self._page = _PAGE_GAME
+                self._game_cursor = 0
+                self._game_confirm = ''
+                self._game_scroll = 0
+            elif _PAGE_GAME not in pages and self._page == _PAGE_GAME:
+                self._page = _PAGE_STATUS
             self._render_all()
         elif event == 'clear':
             try:

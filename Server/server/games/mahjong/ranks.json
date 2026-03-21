@@ -1,0 +1,42 @@
+{
+    "ranks": {
+        "beginner_1": {"name": "初心一", "tier": 1, "stars": 1, "points_up": 20,  "points_down": null},
+        "beginner_2": {"name": "初心二", "tier": 1, "stars": 2, "points_up": 20,  "points_down": null},
+        "beginner_3": {"name": "初心三", "tier": 1, "stars": 3, "points_up": 20,  "points_down": null},
+
+        "adept_1":    {"name": "雀士一", "tier": 2, "stars": 1, "points_up": 80,  "points_down": null},
+        "adept_2":    {"name": "雀士二", "tier": 2, "stars": 2, "points_up": 80,  "points_down": 0},
+        "adept_3":    {"name": "雀士三", "tier": 2, "stars": 3, "points_up": 80,  "points_down": 0},
+
+        "expert_1":   {"name": "雀杰一", "tier": 3, "stars": 1, "points_up": 100, "points_down": 0},
+        "expert_2":   {"name": "雀杰二", "tier": 3, "stars": 2, "points_up": 100, "points_down": 0},
+        "expert_3":   {"name": "雀杰三", "tier": 3, "stars": 3, "points_up": 100, "points_down": 0},
+
+        "master_1":   {"name": "雀豪一", "tier": 4, "stars": 1, "points_up": 200, "points_down": 0},
+        "master_2":   {"name": "雀豪二", "tier": 4, "stars": 2, "points_up": 200, "points_down": 0},
+        "master_3":   {"name": "雀豪三", "tier": 4, "stars": 3, "points_up": 200, "points_down": 0},
+
+        "saint_1":    {"name": "雀圣一", "tier": 5, "stars": 1, "points_up": 400, "points_down": 0},
+        "saint_2":    {"name": "雀圣二", "tier": 5, "stars": 2, "points_up": 400, "points_down": 0},
+        "saint_3":    {"name": "雀圣三", "tier": 5, "stars": 3, "points_up": 400, "points_down": 0},
+
+        "celestial":  {"name": "魂天",   "tier": 6, "stars": 0, "points_up": null, "points_down": 0}
+    },
+
+    "rank_order": [
+        "beginner_1", "beginner_2", "beginner_3",
+        "adept_1",    "adept_2",    "adept_3",
+        "expert_1",   "expert_2",   "expert_3",
+        "master_1",   "master_2",   "master_3",
+        "saint_1",    "saint_2",    "saint_3",
+        "celestial"
+    ],
+
+    "rank_to_title": {
+        "adept_1":   "mahjong_rank_adept",
+        "expert_1":  "mahjong_rank_expert",
+        "master_1":  "mahjong_rank_master",
+        "saint_1":   "mahjong_rank_saint",
+        "celestial": "mahjong_rank_celestial"
+    }
+}

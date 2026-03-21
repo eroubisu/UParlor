@@ -4,7 +4,7 @@ import re
 
 from .manager import PlayerManager
 from ..storage import maintenance
-from ..msg_types import FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
+from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
 
@@ -29,6 +29,18 @@ class AuthMixin:
         name = text
         if not PlayerManager.player_exists(name):
             self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该用户名不存在。'})
+            return
+
+        # 防止多端登录：用户名阶段即拒绝
+        with self.lock:
+            already_online = any(
+                sock != client_socket
+                and info.get('state') == 'playing'
+                and info.get('name') == name
+                for sock, info in self.clients.items()
+            )
+        if already_online:
+            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该账号已在线，无法重复登录。'})
             return
 
         with self.lock:

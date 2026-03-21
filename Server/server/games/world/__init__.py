@@ -33,7 +33,7 @@ GAME_INFO = {
         'world_guild':      ('冒险者公会', 'world_town'),
         'world_gamehall':   ('棋牌室', 'world_town'),
         'world_tavern':     ('酒馆', 'world_town'),
-        'world_library':    ('书屋', 'world_town'),
+        'world_library':    ('文字馆', 'world_town'),
     },
     'recipes': _load_json('recipes.json'),
 }

@@ -40,6 +40,7 @@ class ChatHistory:
 class StatusUpdate:
     data: dict = field(default_factory=dict)
     location_path: str | None = None
+    location: str = ''
 
 @dataclass
 class OnlineUsers:
@@ -48,6 +49,12 @@ class OnlineUsers:
 @dataclass
 class GameInvite:
     raw: dict = field(default_factory=dict)
+
+@dataclass
+class GameInviteResult:
+    game: str = ''
+    from_name: str = ''
+    status: str = ''
 
 @dataclass
 class RoomUpdate:
@@ -130,9 +137,12 @@ _PARSERS = {
     'chat':           lambda m: ChatMessage(name=m.get('name', '???'), text=m.get('text', ''),
                                             channel=m.get('channel', 1), time=m.get('time', '')),
     'chat_history':   lambda m: ChatHistory(channel=m.get('channel', 1), messages=m.get('messages', [])),
-    'status':         lambda m: StatusUpdate(data=m.get('data', {}), location_path=m.get('location_path')),
+    'status':         lambda m: StatusUpdate(data=m.get('data', {}), location_path=m.get('location_path'),
+                                            location=m.get('location', '')),
     'online_users':   lambda m: OnlineUsers(users=m.get('users', [])),
     'game_invite':    lambda m: GameInvite(raw=m),
+    'game_invite_result': lambda m: GameInviteResult(
+        game=m.get('game', ''), from_name=m.get('from', ''), status=m.get('status', '')),
     'room_update':    lambda m: RoomUpdate(room_data=m.get('room_data'), message=m.get('message')),
     'room_leave':     lambda m: RoomLeave(location=m.get('location'), location_path=m.get('location_path'),
                                             commands=m.get('commands', [])),

@@ -3,7 +3,8 @@
 收到 room_data(game_type='world') 后：
   1. 从 room_data['map'] 读取可见区域瓦片
   2. 渲染瓦片网格 + NPC + 玩家位置
-  3. 显示门口提示
+  3. 荒野/越界区域使用字符密度渐变（█▓▒░）按到地图边界距离淡出
+  4. 显示门口提示
 """
 
 from __future__ import annotations
@@ -12,6 +13,13 @@ from rich.text import Text
 from rich.console import RenderableType
 
 from ..protocol.renderer import register_renderer
+
+# 荒野瓦片：使用半透明方块替代原始字符
+_FADE_TILES = frozenset(('T', 'O', '*', ' '))
+
+# 荒野区域统一字符和颜色（最淡的一档）
+_FADE_CHAR = '░'
+_FADE_COLOR = '#404040'
 
 
 class WorldRenderer:
@@ -63,13 +71,15 @@ class WorldRenderer:
                         result.append("@", style="#c0b0a0")
                 elif (npc := npc_at.get((vx, vy))):
                     result.append(npc['char'], style=f"bold {npc['color']}")
+                elif char in _FADE_TILES:
+                    result.append(_FADE_CHAR, style=_FADE_COLOR)
                 else:
                     tile_info = tile_types.get(char)
                     if tile_info:
                         result.append(tile_info.get('char', char),
                                       style=tile_info.get('color', '#808080'))
                     else:
-                        result.append(char, style="#808080")
+                        result.append(_FADE_CHAR, style=_FADE_COLOR)
 
         return result
 

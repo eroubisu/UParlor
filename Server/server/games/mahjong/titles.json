@@ -1,0 +1,12 @@
+{
+    "titles": {
+        "mahjong_rank_adept":     {"name": "雀士", "desc": "达到雀士段位", "condition": {"type": "auto"}},
+        "mahjong_rank_expert":    {"name": "雀杰", "desc": "达到雀杰段位", "condition": {"type": "auto"}},
+        "mahjong_rank_master":    {"name": "雀豪", "desc": "达到雀豪段位", "condition": {"type": "auto"}},
+        "mahjong_rank_saint":     {"name": "雀圣", "desc": "达到雀圣段位", "condition": {"type": "auto"}},
+        "mahjong_rank_celestial": {"name": "魂天", "desc": "达到魂天段位", "condition": {"type": "auto"}}
+    },
+    "sources": {
+        "麻将段位": ["mahjong_rank_adept", "mahjong_rank_expert", "mahjong_rank_master", "mahjong_rank_saint", "mahjong_rank_celestial"]
+    }
+}

@@ -25,7 +25,7 @@ from .msg_types import (
 )
 
 # 触发消息处理器注册
-from .handlers import client_state, friends, profile, chat  # noqa: F401
+from .handlers import client_state, friends, profile, chat, game_invite  # noqa: F401
 
 
 class ChatServer(AuthMixin):

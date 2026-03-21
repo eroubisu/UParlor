@@ -11,7 +11,7 @@ class MahjongClientHandler:
     game_type = 'mahjong'
 
     def get_input_prefix(self, location: str) -> str | None:
-        """playing 状态直接输入牌名作为 discard"""
+        """playing 状态直接输入序号作为 discard"""
         if location == 'mahjong_playing':
             return '/discard '
         return None

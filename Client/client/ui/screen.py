@@ -354,7 +354,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         dm_unread = sum(self.state.chat.dm_unread.values())
         if dm_unread:
             parts.append(f"私{dm_unread}")
-        notify_unread = self.state.notify.unread_count
+        notify_unread = self.state.notify.unread_count + self.state.notify.unread_game_count
         if notify_unread:
             parts.append(f"通{notify_unread}")
         if parts:

@@ -180,6 +180,7 @@ class StatusState(BaseState):
     def __init__(self):
         super().__init__()
         self.player_data: dict = {}
+        self.location: str = ''
         self.location_path: str = ''
         self.page: str = 'status'     # status | card | settings
         self.settings_cursor: int = 0
@@ -187,6 +188,10 @@ class StatusState(BaseState):
     def update_player_info(self, player_data: dict):
         self.player_data = player_data
         self._notify('update_player_info', player_data)
+
+    def update_location(self, location: str):
+        self.location = location
+        self._notify('update_location', location)
 
     def update_location_path(self, path: str):
         self.location_path = path
@@ -358,7 +363,7 @@ class AIChatState(BaseState):
 
 
 class NotificationState(BaseState):
-    """通知面板的全部状态 — 系统通知 + 好友申请"""
+    """通知面板的全部状态 — 系统通知 + 好友申请 + 游戏邀请"""
 
     _MAX_NOTIFICATIONS = 200
 
@@ -367,6 +372,8 @@ class NotificationState(BaseState):
         self.system_notifications: list[str] = []
         # 好友申请: [{name, status}]  status = 'pending' | 'accepted' | 'rejected'
         self.friend_requests: list[dict] = []
+        # 游戏邀请: [{from, game, room_id, status}]  status = 'pending' | 'accepted' | 'rejected'
+        self.game_invites: list[dict] = []
         self.tab: str = "system"
         self.cursor: int = 0
 
@@ -416,6 +423,49 @@ class NotificationState(BaseState):
     def unread_count(self) -> int:
         """未读(pending)好友申请数量"""
         return sum(1 for r in self.friend_requests if r['status'] == 'pending')
+
+    # ── 游戏邀请 ──
+
+    def add_game_invite(self, from_name: str, game: str, room_id: str,
+                        expires_in: int = 300):
+        """新增游戏邀请（同一游戏同一人只保留最新）"""
+        import time
+        self.game_invites = [
+            inv for inv in self.game_invites
+            if not (inv['from'] == from_name and inv['game'] == game)
+        ]
+        self.game_invites.append({
+            'from': from_name, 'game': game,
+            'room_id': room_id, 'status': 'pending',
+            'expires_at': time.time() + expires_in,
+        })
+        self._notify('update_game_invites')
+
+    def mark_game_invite(self, from_name: str, game: str, status: str):
+        """标记游戏邀请状态: 'accepted' | 'rejected'"""
+        for inv in self.game_invites:
+            if inv['from'] == from_name and inv['game'] == game:
+                inv['status'] = status
+                break
+        self._notify('update_game_invites')
+
+    def remove_game_invite(self, from_name: str, game: str):
+        """删除游戏邀请记录"""
+        self.game_invites = [
+            inv for inv in self.game_invites
+            if not (inv['from'] == from_name and inv['game'] == game)
+        ]
+        self._notify('update_game_invites')
+
+    @property
+    def unread_game_count(self) -> int:
+        """未读(pending且未过期)游戏邀请数量"""
+        import time
+        now = time.time()
+        return sum(
+            1 for inv in self.game_invites
+            if inv['status'] == 'pending' and inv.get('expires_at', 0) > now
+        )
 
     def add_system_notification(self, text: str):
         self.system_notifications.append(text)

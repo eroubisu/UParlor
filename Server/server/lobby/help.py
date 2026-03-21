@@ -117,12 +117,24 @@ def get_games_list():
 
 @register_sub_builder('play')
 def _sub_play(lobby, player_data):
-    """生成 play 子菜单：可用游戏列表"""
-    games = [g for g in get_all_games() if not g.get('per_player')]
+    """生成 play 子菜单：当前位置可用的游戏"""
+    player_name = player_data.get('name', '')
+    location = lobby.get_player_location(player_name)
+    # 只列出根位置 parent 为当前 location 的游戏
+    available = []
+    for g in get_all_games():
+        if g.get('per_player'):
+            continue
+        for _loc_key, (_, parent) in g.get('locations', {}).items():
+            if parent == location:
+                available.append(g)
+                break
+    if not available:
+        available = [g for g in get_all_games() if not g.get('per_player')]
     return [
         {'name': f"play {g['id']}", 'label': g.get('name', g['id']),
          'desc': f"{g.get('min_players','?')}-{g.get('max_players','?')}人"}
-        for g in games
+        for g in available
     ]
 
 

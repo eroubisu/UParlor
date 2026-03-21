@@ -59,6 +59,13 @@
         "accessory": "饰品"
     },
 
+    "game_status": {
+        "mahjong": {
+            "name": "麻将",
+            "slots": {"riichi_stick": "立直棒"}
+        }
+    },
+
     "attribute_labels": {
         "hp":            "生命",
         "mp":            "魔力",

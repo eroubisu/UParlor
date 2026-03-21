@@ -4,7 +4,9 @@
         {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"}
     ],
     "wordle_room": [
-        {"name": "start", "label": "开始", "desc": "开始游戏"}
+        {"name": "start",  "label": "开始", "desc": "开始游戏"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"}
     ],
     "wordle_playing": [
         {"name": "back", "label": "返回", "desc": "放弃并返回房间", "tab": "导航", "confirm": "确定放弃？"}

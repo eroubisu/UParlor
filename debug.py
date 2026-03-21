@@ -8,12 +8,21 @@
 """
 
 import os
+import shutil
 import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SERVER_DIR = os.path.join(ROOT, "Server")
 CLIENT_DIR = os.path.join(ROOT, "Client")
+
+
+def _clear_pycache(base_dir):
+    """清除指定目录下所有 __pycache__"""
+    for root, dirs, _ in os.walk(base_dir):
+        for d in dirs:
+            if d == "__pycache__":
+                shutil.rmtree(os.path.join(root, d))
 
 
 def _install(target):
@@ -39,6 +48,8 @@ def main():
         sys.exit(1)
 
     mode = args[0][1]  # 's' or 'c'
+    target_dir = SERVER_DIR if mode == "s" else CLIENT_DIR
+    _clear_pycache(target_dir)
     _install(mode)
 
     if args[0] == "-s":

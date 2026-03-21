@@ -156,7 +156,7 @@
             ]
         },
         "library": {
-            "name": "书屋",
+            "name": "文字馆",
             "location": "world_library",
             "doors": [
                 [

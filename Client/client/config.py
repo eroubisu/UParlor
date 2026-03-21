@@ -7,10 +7,21 @@ except Exception:
     VERSION = None
 
 import os as _os
+from pathlib import Path as _Path
 
 # 网络配置
 PORT = 5555
-DEFAULT_HOST = _os.environ.get("UPARLOR_HOST", "112.126.80.53")
+
+def _read_default_host() -> str:
+    env = _os.environ.get("UPARLOR_HOST")
+    if env:
+        return env
+    host_file = _Path(__file__).resolve().parent.parent / 'host.txt'
+    if host_file.is_file():
+        return host_file.read_text(encoding='utf-8').strip()
+    return '127.0.0.1'
+
+DEFAULT_HOST = _read_default_host()
 
 # Win11 风格配色
 # 背景色（透明继承终端背景）

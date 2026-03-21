@@ -212,6 +212,15 @@ def _save_and_status(server, client_socket, name, player_data):
         server.send_player_status(client_socket, player_data)
 
 
+def _send_status_to_player(server, player_name, player_data):
+    """通过玩家名查找 socket 并下发状态更新"""
+    with server.lock:
+        for client, info in server.clients.items():
+            if info.get('name') == player_name:
+                server.send_player_status(client, player_data)
+                break
+
+
 def _refresh_caller_commands(server, client_socket, name, player_data):
     """为 caller 重新下发当前位置的指令列表"""
     lobby = server.lobby_engine
@@ -260,6 +269,15 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
     # 5. save / status
     if caller_name and caller_data:
         _save_and_status(server, caller_socket, name=caller_name, player_data=caller_data)
+
+    # 5b. refresh_status: 为所有涉及玩家重新下发状态（奖惩变动后）
+    if result.get('refresh_status'):
+        for target in result['refresh_status']:
+            if target == caller_name:
+                continue
+            target_data = server._get_player_data(target)
+            if target_data:
+                _send_status_to_player(server, target, target_data)
 
     # 6. refresh_commands: 为所有涉及玩家重新下发指令列表
     if result.get('refresh_commands'):

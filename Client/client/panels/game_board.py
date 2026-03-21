@@ -49,6 +49,7 @@ class GameBoardPanel(InputBarMixin, Widget):
     _input_bar_id = "game-input-bar"
     _scroll_target_id = ""
     _last_room_data: dict | None = None
+    _last_viewport: tuple[int, int] = (0, 0)
 
     def compose(self) -> ComposeResult:
         yield Static("", id="game-board-toast")
@@ -67,17 +68,25 @@ class GameBoardPanel(InputBarMixin, Widget):
         display.update(f"{M_DIM}暂无游戏画面{M_END}")
 
     def on_resize(self, event) -> None:
-        self._send_viewport()
+        # 延迟发送视口确保布局已刷新，content_region 为准确值
+        self.call_after_refresh(self._send_viewport)
         if self._last_room_data:
+            # 世界地图渲染依赖服务端视口数据，resize 后等待新数据
+            if self._last_room_data.get('game_type') == 'world':
+                return
             self._render_room(self._last_room_data)
 
     def _send_viewport(self) -> None:
-        """Notify server of panel dimensions"""
+        """Notify server of panel dimensions — skip if unchanged"""
         try:
             scroll = self.query_one("#game-board-scroll")
             region = scroll.content_region
             w, h = region.width, region.height
-            if w > 0 and h > 0:
+            # 有纵向滚动条时减1列，防止地图行溢出换行
+            if scroll.show_vertical_scrollbar:
+                w = max(1, w - 1)
+            if w > 0 and h > 0 and (w, h) != self._last_viewport:
+                self._last_viewport = (w, h)
                 self.app.network.send({"type": "viewport", "w": w, "h": h})
         except Exception:
             pass
@@ -92,6 +101,15 @@ class GameBoardPanel(InputBarMixin, Widget):
         game_type = room_data.get('game_type', '')
         self._game_type = game_type
         self._last_room_data = room_data
+        # 世界地图不需要滚动条——内容始终匹配视口
+        try:
+            scroll = self.query_one("#game-board-scroll")
+            if game_type == 'world':
+                scroll.add_class('no-scroll')
+            else:
+                scroll.remove_class('no-scroll')
+        except Exception:
+            pass
         renderer = get_renderer(game_type)
         if renderer:
             state = room_data.get('state', 'waiting')
@@ -148,6 +166,7 @@ class GameBoardPanel(InputBarMixin, Widget):
             self.query_one("#game-hint-bar").add_class("visible")
         except Exception:
             pass
+        self._scroll_game_end()
 
     def hide_hint_bar(self):
         """隐藏指令栏"""
@@ -164,11 +183,20 @@ class GameBoardPanel(InputBarMixin, Widget):
             self.query_one("#game-input-bar").add_class("visible")
         except Exception:
             pass
+        self._scroll_game_end()
 
     def hide_input_bar(self):
         """隐藏游戏输入框"""
         try:
             self.query_one("#game-input-bar").remove_class("visible")
+        except Exception:
+            pass
+
+    def _scroll_game_end(self):
+        """弹出底部控件后滚动到底，避免遮挡内容"""
+        try:
+            scroll = self.query_one("#game-board-scroll")
+            self.call_after_refresh(scroll.scroll_end, animate=False)
         except Exception:
             pass
 
@@ -219,13 +247,27 @@ class GameBoardPanel(InputBarMixin, Widget):
 
     def nav_down(self, count=1):
         handler, ctx = self._get_handler_ctx()
-        if handler and ctx:
+        if handler and ctx and hasattr(handler, 'on_nav'):
             handler.on_nav('down', count, ctx)
+            return
+        try:
+            scroll = self.query_one("#game-board-scroll")
+            for _ in range(count):
+                scroll.scroll_down(animate=False)
+        except Exception:
+            pass
 
     def nav_up(self, count=1):
         handler, ctx = self._get_handler_ctx()
-        if handler and ctx:
+        if handler and ctx and hasattr(handler, 'on_nav'):
             handler.on_nav('up', count, ctx)
+            return
+        try:
+            scroll = self.query_one("#game-board-scroll")
+            for _ in range(count):
+                scroll.scroll_up(animate=False)
+        except Exception:
+            pass
 
     def nav_tab_prev(self, count=1):
         handler, ctx = self._get_handler_ctx()

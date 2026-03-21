@@ -217,4 +217,6 @@ def get_visible_region(map_data: dict, pos: list[int],
         'players': visible_players,
         'tile_types': map_data.get('tile_types', {}),
         'map_name': map_data.get('meta', {}).get('name', ''),
+        'map_w': map_w,
+        'map_h': map_h,
     }

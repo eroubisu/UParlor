@@ -210,7 +210,15 @@ class KeyboardMixin:
             return None
         try:
             logs = widget.query(RichLog)
-            return logs.first() if logs else None
+            if logs:
+                return logs.first()
+        except Exception:
+            pass
+        # 回退到 VerticalScroll 容器
+        try:
+            from textual.containers import VerticalScroll
+            scrolls = widget.query(VerticalScroll)
+            return scrolls.first() if scrolls else None
         except Exception:
             return None
 

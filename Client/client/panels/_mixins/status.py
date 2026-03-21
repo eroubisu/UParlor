@@ -14,14 +14,20 @@ from ...widgets.helpers import render_tab_header, _widget_width
 from .card import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
 from ...data import COLOR_PRESETS as _COLOR_PRESETS
 from ...data import EQUIPMENT_SLOT_LABELS, ATTRIBUTE_LABELS
+from ...data import GAME_STATUS_CONFIG
 
 # 页面常量
 _PAGE_STATUS = 'status'
 _PAGE_EQUIP = 'equip'
 _PAGE_CARD = 'card'
 _PAGE_SETTINGS = 'settings'
+_PAGE_GAME = 'game'
 _PAGES = [_PAGE_STATUS, _PAGE_EQUIP, _PAGE_CARD, _PAGE_SETTINGS]
-_PAGE_LABELS = {_PAGE_STATUS: '状态', _PAGE_EQUIP: '装备', _PAGE_CARD: '名片', _PAGE_SETTINGS: '设置'}
+_PAGE_LABELS = {
+    _PAGE_STATUS: '状态', _PAGE_EQUIP: '装备',
+    _PAGE_CARD: '名片', _PAGE_SETTINGS: '设置',
+    _PAGE_GAME: '游戏',
+}
 
 # 设置菜单项
 _SETTINGS_ITEMS = [
@@ -63,8 +69,30 @@ class StatusRenderMixin:
             except Exception:
                 pass
 
+    def _get_pages(self) -> list[str]:
+        """根据游戏上下文返回可用页面列表"""
+        pages = list(_PAGES)
+        game_type = self._current_game_type()
+        if game_type and game_type in GAME_STATUS_CONFIG:
+            pages.insert(-1, _PAGE_GAME)  # 在设置前插入
+        return pages
+
+    def _current_game_type(self) -> str | None:
+        """从 StatusState.location 提取当前游戏类型"""
+        loc = ''
+        st = getattr(self, '_state_mgr', None)
+        if st:
+            loc = st.status.location or ''
+        if not loc:
+            return None
+        for game_type in GAME_STATUS_CONFIG:
+            if loc.startswith(game_type):
+                return game_type
+        return None
+
     def _render_header(self):
-        render_tab_header(self, "status-header", _PAGES, _PAGE_LABELS, self._page)
+        pages = self._get_pages()
+        render_tab_header(self, "status-header", pages, _PAGE_LABELS, self._page)
 
     def _render_page(self):
         if self._page == _PAGE_CARD:
@@ -73,6 +101,8 @@ class StatusRenderMixin:
             self._render_status_page()
         elif self._page == _PAGE_EQUIP:
             self._render_equip_page()
+        elif self._page == _PAGE_GAME:
+            self._render_game_page()
         elif self._page == _PAGE_SETTINGS:
             self._render_settings_page()
 
@@ -134,6 +164,19 @@ class StatusRenderMixin:
             log.write(RichText.from_markup(f"{M_MUTED}{title}{M_END}"))
         log.write(RichText.from_markup(f"{M_MUTED}Lv.{level}  {gold}G{M_END}"))
 
+        # 经验进度条
+        exp = pd.get('exp', 0)
+        exp_to_next = pd.get('exp_to_next', 0)
+        if exp_to_next > 0:
+            ratio = min(exp / exp_to_next, 1.0)
+            bar_len = 20
+            filled = int(ratio * bar_len)
+            bar = '█' * filled + '░' * (bar_len - filled)
+            log.write(RichText.from_markup(
+                f"[#a0a0a0]{bar}[/] {M_DIM}{exp}/{exp_to_next}{M_END}"))
+        elif exp_to_next == 0 and level > 1:
+            log.write(RichText.from_markup(f"{M_DIM}MAX LEVEL{M_END}"))
+
         attr_data = pd.get('attributes', {})
         if attr_data:
             log.write(RichText())
@@ -189,6 +232,83 @@ class StatusRenderMixin:
             item = equip_data.get(slot)
             selected = (i == self._equip_cursor)
             confirming = (self._equip_confirm == slot and selected)
+            if item and isinstance(item, dict):
+                name = item.get('name', '?')
+                if selected:
+                    log.write(RichText.from_markup(
+                        f"  [{COLOR_ACCENT}]●[/] {M_BOLD}{slot_label}{M_END} {name}"))
+                else:
+                    log.write(RichText.from_markup(
+                        f"    {M_DIM}{slot_label}{M_END} {name}"))
+            elif selected:
+                log.write(RichText.from_markup(
+                    f"  [{COLOR_ACCENT}]●[/] {M_DIM}{slot_label} —{M_END}"))
+            else:
+                log.write(RichText.from_markup(
+                    f"    {M_DIM}{slot_label} —{M_END}"))
+            lines_written += 1
+            if confirming and lines_written < vh:
+                log.write(RichText.from_markup(
+                    f"      {M_DIM}确认卸下？{M_END}"))
+                lines_written += 1
+        log.scroll_home(animate=False)
+
+    def _render_game_page(self):
+        """渲染游戏标签页 — 显示游戏名 + 游戏专属槽位（同装备逻辑）"""
+        try:
+            log: RichLog = self.query_one("#status-content", RichLog)
+        except Exception:
+            return
+        log.clear()
+        game_type = self._current_game_type()
+        if not game_type:
+            log.write(RichText.from_markup(f"{M_DIM}暂无游戏{M_END}"))
+            return
+        config = GAME_STATUS_CONFIG.get(game_type, {})
+        game_name = config.get('name', game_type)
+        slot_labels = config.get('slots', {})
+
+        pd = self._player_data
+        if not pd:
+            log.write(RichText.from_markup(f"{M_DIM}暂无数据{M_END}"))
+            return
+
+        log.auto_scroll = False
+        log.write(RichText.from_markup(f"  {M_BOLD}{game_name}{M_END}"))
+        log.write(RichText())
+
+        equip_data = pd.get('equipment', {})
+        slots = list(slot_labels.items())
+        if not slots:
+            return
+
+        game_cursor = getattr(self, '_game_cursor', 0)
+        game_confirm = getattr(self, '_game_confirm', '')
+        if game_cursor >= len(slots):
+            game_cursor = 0
+
+        vh = max(1, self._visible_height() - 2)  # 减去标题行
+        game_scroll = getattr(self, '_game_scroll', 0)
+        cursor_lines = 2 if (game_confirm and game_confirm == slots[game_cursor][0]) else 1
+
+        if game_cursor < game_scroll:
+            game_scroll = game_cursor
+        elif game_cursor + cursor_lines > game_scroll + vh:
+            game_scroll = game_cursor + cursor_lines - vh
+        game_scroll = max(0, min(game_scroll, max(0, len(slots) - 1)))
+        self._game_scroll = game_scroll
+
+        lines_written = 0
+        skipped = 0
+        for i, (slot, slot_label) in enumerate(slots):
+            if skipped < game_scroll:
+                skipped += 1
+                continue
+            if lines_written >= vh:
+                break
+            item = equip_data.get(slot)
+            selected = (i == game_cursor)
+            confirming = (game_confirm == slot and selected)
             if item and isinstance(item, dict):
                 name = item.get('name', '?')
                 if selected:

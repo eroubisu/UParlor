@@ -12,9 +12,12 @@ def build_status_message(server, player_data: dict) -> dict:
     titles_data = player_data.get('titles', {})
     displayed = titles_data.get('displayed', [])
     title_display = ' | '.join(get_title_name(t) for t in displayed) if displayed else ''
+    from ..systems.leveling import exp_for_level
     status_data = {
         'name': player_data['name'],
         'level': player_data['level'],
+        'exp': player_data.get('exp', 0),
+        'exp_to_next': exp_for_level(player_data['level']),
         'gold': player_data['gold'],
         'title': title_display,
         'accessory': player_data.get('accessory'),

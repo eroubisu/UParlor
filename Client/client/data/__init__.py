@@ -23,5 +23,8 @@ CARD_FIELD_DEFS: list[tuple[str, str]] = [tuple(f) for f in _UI['card_fields']]
 # ── 装备槽位标签 ──
 EQUIPMENT_SLOT_LABELS: dict[str, str] = _UI.get('equipment_slots', {})
 
+# ── 游戏状态配置 {game_type: {name, slots}} ──
+GAME_STATUS_CONFIG: dict = _UI.get('game_status', {})
+
 # ── 属性标签 ──
 ATTRIBUTE_LABELS: dict[str, str] = _UI.get('attribute_labels', {})

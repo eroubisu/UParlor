@@ -1,7 +1,7 @@
 {
     "meta": {
         "id": "library",
-        "name": "书屋",
+        "name": "文字馆",
         "width": 12,
         "height": 10
     },
@@ -70,14 +70,14 @@
     "npcs": [
         {
             "id": "library_npc",
-            "name": "书屋主人",
+            "name": "文字馆主人",
             "pos": [
                 5,
                 2
             ],
             "char": "*",
             "color": "#90a8c0",
-            "dialog": "这里有各种文字谜题，你可以试试 Wordle。"
+            "dialog": "欢迎来到文字馆! 这里有各种文字谜题，目前可以玩 Wordle，支持单人和多人对战。"
         }
     ]
 }

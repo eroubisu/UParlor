@@ -13,6 +13,7 @@ SYSTEM = 'system'
 GAME = 'game'
 GAME_EVENT = 'game_event'
 GAME_INVITE = 'game_invite'
+GAME_INVITE_RESULT = 'game_invite_result'
 
 # ── 房间 ──
 ROOM_UPDATE = 'room_update'

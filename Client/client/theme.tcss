@@ -100,7 +100,11 @@ RichLog {
     height: 1fr;
     width: 1fr;
     background: transparent;
-    scrollbar-size: 0 0;
+    scrollbar-size: 1 1;
+}
+
+#game-board-scroll.no-scroll {
+    overflow-y: hidden;
 }
 
 #game-board-log {
