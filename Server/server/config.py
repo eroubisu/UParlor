@@ -19,7 +19,7 @@ def _get_server_version():
 SERVER_VERSION = _get_server_version()
 
 # 客户端最新版本号（upload.py 上传时自动更新）
-CLIENT_VERSION = "0.1.9"
+CLIENT_VERSION = "0.1.10"
 
 # 网络配置
 HOST = '0.0.0.0'
