@@ -33,15 +33,21 @@ class KeyboardMixin:
         if key == "ctrl+left_square_bracket":
             key = "escape"
 
-        # wasd / 方向键 → hjkl，WASD / Shift+方向键 → HJKL
-        _ALIAS = {
-            'a': 'h', 's': 'j', 'w': 'k', 'd': 'l',
-            'A': 'H', 'S': 'J', 'W': 'K', 'D': 'L',
+        # 方向键 / Shift+方向键 → hjkl / HJKL（始终生效）
+        _ARROW_ALIAS = {
             'left': 'h', 'down': 'j', 'up': 'k', 'right': 'l',
             'shift+left': 'H', 'shift+down': 'J',
             'shift+up': 'K', 'shift+right': 'L',
         }
-        key = _ALIAS.get(key, key)
+        key = _ARROW_ALIAS.get(key, key)
+
+        # wasd / WASD → hjkl / HJKL（仅在非输入上下文时）
+        if not self._cmd_select_mode and not self._wk.is_open:
+            _WASD_ALIAS = {
+                'a': 'h', 's': 'j', 'w': 'k', 'd': 'l',
+                'A': 'H', 'S': 'J', 'W': 'K', 'D': 'L',
+            }
+            key = _WASD_ALIAS.get(key, key)
 
         if vim.pending_key == "g":
             vim.pending_key = ""
