@@ -77,6 +77,7 @@ class UParlorApp(App):
         self._current_channel = 1
         self._saved_layout: dict | None = None
         self._ping_sent_at: float = 0.0
+        self._ai_ticking: bool = False
 
     def on_mount(self) -> None:
         self.push_screen(GameScreen())
@@ -202,11 +203,14 @@ class UParlorApp(App):
         self.exit()
 
     def _ai_tick(self):
-        """60s 定时器 — 检查 AI 主动搭话"""
-        screen = self.screen
-        if not isinstance(screen, GameScreen):
+        """定时器 + 快速通道 — 检查 AI 主动搭话"""
+        if self._ai_ticking:
             return
+        self._ai_ticking = True
         try:
+            screen = self.screen
+            if not isinstance(screen, GameScreen):
+                return
             panel = screen.get_module('ai')
             if not panel or not hasattr(panel, '_service'):
                 return
@@ -221,6 +225,8 @@ class UParlorApp(App):
                 asyncio.create_task(panel.handle_proactive(reason))
         except Exception:
             pass
+        finally:
+            self._ai_ticking = False
 
     def _cleanup_ai(self):
         screen = self.screen

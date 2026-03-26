@@ -55,6 +55,15 @@ def _load_help() -> str:
 _HELP_TEXT = _load_help()
 
 
+def _load_rewards() -> dict:
+    path = os.path.join(_dir, 'rewards.json')
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+_REWARDS = _load_rewards()
+
+
 def _evaluate_guess(answer: str, guess: str) -> list[str]:
     """评估猜测，返回每个字母的状态列表。
 
@@ -707,12 +716,9 @@ class WordleEngine(BaseGameEngine):
 
         if won:
             board['message'] = '恭喜！'
-            # 单人奖励表: (exp, gold) — 越少次猜出奖励越丰厚
-            _SOLO_REWARDS = {
-                1: (800, 200), 2: (600, 150), 3: (400, 100),
-                4: (300, 70),  5: (250, 50),  6: (200, 40),
-            }
-            exp_gain, gold_gain = _SOLO_REWARDS.get(attempts, (200, 40))
+            solo_rewards = _REWARDS['solo']['rewards']
+            r = solo_rewards.get(str(attempts), solo_rewards[str(MAX_GUESSES)])
+            exp_gain, gold_gain = r[0], r[1]
             reward_msg = self._apply_reward(
                 lobby, player_name, player_data, exp_gain, gold_gain)
             lobby.set_player_location(player_name, 'wordle_finished')
@@ -773,15 +779,11 @@ class WordleEngine(BaseGameEngine):
         }
 
     def _handle_multi_finish(self, lobby, room, caller=None):
-        """多人模式结束 — 赢家从输家手中抢夺，人越多抢越多。
-
-        赢家: base(150exp+30gold) + per_loser(100exp+40gold) × 输家数
-        输家: 50exp -40gold（被抢走）
-        无人猜对: 50exp 0gold
-        """
+        """多人模式结束 — 奖励数值从 rewards.json 读取。"""
         from ...systems.leveling import check_level_up
         from ...player.manager import PlayerManager
 
+        mr = _REWARDS['multi']
         answer = room.answer or '?????'
         winner = room.winner
         reward_lines = []
@@ -792,14 +794,15 @@ class WordleEngine(BaseGameEngine):
             if not pd:
                 continue
             if winner and p == winner:
-                exp_gain = 150 + 100 * num_losers
-                gold_gain = 30 + 40 * num_losers
+                wb, wl = mr['winner_base'], mr['winner_per_loser']
+                exp_gain = wb[0] + wl[0] * num_losers
+                gold_gain = wb[1] + wl[1] * num_losers
                 reward_lines.append(f'{p}: +{exp_gain}exp +{gold_gain}金币 (优胜)')
             elif winner:
-                exp_gain, gold_gain = 50, -40
+                exp_gain, gold_gain = mr['loser'][0], mr['loser'][1]
                 reward_lines.append(f'{p}: +{exp_gain}exp {gold_gain}金币')
             else:
-                exp_gain, gold_gain = 50, 0
+                exp_gain, gold_gain = mr['timeout'][0], mr['timeout'][1]
                 reward_lines.append(f'{p}: +{exp_gain}exp')
             pd['exp'] = pd.get('exp', 0) + exp_gain
             check_level_up(pd)

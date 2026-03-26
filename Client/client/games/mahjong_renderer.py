@@ -24,6 +24,7 @@ _HONOR_COLORS = {
 _HONOR_DEFAULT = '#c8b060'
 
 _DIM = '#606060'
+_SEP = '#808080'
 _SCORE = '#b0b0b0'
 _TURN = 'bold #66bb6a'
 _RIICHI = 'bold #ff6666'
@@ -38,8 +39,6 @@ _DOC_COMMANDS = {
 
 # 列宽
 _CW = 10
-# 手牌与弃牌之间的间隔
-_GAP = '   '
 
 # ── 工具函数 ──
 
@@ -225,43 +224,10 @@ class MahjongRenderer:
                 ds = dora_str[i] if i < len(dora_str) else ''
                 text.append(f' {d}', style=_tile_style(ds) if ds else _DIM)
 
-        # 向聽
-        shanten = data.get('shanten')
-        if shanten is not None:
-            if shanten <= 0:
-                waiting = data.get('waiting_tiles', [])
-                if waiting:
-                    text.append(f'  聽 ', style='bold #66bb6a')
-                    for wi, w in enumerate(waiting):
-                        if isinstance(w, dict):
-                            name = w.get('name', '?')
-                            rem = w.get('remaining', '?')
-                            han = w.get('han')
-                            fu = w.get('fu')
-                            pts = w.get('points')
-                            text.append(f'{name}', style='bold #66bb6a')
-                            text.append(f'×{rem}', style=_DIM)
-                            if han and pts:
-                                text.append(
-                                    f'({han}翻{fu}符 {pts})',
-                                    style=_DIM)
-                        else:
-                            text.append(str(w), style='bold #66bb6a')
-                        if wi < len(waiting) - 1:
-                            text.append('  ')
-                else:
-                    text.append('  聽牌', style='bold #66bb6a')
-            else:
-                text.append(f'  {shanten}向聽', style=_DIM)
-
         text.append('\n\n')
 
-        # ── 列头: 手牌 + 東南西北 ──
-        # 风位行
-        lbl_hand = '    手牌'
-        text.append(lbl_hand, style=_HEAD)
-        text.append(_pad(CW, lbl_hand))
-        text.append(_GAP)
+        # ── 列头: 风位行 ──
+        text.append(' ' * CW)
         for wi in range(4):
             p = players[wi] if wi < len(players) else {}
             pos = p.get('position', '?')
@@ -271,61 +237,91 @@ class MahjongRenderer:
             d_mark = '親' if is_dealer_seat else ''
             lbl = f'{pos}{d_mark}{arrow}'
             style = _TURN if is_current else _HEAD
+            text.append('│', style=_SEP)
             text.append(lbl, style=style)
-            text.append(_pad(CW, lbl))
+            text.append(_pad(CW - 1, lbl))
         text.append('\n')
 
         # 玩家名行
         text.append(' ' * CW)
-        text.append(_GAP)
         for wi in range(4):
             p = players[wi] if wi < len(players) else {}
             name = p.get('name', '---')
             is_current = wi == current_turn
-            while _display_width(name) >= CW:
+            while _display_width(name) >= CW - 1:
                 name = name[:-1]
+            text.append('│', style=_SEP)
             text.append(name, style=_TURN if is_current else _SCORE)
-            text.append(_pad(CW, name))
+            text.append(_pad(CW - 1, name))
         text.append('\n')
 
-        # 分数行
-        text.append(' ' * CW)
-        text.append(_GAP)
+        # 分数行 (手牌列显示 "手牌" 标签)
+        lbl_hand = '  手牌'
+        text.append(lbl_hand, style=_HEAD)
+        text.append(_pad(CW, lbl_hand))
         for wi in range(4):
             p = players[wi] if wi < len(players) else {}
             score = p.get('score', 0)
             riichi = p.get('riichi', False)
             s = f'{score}pt'
+            text.append('│', style=_SEP)
             text.append(s, style=_RIICHI if riichi else _DIM)
-            text.append(_pad(CW, s))
+            text.append(_pad(CW - 1, s))
         text.append('\n')
 
         # 立直棒行
         my_riichi = any(
             players[wi].get('riichi') for wi in range(min(4, len(players))))
         if my_riichi:
-            # 手牌列: "立直" 标签
-            lbl = '    立直'
+            lbl = '  立直'
             text.append(lbl, style=_DIM)
             text.append(_pad(CW, lbl))
-            text.append(_GAP)
             for wi in range(4):
                 p = players[wi] if wi < len(players) else {}
                 riichi = p.get('riichi', False)
+                text.append('│', style=_SEP)
                 if riichi:
                     stick = '──────'
                     text.append(stick, style=_RIICHI)
-                    text.append(_pad(CW, stick))
+                    text.append(_pad(CW - 1, stick))
                 else:
-                    text.append(' ' * CW)
+                    text.append(' ' * (CW - 1))
             text.append('\n')
 
+        # ── 分数 → 副露 分隔线 ──
+        text.append(' ' * CW)
+        for wi in range(4):
+            sep_line = '─' * (CW - 1)
+            text.append('│', style=_SEP)
+            text.append(sep_line, style=_SEP)
         text.append('\n')
 
-        # ── 纵向牌面 ──
-        max_discard = max((len(d) for d in discards), default=0)
-        max_rows = max(len(tiles), max_discard)
+        # ── 构建每家列数据: 副露 → 分隔线 → 弃牌 ──
+        col_data = []  # col_data[wi] = list of (tile_cn, tile_str, is_sep)
+        for wi in range(4):
+            col = []
+            player_melds = melds[wi] if wi < len(melds) else []
+            for mi, meld in enumerate(player_melds):
+                if mi > 0:
+                    col.append(('·', '', False))
+                for t in meld:
+                    cn = _short_to_chinese(t)
+                    col.append((cn, t, False))
+            # 分隔线（无论有无副露都加，统一对齐）
+            sep_line = '─' * (CW - 1)
+            col.append((sep_line, '', True))
+            d_cn = discards_chinese[wi] if wi < len(discards_chinese) else []
+            d = discards[wi] if wi < len(discards) else []
+            for di in range(len(d_cn)):
+                tile_cn = d_cn[di]
+                tile_str = d[di] if di < len(d) else ''
+                col.append((tile_cn, tile_str, False))
+            col_data.append(col)
 
+        max_col_rows = max((len(c) for c in col_data), default=0)
+        max_rows = max(len(tiles), max_col_rows)
+
+        # ── 纵向牌面 ──
         for row in range(max_rows):
             # 手牌列
             if row < len(tiles):
@@ -335,13 +331,11 @@ class MahjongRenderer:
                 idx_str = f'{row + 1:>2}'
                 prefix = f'{marker}{idx_str} '
 
-                sk = _suit_key(hand[row]) if row < len(hand) else 'z'
                 color = _tile_color(hand[row]) if row < len(hand) else _HONOR_DEFAULT
                 tile_sty = f'bold {color}'
                 if is_drawn_tile:
                     tile_sty += ' underline'
 
-                # 宝牌标记
                 is_dora = (row < len(hand_136)
                            and hand_136[row] // 4 in dora_tiles_34)
                 dora_mark = '★' if is_dora else ''
@@ -356,61 +350,74 @@ class MahjongRenderer:
             else:
                 text.append(' ' * CW)
 
-            text.append(_GAP)
-
-            # 弃牌列 (東南西北)
+            # 各家列 (副露+分隔+弃牌)
             for wi in range(4):
-                d_cn = discards_chinese[wi] if wi < len(discards_chinese) else []
-                d = discards[wi] if wi < len(discards) else []
-                if row < len(d_cn):
-                    tile_cn = d_cn[row]
-                    tile_str = d[row] if row < len(d) else ''
-                    sk = _suit_key(tile_str)
-                    color = _tile_color(tile_str)
-                    text.append(tile_cn, style=f'bold {color}')
-                    text.append(_pad(CW, tile_cn))
+                col = col_data[wi]
+                text.append('│', style=_SEP)
+                if row < len(col):
+                    tile_cn, tile_str, is_sep = col[row]
+                    if is_sep:
+                        text.append(tile_cn, style=_SEP)
+                    elif tile_cn == '·':
+                        text.append('·', style=_DIM)
+                        text.append(' ' * (CW - 2))
+                    else:
+                        color = _tile_color(tile_str) if tile_str else _DIM
+                        text.append(tile_cn, style=f'bold {color}')
+                        text.append(_pad(CW - 1, tile_cn))
                 else:
-                    text.append(' ' * CW)
+                    text.append(' ' * (CW - 1))
 
             text.append('\n')
 
-        # ── 副露 ──
-        has_any_melds = any(melds[i] for i in range(4))
-        if has_any_melds:
-            text.append('\n')
-            for wi in range(4):
-                player_melds = melds[wi] if wi < len(melds) else []
-                if player_melds:
-                    p = players[wi] if wi < len(players) else {}
-                    pos = p.get('position', '?')
-                    text.append(f'  {pos} 副露: ', style=_DIM)
-                    for mi, meld in enumerate(player_melds):
-                        if mi > 0:
-                            text.append(' ')
-                        text.append('[')
-                        for j, t in enumerate(meld):
-                            if j > 0:
-                                text.append(' ')
-                            cn = _short_to_chinese(t)
-                            text.append(cn, style=_tile_style(t))
-                        text.append(']')
-                    text.append('\n')
+        # ── 手牌底部: 听牌区 ──
+        full_sep = '─' * (CW + (CW + 1) * 4 - 6)
+        text.append(f'  {full_sep}\n', style=_SEP)
 
-        # ── 听牌提示（纵向列表） ──
         tenpai_discards = data.get('tenpai_discards', [])
+        waiting_tiles = data.get('waiting_tiles', [])
+
         if tenpai_discards:
-            text.append('\n')
-            text.append('  打牌听牌提示:\n', style=_DIM)
             for td in tenpai_discards:
                 idx = td.get('idx', '?')
                 tile_cn = td.get('tile_chinese', '?')
                 waits = td.get('waiting', [])
-                text.append(f'  {idx}. {tile_cn} →', style=_DIM)
+                text.append(f'  打{idx} ', style=_DIM)
+                text.append(tile_cn, style='bold #ffffff')
+                text.append(' → 听 ', style=_DIM)
                 for wi, w in enumerate(waits):
-                    text.append(
-                        f' {w["name"]}×{w["remaining"]}',
-                        style='#66bb6a')
+                    if wi > 0:
+                        text.append('  ')
+                    name = w.get('name', '?')
+                    ts = w.get('tile_str', '')
+                    rem = w.get('remaining', '?')
+                    han = w.get('han')
+                    pts = w.get('points')
+                    color = _tile_color(ts) if ts else '#66bb6a'
+                    text.append(f'{name}', style=f'bold {color}')
+                    text.append(f'×{rem}', style=_DIM)
+                    if han and pts:
+                        text.append(f'({han}番{pts})', style=_DIM)
                 text.append('\n')
+        elif waiting_tiles:
+            text.append('  听 ', style='bold #66bb6a')
+            for wi, w in enumerate(waiting_tiles):
+                if wi > 0:
+                    text.append('  ')
+                if isinstance(w, dict):
+                    name = w.get('name', '?')
+                    ts = w.get('tile_str', '')
+                    rem = w.get('remaining', '?')
+                    han = w.get('han')
+                    pts = w.get('points')
+                    color = _tile_color(ts) if ts else '#66bb6a'
+                    text.append(f'{name}', style=f'bold {color}')
+                    text.append(f'×{rem}', style=_DIM)
+                    if han and pts:
+                        text.append(f'({han}番{pts})', style=_DIM)
+                else:
+                    text.append(str(w), style='bold #66bb6a')
+            text.append('\n')
 
         # ── 操作提示 ──
         text.append('\n')
@@ -442,42 +449,179 @@ class MahjongRenderer:
 
         return text
 
-    # ── 結束 ──
+    # ── 結束（渐进展示）──
 
     def _render_finished(self, data: dict) -> RenderableType:
         text = Text()
         round_name = data.get('round_name', '')
-        text.append(f'  * MAHJONG  {round_name}  結束\n\n', style=_HEAD)
-
         winner = data.get('winner')
-        is_draw = data.get('draw', False)
 
-        if winner:
-            win_info = data.get('win_info', {})
-            win_pos = data.get('winner_position', '?')
-            han = win_info.get('han', 0)
-            fu = win_info.get('fu', 0)
-            cost = win_info.get('cost', 0)
-            yaku = win_info.get('yaku', [])
-            text.append(f'  [{win_pos}] {winner} 和牌!\n', style='bold #66bb6a')
-            text.append(f'  {han}翻{fu}符  {cost}点\n', style=_HEAD)
-            if yaku:
-                text.append(f'  役: {", ".join(yaku)}\n', style='#c0c0c0')
-        elif is_draw:
-            text.append('  流局\n', style='#c0c0c0')
+        if data.get('draw', False):
+            return self._render_draw(data)
+
+        # ── 和牌渐进展示 ──
+        win_info = data.get('win_info', {})
+        win_pos = data.get('winner_position', '?')
+        is_tsumo = data.get('is_tsumo', True)
+        win_type = '自摸' if is_tsumo else '荣和'
+        yaku = win_info.get('yaku', [])
+        win_step = data.get('win_step', 0)
+        n_yaku = len(yaku)
+
+        text.append(f'  * MAHJONG  {round_name}\n\n', style=_HEAD)
+        text.append(f'  [{win_pos}] {winner} {win_type}!\n',
+                    style='bold #66bb6a')
+
+        # 荣和: 显示放铳牌
+        if not is_tsumo:
+            from_player = data.get('from_player', '')
+            from_pos = data.get('from_position', '')
+            ron_tile = data.get('ron_tile', '')
+            ron_tile_cn = data.get('ron_tile_chinese', '')
+            if ron_tile_cn:
+                color = _tile_color(ron_tile)
+                text.append(f'  [{from_pos}] {from_player} 放铳: ',
+                            style=_DIM)
+                text.append(ron_tile_cn, style=f'bold {color}')
+                text.append('\n')
 
         text.append('\n')
 
-        # 各家得分
+        # 各家手牌（step 1 才展示）
+        if win_step < 1:
+            return text
+
         players = data.get('players', [])
+        all_hands = data.get('all_hands', [])
+        all_hands_cn = data.get('all_hands_chinese', [])
+        all_melds = data.get('all_melds', [])
+        all_melds_str = data.get('all_melds_str', [])
+        tenpai_seats = data.get('tenpai_seats', [])
+
+        for i, h in enumerate(all_hands):
+            p = players[i] if i < len(players) else {}
+            pos = p.get('position', '?')
+            name = p.get('name', '?')
+            if not name:
+                continue
+            is_winner = (name == winner)
+            tag = ''
+            if is_winner:
+                tag = ' ★'
+            elif i in tenpai_seats:
+                tag = ' 聴'
+
+            label_style = 'bold #66bb6a' if is_winner else _DIM
+            text.append(f'  [{pos}] {name}{tag}: ', style=label_style)
+
+            if h:
+                h_cn = all_hands_cn[i] if i < len(all_hands_cn) else h
+                for j, tile in enumerate(h):
+                    if j > 0:
+                        text.append(' ')
+                    tile_name = h_cn[j] if j < len(h_cn) else tile
+                    color = _tile_color(tile)
+                    text.append(tile_name, style=f'bold {color}')
+
+            # 副露
+            melds_cn = all_melds[i] if i < len(all_melds) else []
+            melds_s = all_melds_str[i] if i < len(all_melds_str) else []
+            for mi, meld_cn in enumerate(melds_cn):
+                text.append('  [', style=_DIM)
+                meld_s = melds_s[mi] if mi < len(melds_s) else meld_cn
+                for ti, tc in enumerate(meld_cn):
+                    if ti > 0:
+                        text.append(' ')
+                    ts = meld_s[ti] if ti < len(meld_s) else ''
+                    color = _tile_color(ts)
+                    text.append(tc, style=f'bold {color}')
+                text.append(']', style=_DIM)
+
+            text.append('\n')
+
+        # 渐进: 役种（逐条, step 2 起）
+        if win_step >= 2:
+            text.append('\n')
+            shown = yaku[:min(win_step - 1, n_yaku)]
+            for y in shown:
+                text.append(f'  · {y}\n', style='#c0c0c0')
+
+        # 渐进: 总番数/得点
+        if win_step >= n_yaku + 2:
+            han = win_info.get('han', 0)
+            fu = win_info.get('fu', 0)
+            cost = win_info.get('cost', 0)
+            text.append(f'\n  {han}番{fu}符  {cost}点\n', style=_HEAD)
+
+        # 渐进: 各家分数变动 + 段位pt
+        if win_step >= n_yaku + 3:
+            score_changes = data.get('score_changes', [])
+            rank_changes = data.get('rank_changes', {})
+            text.append('\n')
+            for i, p in enumerate(players):
+                name = p.get('name', '---')
+                if not name:
+                    continue
+                pos = p.get('position', '?')
+                score = p.get('score', 0)
+                delta = score_changes[i] if i < len(score_changes) else 0
+                sign = '+' if delta >= 0 else ''
+                text.append(
+                    f'  [{pos}] {name}  {score}pt  ({sign}{delta})',
+                    style=_SCORE)
+                rc = rank_changes.get(name)
+                if rc:
+                    d = rc.get('delta', 0)
+                    rsign = '+' if d >= 0 else ''
+                    text.append(f'  [{rsign}{d}段位pt]', style=_DIM)
+                    if rc.get('promoted'):
+                        text.append(
+                            f' ↑{rc["new_rank_name"]}', style='bold #66bb6a')
+                    elif rc.get('demoted'):
+                        text.append(
+                            f' ↓{rc["new_rank_name"]}', style='bold #ef6a4a')
+                text.append('\n')
+
+        # 渐进: 下一局提示
+        if win_step >= n_yaku + 4:
+            next_round = data.get('next_round')
+            if next_round:
+                text.append(
+                    f'\n  下一局: {next_round}  (房主输入 start)\n',
+                    style=_DIM)
+            msg = data.get('message')
+            if msg:
+                text.append(f'\n  {msg}\n', style=_SCORE)
+
+        return text
+
+    def _render_draw(self, data: dict) -> RenderableType:
+        """流局"""
+        text = Text()
+        round_name = data.get('round_name', '')
+        text.append(f'  * MAHJONG  {round_name}  流局\n\n', style=_HEAD)
+
+        players = data.get('players', [])
+        rank_changes = data.get('rank_changes', {})
         for p in players:
             name = p.get('name', '---')
             pos = p.get('position', '?')
             score = p.get('score', 0)
             if name:
-                text.append(f'  [{pos}] {name}  {score}pt\n', style=_SCORE)
+                text.append(f'  [{pos}] {name}  {score}pt', style=_SCORE)
+                rc = rank_changes.get(name)
+                if rc:
+                    d = rc.get('delta', 0)
+                    rsign = '+' if d >= 0 else ''
+                    text.append(f'  [{rsign}{d}段位pt]', style=_DIM)
+                    if rc.get('promoted'):
+                        text.append(
+                            f' ↑{rc["new_rank_name"]}', style='bold #66bb6a')
+                    elif rc.get('demoted'):
+                        text.append(
+                            f' ↓{rc["new_rank_name"]}', style='bold #ef6a4a')
+                text.append('\n')
 
-        # 手牌公开
         all_hands = data.get('all_hands', [])
         all_hands_cn = data.get('all_hands_chinese', [])
         if all_hands:
@@ -493,14 +637,14 @@ class MahjongRenderer:
                         if j > 0:
                             text.append(' ')
                         tile_name = h_cn[j] if j < len(h_cn) else tile
-                        suit_key = tile[-1] if len(tile) == 2 and tile[-1] in ('m', 'p', 's') else 'z'
                         color = _tile_color(tile)
                         text.append(tile_name, style=f'bold {color}')
                     text.append('\n')
 
         next_round = data.get('next_round')
         if next_round:
-            text.append(f'\n  下一局: {next_round}  (房主輸入 start)\n', style=_DIM)
+            text.append(f'\n  下一局: {next_round}  (房主输入 start)\n',
+                        style=_DIM)
 
         msg = data.get('message')
         if msg:

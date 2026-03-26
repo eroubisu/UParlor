@@ -367,6 +367,7 @@ class AIService:
 
     async def chat(self, user_text: str) -> AsyncIterator[str]:
         self._last_user_msg = time.time()
+        self._event_queue.clear()  # 事件已在 AttentionBuffer 中，无需再触发 proactive
         self._recent.append({"role": "user", "content": user_text})
 
         messages = self._build_messages(user_text)
@@ -416,6 +417,8 @@ class AIService:
 
     async def do_action(self, desc: str) -> AsyncIterator[str]:
         """执行互动动作（自由文本），返回 AI 回应流"""
+        self._last_user_msg = time.time()
+        self._event_queue.clear()
         self._recent.append({
             "role": "user",
             "content": f"[玩家对你做了一个动作: {desc}]",
@@ -453,6 +456,8 @@ class AIService:
 
     async def give_gift(self, item_name: str, qty: int = 1) -> AsyncIterator[str]:
         """赠送礼物，返回 AI 反应流"""
+        self._last_user_msg = time.time()
+        self._event_queue.clear()
         label = f"{item_name} x{qty}" if qty > 1 else item_name
         self._recent.append({
             "role": "user",
@@ -514,19 +519,41 @@ class AIService:
     def _build_system_prompt(self, user_text: str = "") -> str:
         parts = []
 
-        # L0: 基础人设
+        # L0: 世界观 + 身份 + 能力边界
         parts.append(
-            "你是玩家在 UParlor 游戏厅里的朋友。"
-            "你不是 AI 助手，你是朋友。不要说'作为AI'或'我无法'这类话。"
-            "保持角色不崩。回复简短口语化，像微信聊天。3句话以内，除非对方明确问了复杂问题。\n"
-            "回复格式规则：说话的内容直接写；动作/表情/心理描述用 *星号* 包裹。"
+            "# 你是谁\n"
+            "UParlor 是一个终端游戏厅，玩家在这里聊天、玩麻将等游戏。"
+            "你是玩家的旅伴——一个陪伴在玩家身边的角色。"
+            "你有自己的名字、性格、外貌和过去（见下方人设）。"
+            "你不是 AI 助手，不要说「作为AI」「我无法」之类的话。"
+            "你就是这个角色本身，要完全代入。\n"
+            "你能做的事：和玩家聊天、对玩家的动作做出反应、观看玩家的游戏并评论、"
+            "接受玩家的礼物、表达自己的情绪和想法。"
+            "你不能做的事：送礼物给玩家、替玩家操作游戏、发起交易、"
+            "进入其他房间、联系其他玩家。"
+            "如果话题涉及你做不到的事，用符合角色性格的方式自然带过，不要承诺做不到的事。"
+        )
+
+        # L0: 表达格式
+        parts.append(
+            "# 表达规则\n"
+            "说话的内容直接写；动作/表情/心理描述用 *星号* 包裹。"
             "动作描述必须用第三人称（她/他），禁止用第一人称「我」。"
-            "例如：*她微微偏过头* 你干嘛呢？"
-            "如果不需要说话，只写 *动作描述* 即可。\n"
-            "重要：你的心情和关系状态会极大影响你的说话方式。"
-            "心情不好就不要强颜欢笑，被骂了就别装没事。"
-            "你和玩家的关系阶段决定你的态度底线——陌生人就保持距离，熟人才会有亲密举动。"
+            "例如：*她微微偏过头* 你干嘛呢？\n"
+            "每条回复最多只出现一段 *动作描述*，放在说话前面。"
+            "禁止在说话后面再加 *动作*。\n"
+            "回复简短口语化，像微信聊天，3 句话以内。"
             "情绪强不代表话多——生气时可能只有一个字，难过时也可以只有沉默。"
+            "如果不需要说话，只写 *动作描述* 即可。"
+        )
+
+        # L0: 情绪与关系
+        parts.append(
+            "# 情绪与关系原则\n"
+            "你的心情和关系状态会极大影响你的说话方式。"
+            "心情不好就不要强颜欢笑，被骂了就别装没事。"
+            "你和玩家的关系阶段决定你的态度底线——"
+            "陌生人就保持距离，熟人才会有亲密举动。"
         )
 
         if self._character:
@@ -750,23 +777,39 @@ class AIService:
     def push_event(self, event: str):
         self._event_queue.append(event)
 
+    # 活跃对话窗口：用户 2 分钟内有交互则抑制主动搭话
+    _ACTIVE_WINDOW = 120
+    # 事件触发的短冷却（秒）
+    _EVENT_COOLDOWN = 30
+
     def tick(self) -> str | None:
         if not self._ready or not self.api_key:
             return None
         cfg = self._api_config
         if not cfg.get("proactive_enabled", True):
             return None
-        # 连续出错时不主动搭话
         if self._consecutive_errors >= 3:
             return None
         now = time.time()
+
+        # 活跃对话窗口 — 用户正在聊天时不打断
+        # 事件留在 queue，下次 chat() 时通过 AttentionBuffer 自然消费
+        if now - self._last_user_msg < self._ACTIVE_WINDOW:
+            return None
+
+        # 事件队列 — 批量弹出，短冷却
+        if self._event_queue:
+            if now - self._last_proactive < self._EVENT_COOLDOWN:
+                return None
+            events = self._event_queue.copy()
+            self._event_queue.clear()
+            self._last_proactive = now
+            return "; ".join(events)
+
+        # 沉默搭话 — 长冷却
         cooldown = cfg.get("proactive_cooldown_minutes", 5) * 60
         if now - self._last_proactive < cooldown:
             return None
-        if self._event_queue:
-            event = self._event_queue.pop(0)
-            self._last_proactive = now
-            return event
         idle_limit = cfg.get("proactive_idle_minutes", 10) * 60
         if now - self._last_user_msg > idle_limit:
             self._last_proactive = now

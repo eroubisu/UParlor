@@ -33,6 +33,27 @@ class WordleClientHandler:
     def on_leave_game(self, ctx: GameHandlerContext) -> None:
         pass
 
+    def ai_on_room_update(self, old_data: dict, new_data: dict) -> tuple[str, bool] | None:
+        """检测 Wordle 游戏状态变化，通知 AI 旅伴"""
+        if new_data.get('room_state') != 'playing':
+            return None
+        old_guesses = old_data.get('guesses', []) if old_data else []
+        new_guesses = new_data.get('guesses', [])
+        if len(new_guesses) <= len(old_guesses):
+            return None
+        # 有新的猜测
+        word = new_guesses[-1].upper()
+        result = new_data.get('results', [])[-1] if new_data.get('results') else []
+        correct_count = result.count('correct') if result else 0
+        total = len(result) if result else 0
+        won = new_data.get('won', False)
+        remain = new_data.get('max_guesses', 6) - len(new_guesses)
+        if won:
+            desc = f'Wordle: 玩家猜了 {word}，全部正确！猜对了！'
+        else:
+            desc = f'Wordle: 玩家猜了 {word}，{correct_count}/{total}个字母位置正确，剩余{remain}次机会'
+        return (desc, True)
+
     def ai_describe(self, room_data: dict) -> str:
         room_state = room_data.get('room_state', 'lobby')
         if room_state == 'lobby':

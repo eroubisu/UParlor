@@ -1,5 +1,7 @@
 """客户端配置"""
 
+import os
+
 try:
     from importlib.metadata import version as _pkg_version
     VERSION = _pkg_version("uparlor")
@@ -8,7 +10,7 @@ except Exception:
 
 # 网络配置
 PORT = 5555
-DEFAULT_HOST = '112.126.80.53'
+DEFAULT_HOST = os.environ.get('UPARLOR_HOST', '112.126.80.53')
 
 # Win11 风格配色
 # 背景色（透明继承终端背景）

@@ -699,6 +699,12 @@ class _ChatViewsMixin:
         )
         if reply:
             self._save_ai_reply(reply)
+        # 流结束后立即重检查：处理 streaming 期间积压的新事件
+        if self._service and self._service._event_queue:
+            reason2 = self._service.tick()
+            if reason2:
+                import asyncio
+                asyncio.create_task(self.handle_proactive(reason2))
 
     # ── 数据同步 ──
 

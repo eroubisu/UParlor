@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import string
@@ -19,9 +20,11 @@ from ...msg_types import GAME, ROOM_UPDATE, LOCATION_UPDATE
 
 from .room import MahjongRoom, MAX_PLAYERS
 from .tiles import tile_to_str, tile_to_chinese, hand_to_34, POSITION_NAMES
+from .bot import MahjongBot
 
 _dir = os.path.dirname(__file__)
 _shanten = Shanten()
+_bot_ai = MahjongBot()
 
 
 def _load_help() -> str:
@@ -31,6 +34,15 @@ def _load_help() -> str:
 
 
 _HELP_TEXT = _load_help()
+
+
+def _load_rewards() -> dict:
+    path = os.path.join(_dir, 'rewards.json')
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+_REWARDS = _load_rewards()
 
 
 def _gen_room_id() -> str:
@@ -320,11 +332,14 @@ class MahjongEngine(BaseGameEngine):
         self._rooms[room_id] = room
         self._player_room[player_name] = room_id
         lobby.set_player_location(player_name, 'mahjong_room')
+        mode_label = '东风战' if room.game_mode == 'east' else '南风战'
+        tier_label = self._TIER_MAP.get(room.room_tier, room.room_tier)
         return {
             'action': 'mahjong_room_created',
             'send_to_caller': [
                 {'type': GAME, 'text': (
                     f'创建了麻将房间 #{room_id}\n'
+                    f'模式: {mode_label} | {tier_label}\n'
                     f'座位: 东\n等待其他玩家加入...'
                 )},
                 {'type': ROOM_UPDATE, 'room_data': room.get_table_data()},
@@ -1016,22 +1031,25 @@ class MahjongEngine(BaseGameEngine):
         bot_schedule = None
 
         # 检查其他家是否能 碰/杠/和
-        actions_available = False
         pending_waiting = set()
         pending_actions_map = {}  # seat -> list of action names
+        bot_responses = {}  # seat -> action
         for i in range(1, 4):
             other = (seat + i) % 4
             other_p = room.players[other]
             if not other_p:
                 continue
-            # 机器人自动 pass
-            if other_p in room.bots:
-                continue
             can_ron = room.check_ron(other, tile_136) is not None
             can_pon = room.can_pon(other, tile_136)
             can_chi = room.can_chi(other, tile_136, seat)
-            if can_ron or can_pon or can_chi:
-                actions_available = True
+            if not (can_ron or can_pon or can_chi):
+                continue
+            if other_p in room.bots:
+                action = _bot_ai.respond_to_discard(
+                    room, other, tile_136, seat)
+                if action != 'pass':
+                    bot_responses[other] = action
+            else:
                 pending_waiting.add(other)
                 acts = []
                 if can_ron:
@@ -1043,6 +1061,21 @@ class MahjongEngine(BaseGameEngine):
                 acts.append('pass')
                 pending_actions_map[other] = acts
 
+        # bot 响应延迟执行（先让玩家看到弃牌）
+        if bot_responses:
+            room._pending_bot_response = {
+                'tile': tile_136,
+                'from_seat': seat,
+                'bot_responses': bot_responses,
+            }
+            # 如果没有真人也在等（仅 bot），schedule 延迟副露
+            # 有真人等待时，让真人先决定（ron 优先于 pon/chi）
+            if not pending_actions_map:
+                bot_schedule = [{'type': 'bot_meld_response',
+                                 'room_id': room.room_id,
+                                 'game_id': 'mahjong'}]
+
+        actions_available = bool(pending_actions_map)
         if actions_available:
             room._pending_action = {
                 'tile': tile_136,
@@ -1052,7 +1085,7 @@ class MahjongEngine(BaseGameEngine):
                 'actions_map': pending_actions_map,
             }
 
-        if not actions_available:
+        if not actions_available and not bot_responses:
             # 流局检查
             if room.is_draw():
                 return self._handle_draw(lobby, room, player_name)
@@ -1091,7 +1124,7 @@ class MahjongEngine(BaseGameEngine):
             ],
             'send_to_players': send_to_players,
         }
-        if not actions_available and bot_schedule:
+        if bot_schedule:
             result['schedule'] = bot_schedule
         return result
 
@@ -1149,6 +1182,7 @@ class MahjongEngine(BaseGameEngine):
 
         room.do_pon(seat, tile)
         room._pending_action = None
+        room._pending_bot_response = None
         room.current_turn = seat
         room.drawn_tile = None  # 碰之后需要打一张牌，不摸牌
 
@@ -1222,6 +1256,7 @@ class MahjongEngine(BaseGameEngine):
 
         room.do_chi(seat, tile, combo)
         room._pending_action = None
+        room._pending_bot_response = None
         room.current_turn = seat
         room.drawn_tile = None
 
@@ -1252,6 +1287,22 @@ class MahjongEngine(BaseGameEngine):
         # 所有人都 pass 了
         if not room._pending_action['waiting']:
             room._pending_action = None
+
+            # 检查是否有延迟的 bot 副露响应
+            if getattr(room, '_pending_bot_response', None):
+                send_to_players = self._notify_room_game(
+                    room, '', exclude=player_name)
+                my_seat = room.get_position(player_name)
+                my_board = room.get_game_data(my_seat)
+                return {
+                    'action': 'mahjong_pass',
+                    'send_to_caller': [{'type': ROOM_UPDATE, 'room_data': my_board}],
+                    'send_to_players': send_to_players,
+                    'schedule': [{'type': 'bot_meld_response',
+                                  'room_id': room.room_id,
+                                  'game_id': 'mahjong'}],
+                }
+
             if room.is_draw():
                 return self._handle_draw(lobby, room, player_name)
             room.next_turn()
@@ -1309,7 +1360,7 @@ class MahjongEngine(BaseGameEngine):
             return self._cmd_leave(lobby, player_name)
 
         room.state = 'finished'
-        finished_data = room.get_finished_data(None, None)
+        finished_data = room.get_finished_data()
         finished_data['message'] = f'{player_name} 中途退出，游戏结束。'
 
         notify = self._notify_room(
@@ -1341,23 +1392,152 @@ class MahjongEngine(BaseGameEngine):
 
     # ── 游戏结束处理 ──
 
+    # 名次分表: tier → (1st, 2nd, 3rd, 4th)
+    _PLACEMENT_PTS = {
+        1: (+30, +10, -10, -30),   # 初心
+        2: (+40, +10, -10, -40),   # 雀士
+        3: (+50, +10, -20, -50),   # 雀杰
+        4: (+60, +15, -30, -60),   # 雀豪
+        5: (+75, +15, -35, -75),   # 雀圣
+        6: (+90, +20, -40, -90),   # 魂天
+    }
+
+    # 经验/金币段位 tier 倍率
+    _TIER_MULT = {int(k): v for k, v in _REWARDS.get('tier_multiplier', {}).items()}
+
+    def _calc_rank_points(self, room, seat, rank_idx, tier):
+        """计算单个座位的段位点变化。
+
+        公式: 名次分(按 tier) + (终点 - 25000) / 1000
+        Bot 场: ×0.5；tier ≥ 3 时正分归零。
+        """
+        placement = self._PLACEMENT_PTS.get(tier, self._PLACEMENT_PTS[1])
+        base = placement[rank_idx] + (room.scores[seat] - INITIAL_SCORE) / 1000
+        pts = int(round(base))
+
+        has_bot = bool(room.bots)
+        if has_bot:
+            pts = int(round(pts * 0.5))
+            if tier >= 3 and pts > 0:
+                pts = 0
+        return pts
+
+    def _apply_rank_changes(self, lobby, room, rankings):
+        """段位结算 — 返回 {player_name: {pts, old_rank, new_rank, ...}}"""
+        from ...systems.ranks import (
+            get_rank_info, get_rank_index, get_rank_order,
+            get_title_id_from_rank,
+        )
+        from ...player.manager import PlayerManager
+
+        _gk = self.game_key
+        rank_order = get_rank_order(_gk)
+        changes = {}
+
+        for rank_idx, seat in enumerate(rankings):
+            p = room.players[seat]
+            if not p or p in room.bots:
+                continue
+            pd = lobby.online_players.get(p)
+            if not pd:
+                continue
+            gd = pd.setdefault(_gk, {})
+            cur_rank = gd.get('rank', rank_order[0])
+            cur_pts = gd.get('rank_points', 0)
+            info = get_rank_info(cur_rank, _gk)
+            tier = info.get('tier', 1)
+
+            delta = self._calc_rank_points(room, seat, rank_idx, tier)
+            new_pts = cur_pts + delta
+            new_rank = cur_rank
+            promoted = False
+            demoted = False
+
+            # 升段
+            pts_up = info.get('points_up')
+            if pts_up and new_pts >= pts_up:
+                idx = get_rank_index(cur_rank, _gk)
+                if idx < len(rank_order) - 1:
+                    new_rank = rank_order[idx + 1]
+                    new_pts = 0
+                    promoted = True
+
+            # 降段 (points_down is not None 才可降)
+            if not promoted and new_pts < 0:
+                if info.get('points_down') is not None:
+                    idx = get_rank_index(cur_rank, _gk)
+                    if idx > 0:
+                        prev = rank_order[idx - 1]
+                        prev_info = get_rank_info(prev, _gk)
+                        new_rank = prev
+                        new_pts = (prev_info.get('points_up', 40) or 40) // 2
+                        demoted = True
+                else:
+                    new_pts = 0
+
+            gd['rank'] = new_rank
+            gd['rank_points'] = new_pts
+            if get_rank_index(new_rank, _gk) > get_rank_index(
+                    gd.get('max_rank', rank_order[0]), _gk):
+                gd['max_rank'] = new_rank
+
+            # 升段授予头衔
+            if promoted:
+                title_id = get_title_id_from_rank(new_rank)
+                if title_id:
+                    titles = pd.setdefault('titles',
+                                           {'owned': ['newcomer'],
+                                            'displayed': ['newcomer']})
+                    if title_id not in titles['owned']:
+                        titles['owned'].append(title_id)
+
+            PlayerManager.save_player_data(p, pd)
+
+            from ...systems.ranks import get_rank_name
+            changes[p] = {
+                'delta': delta,
+                'old_rank': cur_rank,
+                'old_rank_name': get_rank_name(cur_rank, _gk),
+                'new_rank': new_rank,
+                'new_rank_name': get_rank_name(new_rank, _gk),
+                'new_pts': new_pts,
+                'promoted': promoted,
+                'demoted': demoted,
+            }
+        return changes
+
     def _apply_game_rewards(self, lobby, room):
-        """段位场对局结束时发放奖励（友人場不发）。
-        按最终分数排名: 1st→300exp+80gold, 2nd→200exp+40gold,
-        3rd→100exp+0gold, 4th→50exp-20gold.
-        返回奖励描述文本。
+        """对局结束时发放经验/金币（友人場不发）+ 段位结算 + 统计更新。
+        返回 (描述文本, rank_changes dict)。
         """
         if room.room_tier == 'friendly':
-            return ''
+            return '', {}
 
         from ...systems.leveling import check_level_up
+        from ...systems.ranks import get_rank_info, get_rank_name
         from ...player.manager import PlayerManager
 
         rankings = sorted(range(MAX_PLAYERS),
                           key=lambda i: room.scores[i], reverse=True)
-        reward_table = [
-            (300, 80), (200, 40), (100, 0), (50, -20),
-        ]
+        reward_base = _REWARDS.get('placement', [
+            [2400, 500], [1500, 250], [900, 0], [400, -100]])
+
+        # 段位结算
+        rank_changes = self._apply_rank_changes(lobby, room, rankings)
+
+        # 经验/金币 — 按最高 tier 倍率
+        max_tier = 1
+        for seat in range(MAX_PLAYERS):
+            p = room.players[seat]
+            if p and p not in room.bots:
+                pd = lobby.online_players.get(p)
+                if pd:
+                    gd = pd.get(self.game_key, {})
+                    info = get_rank_info(gd.get('rank', 'beginner_1'),
+                                         self.game_key)
+                    max_tier = max(max_tier, info.get('tier', 1))
+        mult = self._TIER_MULT.get(max_tier, 1.0)
+
         lines = []
         for rank_idx, seat in enumerate(rankings):
             p = room.players[seat]
@@ -1366,10 +1546,27 @@ class MahjongEngine(BaseGameEngine):
             pd = lobby.online_players.get(p)
             if not pd:
                 continue
-            exp_gain, gold_gain = reward_table[rank_idx]
+            base_exp, base_gold = reward_base[rank_idx]
+            # 点数加成: (终点 - 25000) / 1000 × 系数
+            sf = _REWARDS.get('score_factor', {})
+            score_delta = (room.scores[seat] - INITIAL_SCORE) / 1000
+            base_exp += score_delta * sf.get('exp_per_1k', 0)
+            base_gold += score_delta * sf.get('gold_per_1k', 0)
+            exp_gain = max(0, int(round(base_exp * mult)))
+            gold_gain = int(round(base_gold * mult))
             pd['exp'] = pd.get('exp', 0) + exp_gain
             pd['gold'] = max(0, pd.get('gold', 0) + gold_gain)
             lvl_ups = check_level_up(pd)
+
+            # report_game_result 更新统计
+            if rank_idx == 0:
+                result, delta_stats = 'win', {'wins': 1}
+            elif rank_idx == 3:
+                result, delta_stats = 'loss', {'losses': 1}
+            else:
+                result, delta_stats = 'draw', {'draws': 1}
+            self.report_game_result(lobby, p, pd, result, delta_stats)
+
             pos_label = ['1st', '2nd', '3rd', '4th'][rank_idx]
             parts = [f'{p}({pos_label}): +{exp_gain}exp']
             if gold_gain > 0:
@@ -1378,57 +1575,63 @@ class MahjongEngine(BaseGameEngine):
                 parts.append(f'{gold_gain}金币')
             if lvl_ups:
                 parts.append(f'升级! Lv.{lvl_ups[-1]}')
+            rc = rank_changes.get(p)
+            if rc:
+                d = rc['delta']
+                sign = '+' if d >= 0 else ''
+                parts.append(f'[{sign}{d}pt]')
+                if rc['promoted']:
+                    parts.append(f'升段→{rc["new_rank_name"]}')
+                elif rc['demoted']:
+                    parts.append(f'降段→{rc["new_rank_name"]}')
             lines.append(' '.join(parts))
-            PlayerManager.save_player_data(p, pd)
-        if lines:
-            return '\n' + '\n'.join(lines)
-        return ''
+        desc = '\n' + '\n'.join(lines) if lines else ''
+        return desc, rank_changes
 
     def _handle_win(self, lobby, room, player_name, winner_seat, win_info, is_tsumo):
-        """处理和牌"""
+        """处理和牌 — 一步发送全部数据，客户端渐进展示"""
         from_seat = None
+        ron_tile = None
         if not is_tsumo and room._pending_action:
             from_seat = room._pending_action['from_seat']
+            ron_tile = room._pending_action['tile']
         room._pending_action = None
+        room._pending_bot_response = None
 
         room.apply_win(winner_seat, win_info, is_tsumo, from_seat)
         room.advance_round(dealer_won=(winner_seat == room.dealer))
 
         win_type = '自摸' if is_tsumo else '荣和'
         winner = room.players[winner_seat]
-        cost = win_info['cost']
-        yaku_str = ', '.join(win_info.get('yaku', []))
-        msg = (
-            f'{winner} {win_type}!\n'
-            f'{win_info["han"]}翻{win_info["fu"]}符  {cost}点\n'
-            f'役: {yaku_str}'
-        )
 
+        win_data = room.get_win_data(
+            winner_seat, win_info, is_tsumo, from_seat, ron_tile)
+
+        msg = f'{winner} {win_type}!'
         if room.is_game_over():
-            room.state = 'finished'
-            finished_data = room.get_finished_data(winner_seat, win_info)
-            msg += '\n\n对局结束!'
-            msg += self._apply_game_rewards(lobby, room)
+            rewards, rank_changes = self._apply_game_rewards(lobby, room)
+            msg += '\n\n对局结束!' + rewards
+            win_data['message'] = '对局结束!' + rewards
+            win_data['rank_changes'] = rank_changes
         else:
-            room.state = 'finished'
-            finished_data = room.get_finished_data(winner_seat, win_info)
-            finished_data['next_round'] = room.get_round_name()
+            win_data['next_round'] = room.get_round_name()
 
         for i in range(MAX_PLAYERS):
             p = room.players[i]
             if p and p not in room.bots:
                 lobby.set_player_location(p, 'mahjong_room')
 
-        notify = self._notify_room(
-            room, msg, finished_data, exclude=player_name, location='mahjong_room')
-
         room.state = 'waiting'
+
+        notify = self._notify_room(
+            room, msg, win_data,
+            exclude=player_name, location='mahjong_room')
 
         result = {
             'action': 'mahjong_win',
             'send_to_caller': [
                 {'type': GAME, 'text': msg},
-                {'type': ROOM_UPDATE, 'room_data': finished_data},
+                {'type': ROOM_UPDATE, 'room_data': win_data},
                 {'type': LOCATION_UPDATE, 'location': 'mahjong_room'},
             ],
             'send_to_players': notify,
@@ -1454,12 +1657,13 @@ class MahjongEngine(BaseGameEngine):
         room.advance_round(dealer_won=dealer_tenpai)
 
         room.state = 'finished'
-        finished_data = room.get_finished_data(None, None)
+        finished_data = room.get_finished_data()
         msg = '流局! 牌山已空。'
 
         if room.is_game_over():
-            msg += '\n\n对局结束!'
-            msg += self._apply_game_rewards(lobby, room)
+            rewards, rank_changes = self._apply_game_rewards(lobby, room)
+            msg += '\n\n对局结束!' + rewards
+            finished_data['rank_changes'] = rank_changes
         else:
             finished_data['next_round'] = room.get_round_name()
 
@@ -1529,55 +1733,51 @@ class MahjongEngine(BaseGameEngine):
 
         seat = room.current_turn
 
-        # 检查自摸（仅在有摸牌时）
-        if room.drawn_tile is not None:
-            tsumo = room.check_tsumo(seat)
-            if tsumo and tsumo.get('han', 0) and tsumo['han'] >= 1:
-                self._bot_win(lobby, room, seat, tsumo)
-                return False, {}
+        # 检查自摸
+        win_info = _bot_ai.should_tsumo(room, seat)
+        if win_info:
+            self._bot_win(lobby, room, seat, win_info)
+            return False, {}
 
-        # 简单 AI
+        # 选择弃牌
         hand = room.get_full_hand(seat)
         if not hand:
             return False, {}
-        best_tile = hand[-1]
-        best_shanten = 99
-        for t in hand:
-            test_hand = [x for x in hand if x != t]
-            tiles_34 = [0] * 34
-            for x in test_hand:
-                tiles_34[x // 4] += 1
-            try:
-                sh = _shanten.calculate_shanten(tiles_34)
-                if sh < best_shanten:
-                    best_shanten = sh
-                    best_tile = t
-            except Exception:
-                pass
+        best_tile = _bot_ai.choose_discard(room, seat)
 
         bot_name = room.players[seat]
         room.discard_tile(seat, best_tile)
-        discard_name = tile_to_chinese(best_tile)
 
         if room.is_draw():
-            # 流局 — 标记到 room 上供调度器处理
-            # 发送弃牌更新给真人（流局前的最终状态）
             send_to_players = self._notify_room_game(room, '')
             room._bot_draw = True
             return False, send_to_players
 
-        # 检查其他家是否能 碰/杠/和
+        # 检查其他家响应（包括 bot）
         pending_waiting = set()
         pending_actions_map = {}
+        bot_responses = {}  # seat -> action
         for i in range(1, 4):
             other = (seat + i) % 4
             other_p = room.players[other]
-            if not other_p or other_p in room.bots:
+            if not other_p:
                 continue
+
             can_ron = room.check_ron(other, best_tile) is not None
             can_pon = room.can_pon(other, best_tile)
             can_chi = room.can_chi(other, best_tile, seat)
-            if can_ron or can_pon or can_chi:
+
+            if not (can_ron or can_pon or can_chi):
+                continue
+
+            if other_p in room.bots:
+                # bot 立即决策
+                action = _bot_ai.respond_to_discard(
+                    room, other, best_tile, seat)
+                if action != 'pass':
+                    bot_responses[other] = action
+            else:
+                # 真人等待响应
                 pending_waiting.add(other)
                 acts = []
                 if can_ron:
@@ -1588,6 +1788,19 @@ class MahjongEngine(BaseGameEngine):
                     acts.append('chi')
                 acts.append('pass')
                 pending_actions_map[other] = acts
+
+        # bot 有响应时延迟执行（先让弃牌显示给玩家看）
+        if bot_responses:
+            room._pending_bot_response = {
+                'tile': best_tile,
+                'from_seat': seat,
+                'bot_responses': bot_responses,
+            }
+            if not pending_actions_map:
+                # 仅 bot 响应，直接发弃牌画面
+                send_to_players = self._notify_room_game(room, '')
+                return False, send_to_players
+            # 也有真人要响应 — 同时设 _pending_action，让真人先决定
 
         if pending_actions_map:
             room._pending_action = {
@@ -1614,7 +1827,6 @@ class MahjongEngine(BaseGameEngine):
 
         room.next_turn()
 
-        # 发送弃牌更新给真人（turn 已推进，真人能看到自己的新牌）
         send_to_players = self._notify_room_game(room, '')
 
         next_current = room.players[room.current_turn]
@@ -1625,20 +1837,100 @@ class MahjongEngine(BaseGameEngine):
         )
         return continue_bot, send_to_players
 
+    def _execute_bot_response(self, lobby, room, tile, from_seat, bot_responses):
+        """执行 bot 对弃牌的响应，返回 (continue_bot, send_to_players) 或 None"""
+        # 优先级: ron > pon > chi
+        for action in ('ron', 'pon', 'chi'):
+            for resp_seat, resp_action in bot_responses.items():
+                if resp_action != action:
+                    continue
+                if action == 'ron':
+                    win_info = room.check_ron(resp_seat, tile)
+                    if win_info:
+                        self._bot_win_ron(
+                            lobby, room, resp_seat, tile, win_info, from_seat)
+                        return False, {}
+                elif action == 'pon':
+                    return self._bot_do_pon(lobby, room, resp_seat, tile, from_seat)
+                elif action == 'chi':
+                    return self._bot_do_chi(lobby, room, resp_seat, tile, from_seat)
+        return None
+
+    def _bot_win_ron(self, lobby, room, seat, tile, win_info, from_seat):
+        """bot 荣和 — 生成完整数据"""
+        if room.discards[from_seat] and room.discards[from_seat][-1] == tile:
+            room.discards[from_seat].pop()
+        room._pending_action = None
+
+        bot_name = room.players[seat]
+        room.apply_win(seat, win_info, is_tsumo=False, from_seat=from_seat)
+        room.advance_round(dealer_won=(seat == room.dealer))
+
+        win_data = room.get_win_data(
+            seat, win_info, is_tsumo=False,
+            from_seat=from_seat, ron_tile=tile)
+        msg = f'{bot_name} 荣和!'
+
+        if room.is_game_over():
+            rewards, rank_changes = self._apply_game_rewards(lobby, room)
+            msg += '\n\n对局结束!' + rewards
+            win_data['message'] = '对局结束!' + rewards
+            win_data['rank_changes'] = rank_changes
+        else:
+            win_data['next_round'] = room.get_round_name()
+
+        room.state = 'waiting'
+        room._bot_win_result = {'msg': msg, 'win_data': win_data}
+
+    def _bot_do_pon(self, lobby, room, seat, tile, from_seat):
+        """bot 碰（仅副露，不弃牌），下一轮 bot turn 再弃"""
+        if room.discards[from_seat] and room.discards[from_seat][-1] == tile:
+            room.discards[from_seat].pop()
+        room.do_pon(seat, tile)
+        room._pending_action = None
+        room.current_turn = seat
+        room.drawn_tile = None
+
+        bot_name = room.players[seat]
+        send_to_players = self._notify_room_game(room, f'{bot_name} 碰!')
+        return True, send_to_players
+
+    def _bot_do_chi(self, lobby, room, seat, tile, from_seat):
+        """bot 吃（仅副露，不弃牌），下一轮 bot turn 再弃"""
+        combo = _bot_ai.best_chi_combo(room, seat, tile)
+        if not combo:
+            return None
+
+        if room.discards[from_seat] and room.discards[from_seat][-1] == tile:
+            room.discards[from_seat].pop()
+        room.do_chi(seat, tile, combo)
+        room._pending_action = None
+        room.current_turn = seat
+        room.drawn_tile = None
+
+        bot_name = room.players[seat]
+        send_to_players = self._notify_room_game(room, f'{bot_name} 吃!')
+        return True, send_to_players
+
     def _bot_win(self, lobby, room, seat, win_info):
-        """机器人自摸和牌"""
+        """机器人自摸和牌 — 生成完整数据"""
         bot_name = room.players[seat]
         room.apply_win(seat, win_info, is_tsumo=True)
         room.advance_round(dealer_won=(seat == room.dealer))
-        room.state = 'finished'
-        room.last_win_info = win_info
-        room.last_winner_seat = seat
-        cost = win_info['cost']
-        room.last_win_message = (
-            f'{bot_name} 自摸!\n'
-            f'{win_info["han"]}翻{win_info["fu"]}符  {cost}点\n'
-            f'役: {", ".join(win_info.get("yaku", []))}'
-        )
+
+        win_data = room.get_win_data(seat, win_info, is_tsumo=True)
+        msg = f'{bot_name} 自摸!'
+
+        if room.is_game_over():
+            rewards, rank_changes = self._apply_game_rewards(lobby, room)
+            msg += '\n\n对局结束!' + rewards
+            win_data['message'] = '对局结束!' + rewards
+            win_data['rank_changes'] = rank_changes
+        else:
+            win_data['next_round'] = room.get_round_name()
+
+        room.state = 'waiting'
+        room._bot_win_result = {'msg': msg, 'win_data': win_data}
 
 
 # ── Bot 调度器 ──
@@ -1647,9 +1939,9 @@ import threading
 
 
 class MahjongBotScheduler:
-    """延迟执行机器人回合，每步间隔 1 秒"""
+    """延迟执行机器人回合"""
 
-    BOT_DELAY = 1.0
+    BOT_DELAY = 1.5
 
     def __init__(self, server):
         self._server = server
@@ -1667,6 +1959,8 @@ class MahjongBotScheduler:
             return
         if task_type == 'bot_turn':
             self._schedule(room_id)
+        elif task_type == 'bot_meld_response':
+            self._schedule_meld_response(room_id)
         elif task_type == 'riichi_auto':
             self._schedule_riichi(room_id)
 
@@ -1691,6 +1985,88 @@ class MahjongBotScheduler:
         t.daemon = True
         self._timers[room_id] = t
         t.start()
+
+    def _schedule_meld_response(self, room_id: str):
+        """安排一个延迟的 bot 副露响应"""
+        self.cancel(room_id)
+        t = threading.Timer(
+            self.BOT_DELAY, self._run_meld_response, args=(room_id,))
+        t.daemon = True
+        self._timers[room_id] = t
+        t.start()
+
+    def _run_meld_response(self, room_id: str):
+        """Timer 回调 — 执行延迟的 bot 副露响应（碰/吃/荣）"""
+        self._timers.pop(room_id, None)
+        lobby = self._server.lobby_engine
+        engine = self._get_engine()
+        if not engine:
+            return
+        room = engine._rooms.get(room_id)
+        if not room or room.state != 'playing':
+            return
+
+        pending = getattr(room, '_pending_bot_response', None)
+        if not pending:
+            return
+        room._pending_bot_response = None
+
+        tile = pending['tile']
+        from_seat = pending['from_seat']
+        bot_responses = pending['bot_responses']
+
+        result = engine._execute_bot_response(lobby, room, tile, from_seat, bot_responses)
+        if result is None:
+            # 所有 bot 最终 pass，继续正常流程
+            room.next_turn()
+            send_to_players = engine._notify_room_game(room, '')
+            next_current = room.players[room.current_turn]
+            continue_bot = (
+                next_current and next_current in room.bots
+                and room.state == 'playing'
+                and (room.drawn_tile is not None or room.hands[room.current_turn])
+            )
+            if send_to_players:
+                self._server.dispatch_game_result({
+                    'action': 'mahjong_bot_discard',
+                    'send_to_players': send_to_players,
+                })
+            if continue_bot:
+                self._schedule(room_id)
+            return
+
+        continue_bot, send_to_players = result
+
+        # bot 和牌 — 一步发送完整数据
+        bot_result = getattr(room, '_bot_win_result', None)
+        if bot_result:
+            room._bot_win_result = None
+            for i in range(MAX_PLAYERS):
+                p = room.players[i]
+                if p and p not in room.bots:
+                    lobby.set_player_location(p, 'mahjong_room')
+            notify = engine._notify_room(
+                room, bot_result['msg'], bot_result['win_data'],
+                location='mahjong_room')
+            dispatch_result = {
+                'action': 'mahjong_win',
+                'send_to_players': notify,
+                'refresh_commands': True,
+            }
+            human_players = [p for p in room.players if p and p not in room.bots]
+            if human_players:
+                dispatch_result['refresh_status'] = human_players
+            self._server.dispatch_game_result(dispatch_result)
+            return
+
+        if send_to_players:
+            self._server.dispatch_game_result({
+                'action': 'mahjong_bot_meld',
+                'send_to_players': send_to_players,
+            })
+
+        if continue_bot:
+            self._schedule(room_id)
 
     def _run_riichi_auto(self, room_id: str):
         """Timer 回调 — 立直玩家自动摸切"""
@@ -1743,25 +2119,26 @@ class MahjongBotScheduler:
 
         continue_bot, send_to_players = engine._execute_one_bot_turn(lobby, room)
 
-        # bot 可能自摸赢了
-        if room.state == 'finished' and room.last_win_message:
-            msg = room.last_win_message
-            win_info = room.last_win_info
-            winner_seat = room.last_winner_seat
-            finished_data = room.get_finished_data(winner_seat, win_info)
+        # bot 和牌 — 一步发送完整数据
+        bot_result = getattr(room, '_bot_win_result', None)
+        if bot_result:
+            room._bot_win_result = None
             for i in range(MAX_PLAYERS):
                 p = room.players[i]
                 if p and p not in room.bots:
                     lobby.set_player_location(p, 'mahjong_room')
             notify = engine._notify_room(
-                room, msg, finished_data, location='mahjong_room')
-            room.state = 'waiting'
-            result = {
-                'action': 'mahjong_bot_win',
+                room, bot_result['msg'], bot_result['win_data'],
+                location='mahjong_room')
+            dispatch_result = {
+                'action': 'mahjong_win',
                 'send_to_players': notify,
                 'refresh_commands': True,
             }
-            self._server.dispatch_game_result(result)
+            human_players = [p for p in room.players if p and p not in room.bots]
+            if human_players:
+                dispatch_result['refresh_status'] = human_players
+            self._server.dispatch_game_result(dispatch_result)
             return
 
         # 流局
@@ -1778,7 +2155,7 @@ class MahjongBotScheduler:
                 pass
             room.advance_round(dealer_won=dealer_tenpai)
             room.state = 'finished'
-            finished_data = room.get_finished_data(None, None)
+            finished_data = room.get_finished_data()
             msg = '流局! 牌山已空。'
             if not room.is_game_over():
                 finished_data['next_round'] = room.get_round_name()
@@ -1810,7 +2187,10 @@ class MahjongBotScheduler:
             }
             self._server.dispatch_game_result(result)
 
-        if continue_bot:
+        # 有延迟的 bot 副露响应待处理
+        if getattr(room, '_pending_bot_response', None):
+            self._schedule_meld_response(room_id)
+        elif continue_bot:
             self._schedule(room_id)
         elif room.state == 'playing':
             # bot 回合结束后若下家是立直玩家，安排自动摸切

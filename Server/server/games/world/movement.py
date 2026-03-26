@@ -20,8 +20,8 @@ _DIRECTIONS = {
 }
 
 # 移动冷却
-_BASE_COOLDOWN = 0.4   # 400ms
-_MIN_COOLDOWN = 0.1    # 100ms 下限
+_BASE_COOLDOWN = 0.32  # 320ms
+_MIN_COOLDOWN = 0.08   # 80ms 下限
 
 
 class MovementMixin:

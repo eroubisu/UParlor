@@ -164,16 +164,13 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     @property
     def _input_target(self) -> str:
         mod = self._focused_module()
-        if mod in ('chat', 'cmd', 'game_board', 'login', 'inventory', 'ai', 'online', 'status'):
+        if mod in ('chat', 'game_board', 'login', 'inventory', 'ai', 'online', 'status'):
             return mod
         return ''
 
-    def _is_cmd_focused(self) -> bool:
-        return self._focused_module() == 'cmd'
-
     def _can_input(self) -> bool:
         target = self._input_target
-        if target in ('chat', 'cmd', 'game_board'):
+        if target in ('chat', 'game_board'):
             return True
         if target == 'login':
             w = self.get_module('login')
@@ -242,8 +239,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             self._close_cmd_select()
         self._input_buffer = ""
         self.vim.enter_insert()
-        # 游戏面板/指令面板: 输入的是 /cmd 英文指令，保持英文 IME
-        if self._input_target in ('game_board', 'cmd'):
+        # 游戏面板: 输入的是 /cmd 英文指令，保持英文 IME
+        if self._input_target == 'game_board':
             from . import ime
             ime.on_enter_normal()
         self._update_mode_indicator()
@@ -322,10 +319,8 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
                 self._complete_command()
 
     def on_input_text_area_empty_backspace(self, event) -> None:
-        """空文本 Backspace — 指令面板 hint_back"""
-        if self.vim.mode == Mode.INSERT:
-            if self._input_target == 'cmd':
-                self._hint_back()
+        """空文本 Backspace"""
+        pass
 
     def on_ai_chat_panel_request_insert(self, event) -> None:
         """AI 面板异步步骤完成后请求进入 INSERT 模式"""
@@ -339,8 +334,12 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     def _update_mode_indicator(self):
         indicator = self.query_one("#mode-indicator", Static)
         mode = self.vim.mode
+        count = self.vim._count_buffer
         if mode == Mode.NORMAL:
-            indicator.update(" NORMAL ")
+            if count:
+                indicator.update(f" {count}")
+            else:
+                indicator.update(" NORMAL ")
         elif mode == Mode.INSERT:
             indicator.update(" INSERT ")
 

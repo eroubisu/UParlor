@@ -8,8 +8,6 @@ from textual.widget import Widget
 
 from ..config import MAX_LINES_CMD
 from ..state import ModuleStateManager
-from ..widgets import InputBar
-from ..widgets.prompt import InputBarMixin
 
 
 def _translate_command(text: str) -> str:
@@ -35,25 +33,13 @@ def format_command_echo(text: str) -> str:
     return f"[{COLOR_HINT_TAB_ACTIVE}]>[/] [{COLOR_FG_SECONDARY}]{display}[/]"
 
 
-class CommandPanel(InputBarMixin, Widget):
-    """记录面板：只读交互历史 + 指令输入"""
+class CommandPanel(Widget):
+    """记录面板：只读交互历史"""
 
     _state_mgr = None
-    _input_bar_id = "cmd-input-bar"
-    _scroll_target_id = "cmd-log"
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="cmd-log", wrap=True, highlight=True, markup=True, max_lines=MAX_LINES_CMD)
-        yield InputBar(prompt_id="cmd-prompt", id="cmd-input-bar", submit_on_enter=True)
-
-    # ── 消息 ──
-
-    def on_input_submit(self, text: str):
-        if not text:
-            return
-        if not text.startswith("/"):
-            text = "/" + text
-        self.app.send_command(text)
 
     def echo_command(self, text: str) -> str:
         return format_command_echo(text)

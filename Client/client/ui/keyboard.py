@@ -72,11 +72,13 @@ class KeyboardMixin:
         # 数字前缀累积（vim 风格: 5j = 向下移动5步）
         if key.isdigit() and (key != '0' or vim._count_buffer):
             vim._count_buffer += key
+            self._update_mode_indicator()
             return
 
         # Space 菜单（jk 导航，Enter 进入子菜单，Backspace 返回）
         if self._wk.is_open:
             vim._count_buffer = ""
+            self._update_mode_indicator()
             if key == "escape":
                 self._wk.close()
             elif key == "j":
@@ -92,6 +94,8 @@ class KeyboardMixin:
 
         # 消费数字前缀
         count = vim.consume_count()
+        if count > 1:
+            self._update_mode_indicator()
 
         # hjkl 在聚焦窗口内 — 先尝试面板导航，再 fallback 到滚动
         if key == "j":

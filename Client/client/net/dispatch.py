@@ -38,6 +38,7 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
     """如果 AI 面板处于聊天视图，推送事件
 
     high_priority=True : AttentionBuffer + event_queue（感知 + 主动搭话）
+                         + 5 秒后快速 tick（不等 60 秒轮询）
     high_priority=False : AttentionBuffer only（被动感知，不触发搭话）
     """
     try:
@@ -47,6 +48,12 @@ def _push_ai_event(screen, event: str, *, high_priority: bool = False):
             svc._attention.push(event)
             if high_priority:
                 svc.push_event(event)
+                # 快速 tick: 5 秒后触发一次检查（不等 60 秒轮询）
+                try:
+                    app = screen.app
+                    app.set_timer(5, app._ai_tick)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -233,6 +240,7 @@ def _on_game_invite_result(parsed, app, screen, st):
 
 def _on_room_update(parsed, app, screen, st):
     if parsed.room_data:
+        old_rd = st.game_board.room_data
         st.game_board.update_room(parsed.room_data)
         rd = parsed.room_data
         ai_desc = rd.get('ai_description')
@@ -254,6 +262,16 @@ def _on_room_update(parsed, app, screen, st):
                 desc = f'{game} 游戏结束'
             st.game_board.push_event(desc)
             _push_ai_event(screen, desc, high_priority=True)
+        # 游戏进行中的状态变化 — 通知 AI 旅伴
+        else:
+            game = rd.get('game_type', '')
+            handler = get_handler(game)
+            if handler and hasattr(handler, 'ai_on_room_update'):
+                result = handler.ai_on_room_update(old_rd, rd)
+                if result:
+                    desc, high = result
+                    st.game_board.push_event(desc)
+                    _push_ai_event(screen, desc, high_priority=high)
     if parsed.message:
         st.cmd.add_line(parsed.message)
 

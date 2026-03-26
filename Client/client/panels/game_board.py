@@ -235,8 +235,8 @@ class GameBoardPanel(InputBarMixin, Widget):
             return None, None
         from ..protocol.handler import get_handler, GameHandlerContext
         handler = get_handler(self._game_type)
-        if not handler or not hasattr(handler, 'on_nav'):
-            return handler, None
+        if not handler:
+            return None, None
         ctx = GameHandlerContext(
             state=self._state_mgr,
             get_module=self.app.screen.get_module if hasattr(self.app, 'screen') else lambda n: None,
@@ -271,17 +271,17 @@ class GameBoardPanel(InputBarMixin, Widget):
 
     def nav_tab_prev(self, count=1):
         handler, ctx = self._get_handler_ctx()
-        if handler and ctx:
+        if handler and ctx and hasattr(handler, 'on_nav'):
             handler.on_nav('left', count, ctx)
 
     def nav_tab_next(self, count=1):
         handler, ctx = self._get_handler_ctx()
-        if handler and ctx:
+        if handler and ctx and hasattr(handler, 'on_nav'):
             handler.on_nav('right', count, ctx)
 
     def nav_enter(self):
         handler, ctx = self._get_handler_ctx()
-        if handler and ctx:
+        if handler and ctx and hasattr(handler, 'on_nav'):
             handler.on_nav('enter', 1, ctx)
 
     def nav_back(self) -> bool:

@@ -11,14 +11,6 @@ class InputMixin:
     def _submit_input(self):
         text = self._input_buffer.strip()
 
-        # 空 Enter + 指令面板 → 从 hint bar 选择
-        if not text and self._input_target == 'cmd':
-            self._clear_input_textarea()
-            chain_done = self._hint_enter()
-            if not self.vim.sticky and chain_done:
-                self._close_insert_mode()
-            return
-
         # 游戏面板: 空 Enter → 关闭
         if not text and self._input_target == 'game_board':
             if not self.vim.sticky:
@@ -26,7 +18,7 @@ class InputMixin:
             return
 
         # I(sticky): 发送后保持输入框打开; i(非sticky): 发送后关闭
-        keep_insert = self.vim.sticky and self._input_target in ('chat', 'game_board', 'cmd')
+        keep_insert = self.vim.sticky and self._input_target in ('chat', 'game_board')
         self._input_buffer = ""
         if not keep_insert:
             self._close_insert_mode()
@@ -54,8 +46,6 @@ class InputMixin:
         if keep_insert:
             self._update_panel_prompt("")
             self._clear_input_textarea()
-            if self._input_target == 'cmd':
-                self._hint_filter('')
 
         if not self.logged_in:
             self._enter_insert()

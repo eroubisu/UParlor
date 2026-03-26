@@ -26,6 +26,84 @@ INITIAL_SCORE = 25000
 _calculator = HandCalculator()
 _shanten = Shanten()
 
+# ── 役種翻譯 ──
+_YAKU_ZH: dict[str, str] = {
+    'Menzen Tsumo': '門前清自摸和',
+    'Riichi': '立直',
+    'Ippatsu': '一發',
+    'Chankan': '搶槓',
+    'Rinshan': '嶺上開花',
+    'Haitei Raoyue': '海底摸月',
+    'Houtei Raoyui': '河底撈魚',
+    'Daburu Riichi': '雙立直',
+    'Nagashi Mangan': '流局滿貫',
+    'Pinfu': '平和',
+    'Tanyao': '斷么九',
+    'Iipeiko': '一盃口',
+    'Yakuhai (haku)': '役牌·白',
+    'Yakuhai (hatsu)': '役牌·發',
+    'Yakuhai (chun)': '役牌·中',
+    'Seat Wind (east)': '自風·東',
+    'Seat Wind (south)': '自風·南',
+    'Seat Wind (west)': '自風·西',
+    'Seat Wind (north)': '自風·北',
+    'Round Wind (east)': '場風·東',
+    'Round Wind (south)': '場風·南',
+    'Round Wind (west)': '場風·西',
+    'Round Wind (north)': '場風·北',
+    'Sanshoku Doujun': '三色同順',
+    'Ittsu': '一氣通貫',
+    'Chantai': '混全帶么九',
+    'Honroto': '混老頭',
+    'Toitoi': '對對和',
+    'Sanankou': '三暗刻',
+    'San Kantsu': '三槓子',
+    'Sanshoku Doukou': '三色同刻',
+    'Chiitoitsu': '七對子',
+    'Honitsu': '混一色',
+    'Junchan': '純全帶么九',
+    'Ryanpeikou': '二盃口',
+    'Chinitsu': '清一色',
+    'Kokushi Musou': '國士無雙',
+    'Chuuren Poutou': '九蓮寶燈',
+    'Suu Ankou': '四暗刻',
+    'Daisangen': '大三元',
+    'Suu Ankou Tanki': '四暗刻單騎',
+    'Tsuuiisou': '字一色',
+    'Chinroutou': '清老頭',
+    'Chiihou': '地和',
+    'Tenhou': '天和',
+    'Ryuuiisou': '綠一色',
+    'Suu Kantsu': '四槓子',
+    'Kokushi Musou Juusanmen Matchi': '國士無雙十三面',
+    'Shou Suushii': '小四喜',
+    'Dai Suushii': '大四喜',
+    'Daburu Chuuren Poutou': '純正九蓮寶燈',
+    'Renhou': '人和',
+    'Daisharin': '大車輪',
+    'Daichisei': '大七星',
+    'Open Riichi': '公開立直',
+    'Daburu Open Riichi': '雙公開立直',
+    'Sashikomi': '差込',
+}
+
+
+def _translate_yaku(yaku_str: str) -> str:
+    """翻譯役種名（支援 Dora/Aka Dora/Ura Dora 數量後綴）"""
+    if yaku_str in _YAKU_ZH:
+        return _YAKU_ZH[yaku_str]
+    # "Dora 3" → "ドラ 3", "Aka Dora 1" → "赤ドラ 1", "Ura Dora 2" → "裏ドラ 2"
+    for prefix, zh in (('Aka Dora', '赤寶牌'),
+                       ('Ura Dora', '裏寶牌'),
+                       ('Dora', '寶牌')):
+        if yaku_str.startswith(prefix):
+            suffix = yaku_str[len(prefix):]
+            return zh + suffix
+    if yaku_str.startswith('Paarenchan'):
+        suffix = yaku_str[len('Paarenchan'):]
+        return '八連莊' + suffix
+    return yaku_str
+
 # 默认可选规则
 _OPTIONAL = OptionalRules(
     has_open_tanyao=True,
@@ -89,11 +167,6 @@ class MahjongRoom:
         self._pending_action: dict | None = None
         self._riichi_pending: dict | None = None  # {seat, valid_indices}
 
-        # ── 机器人自摸缓存 ──
-        self.last_win_info: dict | None = None
-        self.last_winner_seat: int | None = None
-        self.last_win_message: str | None = None
-
     # ── 座位管理 ──
 
     def get_player_count(self) -> int:
@@ -150,7 +223,6 @@ class MahjongRoom:
     def start_next_round(self):
         """开始下一局"""
         self.state = 'playing'
-        self._clear_bot_cache()
         self._deal()
 
     def advance_round(self, dealer_won: bool):
@@ -213,13 +285,7 @@ class MahjongRoom:
         self.drawn_tile = None
         self._pending_action = None
         self._riichi_pending = None
-        self._clear_bot_cache()
         self._draw_tile(self.dealer)
-
-    def _clear_bot_cache(self):
-        self.last_win_info = None
-        self.last_winner_seat = None
-        self.last_win_message = None
 
     # ── 牌操作 ──
 
@@ -477,7 +543,7 @@ class MahjongRoom:
                 'fu': result.fu,
                 'cost': result.cost['main'],
                 'cost_additional': result.cost.get('additional', 0),
-                'yaku': [str(y) for y in result.yaku],
+                'yaku': [_translate_yaku(str(y)) for y in result.yaku],
             }
         except Exception:
             return None
@@ -504,7 +570,7 @@ class MahjongRoom:
                 'fu': result.fu,
                 'cost': result.cost['main'],
                 'cost_additional': result.cost.get('additional', 0),
-                'yaku': [str(y) for y in result.yaku],
+                'yaku': [_translate_yaku(str(y)) for y in result.yaku],
             }
         except Exception:
             return None
@@ -535,21 +601,20 @@ class MahjongRoom:
 
     def apply_win(self, winner_seat: int, win_info: dict, is_tsumo: bool,
                   from_seat: int | None = None):
-        """应用和牌计分 (含本场/供托)"""
+        """应用和牌计分 (含本场/供托)，保存分数变化"""
+        old_scores = list(self.scores)
         cost = win_info['cost']
         honba_bonus = self.honba * 300
 
         if is_tsumo:
             cost_add = win_info.get('cost_additional', 0)
             if self.dealer == winner_seat:
-                # 亲家自摸: 子各付 cost/3 + 本场
                 each = cost // 3 + (honba_bonus // 3)
                 for i in range(4):
                     if i != winner_seat:
                         self.scores[i] -= each
                 self.scores[winner_seat] += each * 3
             else:
-                # 子家自摸: 亲付 cost, 其余付 cost_additional + 本场
                 dealer_pay = cost + (honba_bonus // 3)
                 other_pay = (cost_add if cost_add else cost // 3) + (honba_bonus // 3)
                 for i in range(4):
@@ -561,15 +626,20 @@ class MahjongRoom:
                         self.scores[i] -= other_pay
                 self.scores[winner_seat] += dealer_pay + other_pay * 2
         else:
-            # 荣和: 放铳者付全额 + 本场
             total = cost + honba_bonus
             if from_seat is not None:
                 self.scores[from_seat] -= total
             self.scores[winner_seat] += total
 
         # 供托归赢家
-        self.scores[winner_seat] += self.riichi_sticks * 1000
+        riichi_bonus = self.riichi_sticks * 1000
+        self.scores[winner_seat] += riichi_bonus
         self.riichi_sticks = 0
+
+        # 保存分数变化（供客户端显示）
+        self._score_changes = [
+            self.scores[i] - old_scores[i] for i in range(4)
+        ]
 
     def apply_draw(self):
         """流局 — 听牌者从未听牌者处获得点数"""
@@ -672,24 +742,23 @@ class MahjongRoom:
             'dora_tiles_34': [_indicator_to_dora_34(t) for t in self.dora_indicators],
         }
 
-        # 向听数 + 待ち牌
+        # 听牌 + 打牌提示
         tiles_34 = hand_to_34(sorted_hand)
         shanten = _shanten.calculate_shanten(tiles_34)
-        data['shanten'] = shanten
+
+        # 収集已公开的牌，用于计算剩余张数
+        visible = [0] * 34
+        for i in range(4):
+            for t in self.discards[i]:
+                visible[t // 4] += 1
+            for m in self.melds[i]:
+                for t in m:
+                    visible[t // 4] += 1
+        for t in sorted_hand:
+            visible[t // 4] += 1
 
         if shanten == 0:
-            # 収集已公开的牌，用于计算剩余张数
-            visible = [0] * 34
-            for i in range(4):
-                for t in self.discards[i]:
-                    visible[t // 4] += 1
-                for m in self.melds[i]:
-                    for t in m:
-                        visible[t // 4] += 1
-            for t in sorted_hand:
-                visible[t // 4] += 1
-
-            # 聴牌: 找出哪些牌能让向听变为 -1 (和牌)
+            # 已听牌: 找出等哪些牌 (非你回合也显示)
             waiting = []
             for t34 in range(34):
                 if tiles_34[t34] >= 4:
@@ -702,8 +771,8 @@ class MahjongRoom:
                             tiles_34[t34] -= 1
                             continue
                         w_info = {'name': tile_to_chinese(t34 * 4),
+                                  'tile_str': tile_to_str(t34 * 4),
                                   'remaining': remaining}
-                        # 估算和牌番数/点数
                         try:
                             win_tile = t34 * 4
                             full_win = list(sorted_hand) + [win_tile]
@@ -727,18 +796,11 @@ class MahjongRoom:
                 tiles_34[t34] -= 1
             data['waiting_tiles'] = waiting
 
-        elif shanten == 1 and self.current_turn == seat:
-            # 一向听: 找出打哪张牌能进入听牌，以及听什么
-            visible = [0] * 34
-            for i in range(4):
-                for t in self.discards[i]:
-                    visible[t // 4] += 1
-                for m in self.melds[i]:
-                    for t in m:
-                        visible[t // 4] += 1
-            for t in sorted_hand:
-                visible[t // 4] += 1
-
+        if shanten <= 1 and self.current_turn == seat:
+            # 你的回合: 列出打哪张→听哪张 (含番数点数)
+            # 14 牌 shanten=0: 打掉后 13 牌 shanten 应 ≤0（听牌）
+            # 14 牌 shanten=1: 打掉后 13 牌 shanten 应 ≤0（进听）
+            target_sh = max(shanten - 1, 0)
             tenpai_discards = []
             seen_t34 = set()
             for idx, t in enumerate(sorted_hand):
@@ -753,7 +815,7 @@ class MahjongRoom:
                     sh = _shanten.calculate_shanten(test_34)
                 except Exception:
                     continue
-                if sh != 0:
+                if sh > target_sh:
                     continue
                 seen_t34.add(t34)
 
@@ -766,10 +828,35 @@ class MahjongRoom:
                         if _shanten.calculate_shanten(test_34) == -1:
                             remaining = 4 - visible[w34]
                             if remaining > 0:
-                                waits.append({
+                                w_info = {
                                     'name': tile_to_chinese(w34 * 4),
+                                    'tile_str': tile_to_str(w34 * 4),
                                     'remaining': remaining,
-                                })
+                                }
+                                try:
+                                    win_tile = w34 * 4
+                                    full_win = list(test) + [win_tile]
+                                    config = self._make_config(
+                                        seat, is_tsumo=True)
+                                    calc_melds = \
+                                        self._build_melds_for_calc(seat)
+                                    result = \
+                                        _calculator.estimate_hand_value(
+                                            full_win, win_tile,
+                                            melds=calc_melds,
+                                            config=config,
+                                            dora_indicators=(
+                                                self.dora_indicators))
+                                    if not result.error:
+                                        w_info['han'] = result.han
+                                        w_info['fu'] = result.fu
+                                        w_info['points'] = (
+                                            result.cost['main']
+                                            + result.cost.get(
+                                                'additional', 0))
+                                except Exception:
+                                    pass
+                                waits.append(w_info)
                     except Exception:
                         pass
                     test_34[w34] -= 1
@@ -791,18 +878,70 @@ class MahjongRoom:
 
         return data
 
-    def get_finished_data(self, winner_seat: int | None,
-                          win_info: dict | None) -> dict:
+    def get_win_data(self, winner_seat: int, win_info: dict,
+                     is_tsumo: bool, from_seat: int | None = None,
+                     ron_tile: int | None = None) -> dict:
+        """和牌完整数据（单次发送，客户端渐进展示）"""
         data = self.get_table_data()
         data['room_state'] = 'finished'
         data['finished'] = True
         data['round_name'] = self.get_round_name()
-        if winner_seat is not None and win_info:
-            data['winner'] = self.players[winner_seat]
-            data['winner_position'] = POSITION_NAMES[winner_seat]
-            data['win_info'] = win_info
-        else:
-            data['draw'] = True
+        data['winner'] = self.players[winner_seat]
+        data['winner_position'] = POSITION_NAMES[winner_seat]
+        data['is_tsumo'] = is_tsumo
+        data['win_info'] = win_info
+        data['score_changes'] = getattr(self, '_score_changes', [0] * 4)
+
+        if not is_tsumo and from_seat is not None:
+            data['from_player'] = self.players[from_seat]
+            data['from_position'] = POSITION_NAMES[from_seat]
+        if ron_tile is not None:
+            data['ron_tile'] = tile_to_str(ron_tile)
+            data['ron_tile_chinese'] = tile_to_chinese(ron_tile)
+
+        # 听牌玩家
+        tenpai_seats = []
+        for i in range(4):
+            if i == winner_seat:
+                continue
+            full = list(self.hands[i])
+            for m in self.melds[i]:
+                full.extend(m)
+            tiles_34 = hand_to_34(full)
+            try:
+                if _shanten.calculate_shanten(tiles_34) <= 0:
+                    tenpai_seats.append(i)
+            except Exception:
+                pass
+        data['tenpai_seats'] = tenpai_seats
+
+        data['all_hands'] = [
+            [tile_to_str(t) for t in sorted(self.hands[i], key=lambda t: t // 4)]
+            for i in range(4)
+        ]
+        data['all_hands_chinese'] = [
+            [tile_to_chinese(t) for t in sorted(self.hands[i], key=lambda t: t // 4)]
+            for i in range(4)
+        ]
+        data['all_melds'] = [
+            [[tile_to_chinese(t) for t in m] for m in self.melds[i]]
+            for i in range(4)
+        ]
+        data['all_melds_str'] = [
+            [[tile_to_str(t) for t in m] for m in self.melds[i]]
+            for i in range(4)
+        ]
+        data['dora_indicators'] = [tile_to_chinese(t) for t in self.dora_indicators]
+        data['dora_indicators_str'] = [tile_to_str(t) for t in self.dora_indicators]
+        return data
+
+    def get_finished_data(self) -> dict:
+        """流局数据"""
+        data = self.get_table_data()
+        data['room_state'] = 'finished'
+        data['finished'] = True
+        data['round_name'] = self.get_round_name()
+        data['draw'] = True
         data['all_hands'] = [
             [tile_to_str(t) for t in sorted(self.hands[i], key=lambda t: t // 4)]
             for i in range(4)
