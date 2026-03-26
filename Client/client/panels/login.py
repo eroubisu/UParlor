@@ -24,8 +24,11 @@ _WELCOME_DOC = """\
             [bold]←[/bold]    [bold]↓[/bold]    [bold]↑[/bold]    [bold]→[/bold]
 窗口内部    [bold]h[/bold]    [bold]j[/bold]    [bold]k[/bold]    [bold]l[/bold]
 窗口外部    [bold]H[/bold]    [bold]J[/bold]    [bold]K[/bold]    [bold]L[/bold]
+代替方案    [bold]wasd-WASD[/bold]    适合习惯 WASD 的玩家
+代替方案    [bold]方向键-shift+方向键[/bold]    适合习惯方向键的玩家
             
-打开输入    [bold]i[/bold]
+打开输入    [bold]i[/bold]    粘滞输入    [bold]I[/bold]
+打开指令    [bold]p[/bold]    粘滞指令    [bold]P[/bold]
 确认选中    [bold]Enter[/bold]
 返回        [bold]Backspace[/bold]
 退出        [bold]Esc[/bold]

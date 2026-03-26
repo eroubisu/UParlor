@@ -97,14 +97,19 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             self._layout_tree = get_game_layout()
         await self.canvas.rebuild(self._layout_tree)
         self._restore_all_modules()
+        # 恢复聚焦窗口
+        saved_focus = saved.get('focused') if saved else None
         panes = all_panes(self._layout_tree)
-        for p in panes:
-            if p.module == 'cmd':
-                self._set_focused_pane(p.pane_id)
-                break
+        if saved_focus and any(p.pane_id == saved_focus for p in panes):
+            self._set_focused_pane(saved_focus)
         else:
-            if panes:
-                self._set_focused_pane(panes[0].pane_id)
+            for p in panes:
+                if p.module == 'cmd':
+                    self._set_focused_pane(p.pane_id)
+                    break
+            else:
+                if panes:
+                    self._set_focused_pane(panes[0].pane_id)
         self.action_enter_normal()
         self.update_badges()
 
@@ -472,6 +477,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if not self.logged_in:
             return
         layout_data = serialize(self._layout_tree)
+        layout_data['focused'] = self._focused_pane_id
         self.app.network.send({"type": "save_layout", "layout": layout_data})
 
     def _ensure_module_panel(self, module_name: str):

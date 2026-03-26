@@ -279,6 +279,9 @@ def main():
         _uninstall()
         return
     from .config import VERSION
+    if "--version" in sys.argv or "-V" in sys.argv:
+        print(f"uparlor {VERSION or 'dev'}")
+        return
     print(f"uparlor v{VERSION or 'dev'}\n")
     app = UParlorApp()
     app.run()

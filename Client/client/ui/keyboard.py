@@ -33,6 +33,16 @@ class KeyboardMixin:
         if key == "ctrl+left_square_bracket":
             key = "escape"
 
+        # wasd / 方向键 → hjkl，WASD / Shift+方向键 → HJKL
+        _ALIAS = {
+            'a': 'h', 's': 'j', 'w': 'k', 'd': 'l',
+            'A': 'H', 'S': 'J', 'W': 'K', 'D': 'L',
+            'left': 'h', 'down': 'j', 'up': 'k', 'right': 'l',
+            'shift+left': 'H', 'shift+down': 'J',
+            'shift+up': 'K', 'shift+right': 'L',
+        }
+        key = _ALIAS.get(key, key)
+
         if vim.pending_key == "g":
             vim.pending_key = ""
             if key == "g":
