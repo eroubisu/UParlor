@@ -62,7 +62,7 @@ def _quality_name(name: str, quality: int) -> str:
     return name
 
 
-class _InventoryRenderMixin:
+class InventoryRenderMixin:
     """渲染逻辑 mixin — 标签栏 + 内容渲染"""
 
     # ── 标签栏渲染 ──

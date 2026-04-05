@@ -87,9 +87,7 @@ class AIProvider(ABC):
         """列举可用模型，返回 [{name, display, desc, info}]"""
 
 
-# ════════════════════════════════════════
-# Google Gemini Provider
-# ════════════════════════════════════════
+# ── Google Gemini Provider ──
 
 class GoogleProvider(AIProvider):
     """Google Gemini (google-genai SDK)"""
@@ -116,6 +114,10 @@ class GoogleProvider(AIProvider):
         resp = await self._client.aio.models.generate_content(
             model=model, contents=contents, config=config,
         )
+        candidates = getattr(resp, "candidates", None)
+        if candidates and candidates[0].finish_reason and \
+           candidates[0].finish_reason.name == "MAX_TOKENS":
+            raise ValueError("描述过长，请精简后重试")
         usage = resp.usage_metadata
         tokens = usage.total_token_count if usage and usage.total_token_count else 0
         return (resp.text or ""), tokens
@@ -253,9 +255,7 @@ class GoogleProvider(AIProvider):
         return self._client is not None
 
 
-# ════════════════════════════════════════
-# OpenAI Compatible Provider
-# ════════════════════════════════════════
+# ── OpenAI Compatible Provider ──
 
 class OpenAIProvider(AIProvider):
     """OpenAI 兼容 (openai SDK) — 支持 ChatGPT / 豆包 / DeepSeek 等"""
@@ -442,9 +442,7 @@ class OpenAIProvider(AIProvider):
         return self._client is not None
 
 
-# ════════════════════════════════════════
-# Helper functions
-# ════════════════════════════════════════
+# ── Helper functions ──
 
 def _to_gemini_contents(messages: list[dict]) -> tuple[str, list[dict]]:
     """messages → (system_instruction, gemini contents)"""

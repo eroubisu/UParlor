@@ -17,14 +17,14 @@ from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets import _set_pane_subtitle
 from ..widgets.prompt import InputBarMixin
-from ._mixins.ai_chat import _ChatRenderMixin, _TABS
+from ._mixins.ai_chat import ChatRenderMixin, _TABS
 from ._mixins.ai_chat_views import (
-    _ChatViewsMixin,
+    ChatViewsMixin,
     _VIEW_SETUP, _VIEW_SELECT, _VIEW_CREATE, _VIEW_CHAT,
 )
 
 
-class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
+class AIChatPanel(InputBarMixin, ChatViewsMixin, ChatRenderMixin, Widget):
     """AI 面板：选择角色 → 创建角色 → 聊天（菜单 + 状态栏）"""
 
     _input_bar_id = "ai-input-bar"
@@ -674,13 +674,12 @@ class AIChatPanel(InputBarMixin, _ChatViewsMixin, _ChatRenderMixin, Widget):
                 self._log(f"{M_DIM}>>> 请先设置 API Key{M_END}")
                 return
             if self._streaming:
+                self._log(f"{M_DIM}>>> 等待回复中…{M_END}")
                 return
 
             if self._menu_tab == "action":
                 asyncio.create_task(self._do_action(text))
             else:
-                if self._state_mgr:
-                    self._state_mgr.ai_chat.add_user_message(text)
                 asyncio.create_task(self._stream_reply(text))
 
     # ── 退出清理 ──

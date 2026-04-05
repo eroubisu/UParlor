@@ -20,7 +20,7 @@ _TABS = ["chat", "gift", "action", "settings"]
 _TAB_LABELS = {"chat": "聊天", "gift": "赠送", "action": "互动", "settings": "设置"}
 
 
-class _ChatRenderMixin:
+class ChatRenderMixin:
     """AIChatPanel 的渲染方法集"""
 
     # ── 模型列表 ──

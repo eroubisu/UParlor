@@ -1,0 +1,16 @@
+{
+    "doudizhu_lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "doudizhu_room": [
+        {"name": "start",  "label": "开始", "desc": "开始游戏（3人）"},
+        {"name": "bot",    "label": "机器人", "desc": "添加机器人玩家"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"}
+    ],
+    "doudizhu_playing": [
+        {"name": "bid",  "label": "叫分", "desc": "叫分阶段选择分数"}
+    ]
+}

@@ -10,7 +10,7 @@ from .inventory import (
 )
 
 
-class _InventoryViewsMixin:
+class InventoryViewsMixin:
     """视图业务逻辑 mixin — 导航 + 操作执行 + 搜索/多选"""
 
     # ── Tab 行切换 ──

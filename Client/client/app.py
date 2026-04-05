@@ -28,9 +28,7 @@ from .net.dispatch import dispatch_server_message
 from . import games as _games  # noqa: F401
 
 
-# ═══════════════════════════════════════════════════════
-#  自定义消息
-# ═══════════════════════════════════════════════════════
+# ── 自定义消息 ──
 
 class ServerMsg(Message):
     def __init__(self, data: dict) -> None:
@@ -42,9 +40,7 @@ class Disconnected(Message):
     pass
 
 
-# ═══════════════════════════════════════════════════════
-#  UParlorApp — 主应用
-# ═══════════════════════════════════════════════════════
+# ── UParlorApp — 主应用 ──
 
 class UParlorApp(App):
     """UParlor — 终端游戏厅 TUI 客户端"""
@@ -272,6 +268,37 @@ def _uninstall():
     print("\n卸载完成。")
 
 
+def _check_update(current: str | None):
+    """启动前查 PyPI 最新版，版本不一致或查询失败均阻止启动（dev 版本跳过）"""
+    if current and '.dev' in current:
+        return
+    import json
+    import re
+    import sys
+    import urllib.request
+
+    def _ver_tuple(v: str) -> tuple[int, ...]:
+        return tuple(int(x) for x in re.findall(r'\d+', v.split('.dev')[0]))
+
+    try:
+        cur = _ver_tuple(current or '0.0.0')
+        req = urllib.request.Request(
+            'https://pypi.org/pypi/uparlor/json',
+            headers={'Accept': 'application/json'},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        latest = data['info']['version']
+        lat = _ver_tuple(latest)
+        if lat > cur:
+            print(f"  ★ 发现新版本 v{latest}（当前 v{current or 'dev'}）")
+            print(f"  ★ 更新命令: pip install -U uparlor\n")
+            sys.exit(0)
+    except Exception:
+        print("  ✗ 版本检查失败，无法启动。请检查网络连接。\n")
+        sys.exit(1)
+
+
 def main():
     """CLI 入口点"""
     import sys
@@ -283,5 +310,6 @@ def main():
         print(f"uparlor {VERSION or 'dev'}")
         return
     print(f"uparlor v{VERSION or 'dev'}\n")
+    _check_update(VERSION)
     app = UParlorApp()
     app.run()

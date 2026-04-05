@@ -1,0 +1,19 @@
+{
+    "mahjong_lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "join",   "label": "加入", "desc": "加入指定房间"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "mahjong_room": [
+        {"name": "start",  "label": "开始", "desc": "开始游戏（4人）"},
+        {"name": "bot",    "label": "机器人", "desc": "添加机器人玩家"},
+        {"name": "mode",   "label": "模式", "desc": "切换东风战/南风战"},
+        {"name": "tier",   "label": "段位场", "desc": "设置房间段位"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"}
+    ],
+    "mahjong_playing": [
+        {"name": "back", "label": "返回", "desc": "放弃并返回房间", "tab": "导航"}
+    ]
+}

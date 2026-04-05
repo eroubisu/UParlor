@@ -25,7 +25,7 @@ from ..widgets import _set_pane_subtitle
 from ..widgets.helpers import render_tab_header, _widget_width, render_action_menu
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._mixins.card import render_card
+from ..widgets.card import render_card
 
 
 _TABS = ["friends", "all", "online", "search"]

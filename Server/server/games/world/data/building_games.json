@@ -1,0 +1,6 @@
+{
+    "building_gamehall":  ["mahjong", "doudizhu"],
+    "building_library":   ["wordle"],
+    "building_casino":    ["blackjack", "holdem"],
+    "building_chesshall": ["chess"]
+}

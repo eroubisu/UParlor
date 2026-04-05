@@ -5,7 +5,7 @@ from __future__ import annotations
 from rich.text import Text
 from rich.console import RenderableType
 
-from ..protocol.renderer import register_renderer
+from ...protocol.renderer import register_renderer
 
 
 class GameRenderer:

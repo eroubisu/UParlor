@@ -30,7 +30,7 @@ _VIEW_CHAT   = "chat"
 _CONFIRM_PHRASES = {"确定", "确认", "ok", "好", "好的", "可以", "没问题", "保存"}
 
 
-class _ChatViewsMixin:
+class ChatViewsMixin:
     """AIChatPanel 的视图操作方法集"""
 
     # ── 流式通用 ──
@@ -682,8 +682,10 @@ class _ChatViewsMixin:
             self._save_ai_reply(reply)
 
     async def _stream_reply(self, text: str):
-        if not self._panel_active:
+        if self._streaming or not self._panel_active:
             return
+        if self._state_mgr:
+            self._state_mgr.ai_chat.add_user_message(text)
         reply = await self._run_streaming(self._service.chat(text))
         if reply:
             self._save_ai_reply(reply)

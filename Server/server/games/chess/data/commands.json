@@ -1,0 +1,17 @@
+{
+    "chess_lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "chess_room": [
+        {"name": "start",  "label": "开始", "desc": "开始游戏（2人）"},
+        {"name": "bot",    "label": "机器人", "desc": "添加机器人对手"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"}
+    ],
+    "chess_playing": [
+        {"name": "resign", "label": "认输", "desc": "认输"},
+        {"name": "draw",   "label": "和棋", "desc": "向对方提议和棋"}
+    ]
+}

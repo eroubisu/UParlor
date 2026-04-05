@@ -31,16 +31,16 @@ from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
 from ..data import QUALITY_LABELS as _QUALITY_LABELS
 from ._mixins.inventory import (
-    _InventoryRenderMixin, _BASE_ACTIONS, _FILTER_TABS, _FILTER_LABELS, _SORT_OPTIONS,
+    InventoryRenderMixin, _BASE_ACTIONS, _FILTER_TABS, _FILTER_LABELS, _SORT_OPTIONS,
     _QUALITY_ALL, _MAX_GIFT_VISIBLE,
     _MODE_BROWSE, _MODE_ACTION, _MODE_USE_SUB, _MODE_DETAIL,
     _MODE_INPUT, _MODE_GIFT, _MODE_CONFIRM, _MODE_QUANTITY,
     _MODE_SELECTED,
 )
-from ._mixins.inventory_views import _InventoryViewsMixin
+from ._mixins.inventory_views import InventoryViewsMixin
 
 
-class InventoryPanel(InputBarMixin, _InventoryViewsMixin, _InventoryRenderMixin, Widget):
+class InventoryPanel(InputBarMixin, InventoryViewsMixin, InventoryRenderMixin, Widget):
     """物品栏面板：三标签行(分类/排序/品质) + j/k 导航 + Enter 操作"""
 
     _input_bar_id = "inventory-input-bar"

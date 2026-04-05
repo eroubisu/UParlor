@@ -1,11 +1,13 @@
 """
-客户端游戏模板 — 复制 handler.py 和 renderer.py 到 games/ 目录
+客户端游戏模板 — 复制整个 _template/ 目录并重命名
 
 注册步骤:
-  1. 复制 _template/handler.py → games/your_game_handler.py
-  2. 复制 _template/renderer.py → games/your_game_renderer.py
-  3. 替换所有 TODO
-  4. 在 games/__init__.py 添加:
-       from . import your_game_handler
-       from . import your_game_renderer
+  1. 复制 _template/ → games/your_game/
+  2. 替换 renderer.py 和 handler.py 中的所有 TODO
+  3. 在 games/__init__.py 添加:
+       from . import your_game  # noqa: F401
+  4. 在 your_game/__init__.py 中确保导入了 renderer 和 handler
 """
+
+from . import renderer  # noqa: F401
+from . import handler   # noqa: F401

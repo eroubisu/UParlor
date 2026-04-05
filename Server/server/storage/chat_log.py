@@ -1,12 +1,20 @@
 """聊天日志管理"""
 
-import os
+from __future__ import annotations
+
 import json
+import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 from ..config import CHAT_LOG_DIR, CHAT_HISTORY_DIR, MAINTENANCE_HOUR
 
+logger = logging.getLogger(__name__)
+
 BEIJING_TZ = timezone(timedelta(hours=8))
+
+# 内存中每频道最大消息数（防止长期运行内存增长）
+_MAX_CHANNEL_MESSAGES = 2000
 
 
 def get_beijing_now():
@@ -30,6 +38,7 @@ class ChatLogManager:
     def __init__(self):
         self.chat_logs = {1: [], 2: []}
         self.current_date = get_today_date_str()
+        self._dirty: set[int] = set()  # 有未写入磁盘的频道
         self._load()
 
     def _get_log_file(self, channel):
@@ -65,10 +74,10 @@ class ChatLogManager:
                 archive_file = os.path.join(CHAT_HISTORY_DIR, f'{file_date}_channel_{channel}.json')
                 with open(archive_file, 'w', encoding='utf-8') as f:
                     json.dump(messages, f, ensure_ascii=False, indent=2)
-                print(f"[启动归档] {file_date} 频道{channel} -> {archive_file}")
+                logger.info("启动归档 %s 频道%d -> %s", file_date, channel, archive_file)
             os.remove(log_file)
-        except Exception as e:
-            print(f"[启动归档] 归档失败 {log_file}: {e}")
+        except Exception:
+            logger.exception("启动归档失败 %s", log_file)
 
     def _load(self):
         """加载当天的聊天记录"""
@@ -84,24 +93,38 @@ class ChatLogManager:
                     self.chat_logs[channel] = []
             else:
                 self.chat_logs[channel] = []
-        print(f"[聊天记录] 已加载 {self.current_date} 的记录")
+        logger.info("聊天记录已加载: %s", self.current_date)
 
     def save(self, channel, name, text):
-        """保存一条聊天记录"""
+        """保存一条聊天记录（标记脏页，延迟写盘）"""
         now = get_beijing_now()
         msg = {'name': name, 'text': text, 'time': now.strftime('%H:%M:%S')}
-        self.chat_logs[channel].append(msg)
-        log_file = self._get_log_file(channel)
-        try:
-            with open(log_file, 'w', encoding='utf-8') as f:
-                json.dump(self.chat_logs[channel], f, ensure_ascii=False)
-        except Exception:
-            pass
+        msgs = self.chat_logs[channel]
+        msgs.append(msg)
+        # 内存截断：仅保留最近 _MAX_CHANNEL_MESSAGES 条
+        if len(msgs) > _MAX_CHANNEL_MESSAGES:
+            self.chat_logs[channel] = msgs[-_MAX_CHANNEL_MESSAGES:]
+        self._dirty.add(channel)
+        # 每 50 条消息刷盘一次（减少 IO 频率）
+        if len(msgs) % 50 == 0:
+            self.flush()
+
+    def flush(self):
+        """将脏频道数据写入磁盘"""
+        for channel in list(self._dirty):
+            log_file = self._get_log_file(channel)
+            try:
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.chat_logs[channel], f, ensure_ascii=False)
+            except Exception:
+                logger.exception("刷盘频道 %d 失败", channel)
+        self._dirty.clear()
 
     def archive(self):
         """归档聊天记录到历史文件夹（每日维护时调用）"""
+        self.flush()
         yesterday = self.current_date
-        print(f"[维护] 正在归档 {yesterday} 的聊天记录...")
+        logger.info("正在归档 %s 的聊天记录...", yesterday)
         for channel in [1, 2]:
             log_file = self._get_log_file(channel)
             if os.path.exists(log_file) and self.chat_logs[channel]:
@@ -109,16 +132,16 @@ class ChatLogManager:
                 try:
                     with open(archive_file, 'w', encoding='utf-8') as f:
                         json.dump(self.chat_logs[channel], f, ensure_ascii=False, indent=2)
-                    print(f"[维护] 频道{channel}归档完成: {archive_file}")
-                except Exception as e:
-                    print(f"[维护] 频道{channel}归档失败: {e}")
+                    logger.info("频道%d归档完成: %s", channel, archive_file)
+                except Exception:
+                    logger.exception("频道%d归档失败", channel)
                 try:
                     os.remove(log_file)
                 except Exception:
-                    pass
+                    logger.warning("旧日志文件删除失败: %s", log_file)
         self.chat_logs = {1: [], 2: []}
         self.current_date = get_today_date_str()
-        print(f"[维护] 归档完成，新的一天开始: {self.current_date}")
+        logger.info("归档完成，新的一天开始: %s", self.current_date)
 
     def get_history(self, channel, limit=50):
         """获取聊天历史（最近 limit 条）"""

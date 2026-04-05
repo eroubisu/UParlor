@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 # 加载增益表和阶段配置
-_CONFIG_PATH = Path(__file__).parent / "social_config.json"
+_CONFIG_PATH = Path(__file__).parent / "data" / "social_config.json"
 try:
     with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
         _SOCIAL_CONFIG = json.load(_f)

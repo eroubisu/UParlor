@@ -1,10 +1,15 @@
 """私聊日志管理 — 持久化存储私信记录，支持多设备历史同步"""
 
-import os
+from __future__ import annotations
+
 import json
+import logging
+import os
 
 from ..config import DM_LOG_DIR, DM_HISTORY_DIR
 from .chat_log import get_beijing_now, get_today_date_str
+
+logger = logging.getLogger(__name__)
 
 
 def _pair_key(name_a: str, name_b: str) -> str:
@@ -71,7 +76,7 @@ class DMLogManager:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(self._cache[pair], f, ensure_ascii=False)
         except Exception:
-            pass
+            logger.exception("私聊日志写入失败: %s", path)
 
     def get_history(self, name_a: str, name_b: str, limit: int = 50) -> list[dict]:
         """获取两人之间的最近 limit 条私聊消息（跨天合并）"""
@@ -159,7 +164,7 @@ class DMLogManager:
     def archive(self):
         """归档旧日志（每日维护时调用）"""
         yesterday = self.current_date
-        print(f"[维护] 正在归档 {yesterday} 的私聊记录...")
+        logger.info("正在归档 %s 的私聊记录...", yesterday)
         if not os.path.isdir(DM_LOG_DIR):
             return
         archived = 0
@@ -180,8 +185,8 @@ class DMLogManager:
                 try:
                     os.rename(src, dst)
                     archived += 1
-                except Exception as e:
-                    print(f"[维护] 私聊归档失败 {src}: {e}")
+                except Exception:
+                    logger.exception("私聊归档失败 %s", src)
         # 清理空目录
         for entry in os.listdir(DM_LOG_DIR):
             pair_dir = os.path.join(DM_LOG_DIR, entry)
@@ -194,7 +199,7 @@ class DMLogManager:
         self._cache.clear()
         self.current_date = get_today_date_str()
         if archived:
-            print(f"[维护] 私聊归档完成: {archived} 个文件")
+            logger.info("私聊归档完成: %d 个文件", archived)
 
     def _check_and_archive_old(self):
         """启动时检查并归档过期的私聊记录"""
@@ -216,6 +221,6 @@ class DMLogManager:
                     dst = os.path.join(hist_pair_dir, fn)
                     try:
                         os.rename(src, dst)
-                        print(f"[启动归档] 私聊 {entry}/{fn} -> history/")
+                        logger.info("启动归档 私聊 %s/%s -> history/", entry, fn)
                     except Exception:
-                        pass
+                        logger.warning("启动归档失败 私聊 %s/%s", entry, fn)

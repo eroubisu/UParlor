@@ -9,10 +9,13 @@ from ..msg_types import ACTION, GAME, LOGIN_PROMPT
 
 @register('viewport')
 def handle_viewport(server, client_socket, name, player_data, msg):
+    from ..config import MAX_VIEWPORT_WIDTH, MAX_VIEWPORT_HEIGHT
     w = msg.get('w', 0)
     h = msg.get('h', 0)
     if not (isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0):
         return
+    w = min(w, MAX_VIEWPORT_WIDTH)
+    h = min(h, MAX_VIEWPORT_HEIGHT)
     with server.lock:
         server.clients[client_socket]['viewport'] = (w, h)
     # 仅当玩家在 world 游戏中时才更新视口并刷新地图

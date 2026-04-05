@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "id": "3",
+    "name": "大厅",
+    "width": 100,
+    "height": 50,
+    "map_type": "building",
+    "venue_type": "guild"
+  },
+  "tile_types": {
+    " ": {
+      "name": "空白",
+      "walkable": false,
+      "char": " ",
+      "color": "#303030"
+    },
+    "+": {
+      "name": "门",
+      "walkable": true,
+      "char": "+",
+      "color": "#d0a050"
+    },
+    "o": {
+      "name": "地板",
+      "walkable": true,
+      "char": ".",
+      "color": "#6a6a5a"
+    },
+    "#": {
+      "name": "石墙",
+      "walkable": false,
+      "char": "#",
+      "color": "#a0a0a0"
+    }
+  },
+  "buildings": {
+    "starter_town": {
+      "name": "starter_town",
+      "doors": [
+        [
+          46,
+          24
+        ]
+      ]
+    }
+  },
+  "tiles": [
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                              ########                                              ",
+    "                                              +oooooo#                                              ",
+    "                                     #############ooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #ooooooooooooooo#                                              ",
+    "                                     #################                                              ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    "
+  ],
+  "spawn": [
+    50,
+    25
+  ],
+  "signs": [],
+  "teleports": [],
+  "npcs": []
+}

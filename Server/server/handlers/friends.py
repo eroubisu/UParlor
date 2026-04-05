@@ -22,17 +22,18 @@ def handle_friend_request(server, client_socket, name, player_data, msg):
     if name not in pending:
         pending.append(name)
         PlayerManager.save_player_data(target, target_data)
-    with server.lock:
-        for client, info in server.clients.items():
-            if info.get('name') == target and info.get('state') == 'playing':
-                info['data'].setdefault('pending_friend_requests', [])
-                if name not in info['data']['pending_friend_requests']:
-                    info['data']['pending_friend_requests'].append(name)
-                server.send_to(client, {
-                    'type': FRIEND_REQUEST,
-                    'from': name,
-                    'pending': info['data'].get('pending_friend_requests', []),
-                })
+    cs = server._name_to_socket.get(target)
+    if cs:
+        info = server.clients.get(cs)
+        if info and info.get('state') == 'playing':
+            info['data'].setdefault('pending_friend_requests', [])
+            if name not in info['data']['pending_friend_requests']:
+                info['data']['pending_friend_requests'].append(name)
+            server.send_to(cs, {
+                'type': FRIEND_REQUEST,
+                'from': name,
+                'pending': info['data'].get('pending_friend_requests', []),
+            })
 
 
 @register('friend_accept')
@@ -53,15 +54,16 @@ def handle_friend_accept(server, client_socket, name, player_data, msg):
             if name not in t_friends:
                 t_friends.append(name)
                 PlayerManager.save_player_data(target, target_data)
-            with server.lock:
-                for client, info in server.clients.items():
-                    if info.get('name') == target and info.get('state') == 'playing':
-                        info['data']['friends'] = list(target_data.get('friends', []))
-                        server._send_friend_list(client, info['data'])
-                        server.send_to(client, {
-                            'type': SYSTEM,
-                            'text': f'{name} 已接受你的好友申请',
-                        })
+            cs = server._name_to_socket.get(target)
+            if cs:
+                info = server.clients.get(cs)
+                if info and info.get('state') == 'playing':
+                    info['data']['friends'] = list(target_data.get('friends', []))
+                    server._send_friend_list(cs, info['data'])
+                    server.send_to(cs, {
+                        'type': SYSTEM,
+                        'text': f'{name} 已接受你的好友申请',
+                    })
     server._send_friend_list(client_socket, player_data)
     server.send_to(client_socket, {
         'type': FRIEND_REQUEST,
@@ -97,13 +99,14 @@ def handle_friend_remove(server, client_socket, name, player_data, msg):
             if name in t_friends:
                 t_friends.remove(name)
                 PlayerManager.save_player_data(target, target_data)
-            with server.lock:
-                for client, info in server.clients.items():
-                    if info.get('name') == target and info.get('state') == 'playing':
-                        info['data']['friends'] = list(target_data.get('friends', []))
-                        server._send_friend_list(client, info['data'])
-                        server.send_to(client, {
-                            'type': SYSTEM,
-                            'text': f'{name} 已将你从好友列表移除',
-                        })
+            cs = server._name_to_socket.get(target)
+            if cs:
+                info = server.clients.get(cs)
+                if info and info.get('state') == 'playing':
+                    info['data']['friends'] = list(target_data.get('friends', []))
+                    server._send_friend_list(cs, info['data'])
+                    server.send_to(cs, {
+                        'type': SYSTEM,
+                        'text': f'{name} 已将你从好友列表移除',
+                    })
     server._send_friend_list(client_socket, player_data)

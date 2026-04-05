@@ -1,5 +1,7 @@
 """消息类型常量 — 服务端发送消息的唯一类型定义"""
 
+from __future__ import annotations
+
 # ── 登录 ──
 LOGIN_PROMPT = 'login_prompt'
 LOGIN_SUCCESS = 'login_success'

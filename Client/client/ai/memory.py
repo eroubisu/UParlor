@@ -10,18 +10,41 @@ from .config import char_dir, load_json, save_json, ensure_char_dir
 
 _MAX_HISTORY = 500
 
+# 内存缓存：避免每次 search 都读磁盘
+_cache: dict[str, list[dict]] = {}  # char_id → history
+_cache_id: str = ""  # 当前缓存的 char_id（仅缓存一个）
+
 
 def _history_path(char_id: str):
     return char_dir(char_id) / "memory.json"
 
 
 def _load_history(char_id: str) -> list[dict]:
-    return load_json(_history_path(char_id), [])
+    global _cache_id
+    if char_id == _cache_id and char_id in _cache:
+        return _cache[char_id]
+    data = load_json(_history_path(char_id), [])
+    _cache_id = char_id
+    _cache.clear()
+    _cache[char_id] = data
+    return data
 
 
 def _save_history(char_id: str, entries: list[dict]):
+    global _cache_id
     ensure_char_dir(char_id)
-    save_json(_history_path(char_id), entries[-_MAX_HISTORY:])
+    trimmed = entries[-_MAX_HISTORY:]
+    save_json(_history_path(char_id), trimmed)
+    _cache_id = char_id
+    _cache.clear()
+    _cache[char_id] = trimmed
+
+
+def invalidate_cache():
+    """角色切换时清除缓存"""
+    global _cache_id
+    _cache.clear()
+    _cache_id = ""
 
 
 def _tokenize(text: str) -> list[str]:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from .config import (
     MAX_LINES_CMD,
+    MAX_LINES_CHAT,
 )
 
 # 聊天消息条目类型
@@ -63,10 +64,14 @@ class ChatState(BaseState):
 
     def add_message(self, name: str, text: str, channel: int = 1, time_str: str = ""):
         self.entries.append((MSG, name, text, channel, time_str))
+        if len(self.entries) > MAX_LINES_CHAT:
+            self.entries = self.entries[-MAX_LINES_CHAT:]
         self._notify('add_message', name, text, channel, time_str)
 
     def add_system_message(self, text: str):
         self.entries.append((SYS, text))
+        if len(self.entries) > MAX_LINES_CHAT:
+            self.entries = self.entries[-MAX_LINES_CHAT:]
         self._notify('add_system_message', text)
 
     def set_history(self, messages: list, channel: int):
@@ -137,6 +142,8 @@ class ChatState(BaseState):
         if peer not in self.dm_tabs:
             self.dm_tabs.append(peer)
         self.dm_entries.setdefault(peer, []).append((from_name, text, time_str))
+        if len(self.dm_entries[peer]) > MAX_LINES_CHAT:
+            self.dm_entries[peer] = self.dm_entries[peer][-MAX_LINES_CHAT:]
         # 不在当前标签 → 标记未读（自己发送的不标记）
         if from_name != self._my_name:
             if not (self.panel_focused and self.active_tab == peer):

@@ -14,7 +14,7 @@ from ..config import (
 from ..state import ModuleStateManager
 from ..widgets.input_bar import InputBar
 from ..widgets.prompt import InputBarMixin
-from ._mixins.card import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ..widgets.card import CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
 from ..data import COLOR_PRESETS as _COLOR_PRESETS
 from ..data import EQUIPMENT_SLOT_LABELS
 from ._mixins.status import (
@@ -63,6 +63,7 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
         self._passwd_new: str = ''
         self._wants_insert: bool = False
         self._state_mgr: ModuleStateManager | None = None
+        self._last_game_type: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-header", markup=True)
@@ -492,15 +493,18 @@ class StatusPanel(StatusRenderMixin, InputBarMixin, Widget):
             self._render_all()
         elif event == 'update_location':
             (location,) = args
-            # 进入游戏时自动切换到游戏标签页
             pages = self._get_pages()
-            if _PAGE_GAME in pages and self._page != _PAGE_GAME:
+            new_game = self._current_game_type()
+            # 仅在进入新游戏类型时自动切换到游戏标签页
+            if (_PAGE_GAME in pages and self._page != _PAGE_GAME
+                    and new_game != self._last_game_type):
                 self._page = _PAGE_GAME
                 self._game_cursor = 0
                 self._game_confirm = ''
                 self._game_scroll = 0
             elif _PAGE_GAME not in pages and self._page == _PAGE_GAME:
                 self._page = _PAGE_STATUS
+            self._last_game_type = new_game
             self._render_all()
         elif event == 'clear':
             try:

@@ -1,0 +1,118 @@
+{
+  "meta": {
+    "id": "4",
+    "name": "游戏大厅",
+    "width": 100,
+    "height": 50,
+    "map_type": "building",
+    "venue_type": "gamehall"
+  },
+  "tile_types": {
+    " ": {
+      "name": "空白",
+      "walkable": false,
+      "char": " ",
+      "color": "#303030"
+    },
+    "+": {
+      "name": "门",
+      "walkable": true,
+      "char": "+",
+      "color": "#d0a050"
+    },
+    "o": {
+      "name": "地板",
+      "walkable": true,
+      "char": ".",
+      "color": "#6a6a5a"
+    },
+    "#": {
+      "name": "石墙",
+      "walkable": false,
+      "char": "#",
+      "color": "#a0a0a0"
+    },
+    "-": {
+      "name": "桌子",
+      "walkable": false,
+      "char": "-",
+      "color": "#7a6a5a"
+    },
+    "c": {
+      "name": "椅子",
+      "walkable": true,
+      "char": "o",
+      "color": "#6a5a4a"
+    }
+  },
+  "buildings": {
+    "starter_town": {
+      "name": "starter_town",
+      "doors": [
+        [
+          48,
+          19
+        ]
+      ]
+    }
+  },
+  "tiles": [
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                #################                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooocooooocooooo#                                                   ",
+    "                                #ooc-coooc-coooo+                                                   ",
+    "                                #ooocooooocooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooooooooooooooo#                                                   ",
+    "                                #ooocooooocooooo#                                                   ",
+    "                                #ooc-coooc-coooo#                                                   ",
+    "                                #ooocooooocooooo######                                              ",
+    "                                #oooooooooooooooooooo#                                              ",
+    "                                #oooooooooooooooooooo#                                              ",
+    "                                #oooooooooooooooooooo#                                              ",
+    "                                ######################                                              ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    ",
+    "                                                                                                    "
+  ],
+  "spawn": [
+    50,
+    25
+  ],
+  "signs": [],
+  "teleports": [],
+  "npcs": []
+}

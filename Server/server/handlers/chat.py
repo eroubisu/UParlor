@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from . import register
 from ..storage import maintenance
 from ..msg_types import CHAT, PRIVATE_CHAT, SYSTEM
 
+logger = logging.getLogger(__name__)
+
+
+_MAX_MSG_LEN = 500
+
 
 @register('chat')
 def handle_chat(server, client_socket, name, player_data, msg):
-    text = msg.get('text', '').strip()
+    text = msg.get('text', '').strip()[:_MAX_MSG_LEN]
     if not text:
         return
     channel = msg.get('channel', 1)
@@ -27,13 +33,13 @@ def handle_chat(server, client_socket, name, player_data, msg):
         'time': current_time,
     }
     server.broadcast(chat_msg, channel=channel)
-    print(f"[CH{channel}][{name}] {text}")
+    logger.info("[CH%d][%s] %s", channel, name, text)
 
 
 @register('private_chat')
 def handle_private_chat(server, client_socket, name, player_data, msg):
     target = msg.get('target', '').strip()
-    text = msg.get('text', '').strip()
+    text = msg.get('text', '').strip()[:_MAX_MSG_LEN]
     if not target or not text:
         return
     friends = player_data.get('friends', [])
@@ -54,11 +60,8 @@ def handle_private_chat(server, client_socket, name, player_data, msg):
         'time': current_time,
     }
     server.dm_log_mgr.save(name, target, text)
-    with server.lock:
-        for client, info in server.clients.items():
-            cname = info.get('name')
-            if info.get('state') != 'playing':
-                continue
-            if cname in (target, name):
-                server.send_to(client, dm_msg)
-    print(f"[DM][{name} \u2192 {target}] {text}")
+    # 发给双方（发送者 + 接收者）
+    server.send_to(client_socket, dm_msg)
+    if target != name:
+        server.send_to_player(target, dm_msg)
+    logger.info("[DM][%s → %s] %s", name, target, text)

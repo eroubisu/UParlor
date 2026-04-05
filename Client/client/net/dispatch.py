@@ -91,13 +91,16 @@ def _handle_version_check(app, screen, latest: str):
     if not latest:
         return
     try:
+        import re
         from ..config import VERSION, M_DIM, M_END
+
+        def _ver_tuple(v: str) -> tuple[int, ...]:
+            return tuple(int(x) for x in re.findall(r'\d+', v.split('.dev')[0]))
+
         current = VERSION or "0.0.0"
-        cur = tuple(int(x) for x in current.split("."))
-        lat = tuple(int(x) for x in latest.split("."))
-        if lat > cur:
+        if _ver_tuple(latest) > _ver_tuple(current):
             login = screen.get_module('login')
-            msg = f"{M_DIM}发现新版本 v{latest}（当前 v{current}），请更新: pip install --upgrade uparlor{M_END}"
+            msg = f"{M_DIM}发现新版本 v{latest}（当前 v{current}），请更新: pip install -U uparlor{M_END}"
             if login and hasattr(login, 'add_message'):
                 login.add_message(msg)
             else:
@@ -242,6 +245,12 @@ def _on_room_update(parsed, app, screen, st):
     if parsed.room_data:
         old_rd = st.game_board.room_data
         st.game_board.update_room(parsed.room_data)
+        tile_name = parsed.room_data.get('tile_name', '')
+        try:
+            indicator = screen.query_one('#tile-indicator')
+            indicator.update(f" {tile_name} " if tile_name else '')
+        except Exception:
+            pass
         rd = parsed.room_data
         ai_desc = rd.get('ai_description')
         if ai_desc:
@@ -315,7 +324,7 @@ def _on_game_event(parsed, app, screen, st):
             send_command=app.send_command,
         )
         handler.handle_event(parsed.event, parsed.data, ctx)
-    d = parsed.data or {}
+    d = parsed.data if isinstance(parsed.data, dict) else {}
     ai_desc = d.get('ai_description')
     if ai_desc:
         st.game_board.push_event(str(ai_desc))

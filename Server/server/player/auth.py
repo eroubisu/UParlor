@@ -1,12 +1,19 @@
 """认证流程 Mixin — 登录、注册、密码验证"""
 
+from __future__ import annotations
+
+import logging
 import re
+import time
 
 from .manager import PlayerManager
 from ..storage import maintenance
+from ..config import MAX_LOGIN_ATTEMPTS, LOGIN_COOLDOWN
 from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
+
+logger = logging.getLogger(__name__)
 
 
 def validate_username(name: str) -> str | None:
@@ -21,6 +28,9 @@ def validate_username(name: str) -> str | None:
 class AuthMixin:
     """处理用户登录/注册的认证流程"""
 
+    # name → (fail_count, last_fail_time) — 登录限流
+    _login_attempts: dict[str, tuple[int, float]] = {}
+
     def _handle_login(self, client_socket, text):
         if not text:
             self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '用户名不能为空，请重新输入：'})
@@ -32,14 +42,8 @@ class AuthMixin:
             return
 
         # 防止多端登录：用户名阶段即拒绝
-        with self.lock:
-            already_online = any(
-                sock != client_socket
-                and info.get('state') == 'playing'
-                and info.get('name') == name
-                for sock, info in self.clients.items()
-            )
-        if already_online:
+        existing = self._name_to_socket.get(name)
+        if existing and existing != client_socket:
             self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该账号已在线，无法重复登录。'})
             return
 
@@ -80,8 +84,8 @@ class AuthMixin:
         try:
             PlayerManager.register_player(name, temp_password)
             player_data = PlayerManager.load_player_data(name)
-        except Exception as e:
-            print(f"[!] 注册失败 {name}: {e}")
+        except Exception:
+            logger.exception("注册失败 %s", name)
             self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '注册失败，请重试。\n请输入用户名：'})
             with self.lock:
                 self.clients[client_socket]['state'] = 'login'
@@ -112,7 +116,21 @@ class AuthMixin:
         with self.lock:
             name = self.clients[client_socket]['name']
 
+        # 登录限流检查
+        now = time.monotonic()
+        attempts, last_time = self._login_attempts.get(name, (0, 0.0))
+        if attempts >= MAX_LOGIN_ATTEMPTS and now - last_time < LOGIN_COOLDOWN:
+            remaining = int(LOGIN_COOLDOWN - (now - last_time))
+            self.send_to(client_socket, {
+                'type': LOGIN_PROMPT,
+                'text': f'密码错误次数过多，请 {remaining} 秒后重试。',
+            })
+            return
+
         if PlayerManager.verify_password(name, text):
+            # 登录成功，清除计数
+            self._login_attempts.pop(name, None)
+
             player_data = PlayerManager.load_player_data(name)
 
             # 检查并授予时间相关头衔
@@ -127,10 +145,23 @@ class AuthMixin:
 
             self._on_login_success(client_socket, name, player_data, '登录成功！', '登录')
         else:
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '密码错误，请重试：'})
+            # 记录失败次数
+            if now - last_time >= LOGIN_COOLDOWN:
+                attempts = 0  # 冷却期过后重置
+            attempts += 1
+            self._login_attempts[name] = (attempts, now)
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                logger.warning("登录限流: %s 连续 %d 次密码错误", name, attempts)
+                self.send_to(client_socket, {
+                    'type': LOGIN_PROMPT,
+                    'text': f'密码错误次数过多，请 {LOGIN_COOLDOWN} 秒后重试。',
+                })
+            else:
+                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '密码错误，请重试：'})
 
     def _on_login_success(self, client_socket, name, player_data, success_text, log_label):
         """登录/注册后的共用流程"""
+        self._register_player_socket(name, client_socket)
         self.send_to(client_socket, {'type': LOGIN_SUCCESS, 'text': success_text})
         self.send_player_status(client_socket, player_data)
         self.lobby_engine.register_player(name, player_data)
@@ -158,4 +189,4 @@ class AuthMixin:
                 'type': FRIEND_REQUEST,
                 'pending': pending,
             })
-        print(f"[+] {name} {log_label}")
+        logger.info("%s %s", name, log_label)

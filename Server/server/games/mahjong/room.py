@@ -166,6 +166,7 @@ class MahjongRoom:
         self.turn_count: int = 0
         self._pending_action: dict | None = None
         self._riichi_pending: dict | None = None  # {seat, valid_indices}
+        self.temp_furiten: list[bool] = [False] * 4  # 同巡振听
 
     # ── 座位管理 ──
 
@@ -276,6 +277,7 @@ class MahjongRoom:
             self.hands[i] = sorted(self.wall[:HAND_SIZE], key=lambda t: t // 4)
             self.wall = self.wall[HAND_SIZE:]
         self.discards = [[], [], [], []]
+        self.last_discard_seat = -1
         self.melds = [[], [], [], []]
         self.meld_types = [[], [], [], []]
         self.riichi = [False] * 4
@@ -285,6 +287,7 @@ class MahjongRoom:
         self.drawn_tile = None
         self._pending_action = None
         self._riichi_pending = None
+        self.temp_furiten = [False] * 4
         self._draw_tile(self.dealer)
 
     # ── 牌操作 ──
@@ -310,6 +313,7 @@ class MahjongRoom:
         else:
             return False
         self.discards[seat].append(tile_136)
+        self.last_discard_seat = seat
         self.turn_count += 1
         # 出牌后一发消失
         self.ippatsu[seat] = False
@@ -327,6 +331,8 @@ class MahjongRoom:
             if i != self.current_turn:
                 self.ippatsu[i] = False
         self.current_turn = (self.current_turn + 1) % 4
+        # 摸牌时同巡振听解除
+        self.temp_furiten[self.current_turn] = False
         self._draw_tile(self.current_turn)
 
     def is_draw(self) -> bool:
@@ -575,6 +581,30 @@ class MahjongRoom:
         except Exception:
             return None
 
+    def is_furiten(self, seat: int) -> bool:
+        """检查是否振听（河振听 or 同巡振听）"""
+        if self.temp_furiten[seat]:
+            return True
+        # 河振听: 自家河里有任何待牌
+        hand = list(self.hands[seat])
+        for m in self.melds[seat]:
+            hand.extend(m)
+        tiles_34 = hand_to_34(hand)
+        discards_34 = set(t // 4 for t in self.discards[seat])
+        for t34 in range(34):
+            if tiles_34[t34] >= 4:
+                continue
+            tiles_34[t34] += 1
+            try:
+                if _shanten.calculate_shanten(tiles_34) == -1:
+                    if t34 in discards_34:
+                        tiles_34[t34] -= 1
+                        return True
+            except Exception:
+                pass
+            tiles_34[t34] -= 1
+        return False
+
     def can_pon(self, seat: int, tile_136: int) -> bool:
         tile_34 = tile_136 // 4
         count = sum(1 for t in self.hands[seat] if t // 4 == tile_34)
@@ -609,7 +639,8 @@ class MahjongRoom:
         if is_tsumo:
             cost_add = win_info.get('cost_additional', 0)
             if self.dealer == winner_seat:
-                each = cost // 3 + (honba_bonus // 3)
+                # 庄家自摸: cost['main'] 已是每人支付额
+                each = cost + (honba_bonus // 3)
                 for i in range(4):
                     if i != winner_seat:
                         self.scores[i] -= each
@@ -740,13 +771,21 @@ class MahjongRoom:
             'dora_indicators': [tile_to_chinese(t) for t in self.dora_indicators],
             'dora_indicators_str': [tile_to_str(t) for t in self.dora_indicators],
             'dora_tiles_34': [_indicator_to_dora_34(t) for t in self.dora_indicators],
+            'last_discard_seat': self.last_discard_seat,
         }
+
+        # 振听状态
+        furiten = False
+        if _shanten.calculate_shanten(hand_to_34(sorted_hand)) == 0:
+            furiten = self.is_furiten(seat)
+        if furiten:
+            data['furiten'] = True
 
         # 听牌 + 打牌提示
         tiles_34 = hand_to_34(sorted_hand)
         shanten = _shanten.calculate_shanten(tiles_34)
 
-        # 収集已公开的牌，用于计算剩余张数
+        # 収集已公开的牌，用于计算剩余張数
         visible = [0] * 34
         for i in range(4):
             for t in self.discards[i]:
@@ -756,6 +795,7 @@ class MahjongRoom:
                     visible[t // 4] += 1
         for t in sorted_hand:
             visible[t // 4] += 1
+        own_discards_34 = set(t // 4 for t in self.discards[seat])
 
         if shanten == 0:
             # 已听牌: 找出等哪些牌 (非你回合也显示)
@@ -773,23 +813,33 @@ class MahjongRoom:
                         w_info = {'name': tile_to_chinese(t34 * 4),
                                   'tile_str': tile_to_str(t34 * 4),
                                   'remaining': remaining}
+                        if t34 in own_discards_34:
+                            w_info['furiten'] = True
                         try:
                             win_tile = t34 * 4
                             full_win = list(sorted_hand) + [win_tile]
-                            config = self._make_config(seat, is_tsumo=True)
+                            for m in self.melds[seat]:
+                                full_win.extend(m)
                             melds = self._build_melds_for_calc(seat)
-                            result = _calculator.estimate_hand_value(
-                                full_win, win_tile, melds=melds,
-                                config=config,
-                                dora_indicators=self.dora_indicators)
-                            if not result.error:
-                                w_info['han'] = result.han
-                                w_info['fu'] = result.fu
-                                w_info['points'] = (
-                                    result.cost['main']
-                                    + result.cost.get('additional', 0))
+                            got_yaku = False
+                            for tsumo in (True, False):
+                                config = self._make_config(seat, is_tsumo=tsumo)
+                                result = _calculator.estimate_hand_value(
+                                    full_win, win_tile, melds=melds,
+                                    config=config,
+                                    dora_indicators=self.dora_indicators)
+                                if not result.error:
+                                    w_info['han'] = result.han
+                                    w_info['fu'] = result.fu
+                                    w_info['points'] = (
+                                        result.cost['main']
+                                        + result.cost.get('additional', 0))
+                                    got_yaku = True
+                                    break
+                            if not got_yaku:
+                                w_info['no_yaku'] = True
                         except Exception:
-                            pass
+                            w_info['no_yaku'] = True
                         waiting.append(w_info)
                 except Exception:
                     pass
@@ -833,29 +883,39 @@ class MahjongRoom:
                                     'tile_str': tile_to_str(w34 * 4),
                                     'remaining': remaining,
                                 }
+                                if w34 in own_discards_34:
+                                    w_info['furiten'] = True
                                 try:
                                     win_tile = w34 * 4
                                     full_win = list(test) + [win_tile]
-                                    config = self._make_config(
-                                        seat, is_tsumo=True)
+                                    for m in self.melds[seat]:
+                                        full_win.extend(m)
                                     calc_melds = \
                                         self._build_melds_for_calc(seat)
-                                    result = \
-                                        _calculator.estimate_hand_value(
-                                            full_win, win_tile,
-                                            melds=calc_melds,
-                                            config=config,
-                                            dora_indicators=(
-                                                self.dora_indicators))
-                                    if not result.error:
-                                        w_info['han'] = result.han
-                                        w_info['fu'] = result.fu
-                                        w_info['points'] = (
-                                            result.cost['main']
-                                            + result.cost.get(
-                                                'additional', 0))
+                                    got_yaku = False
+                                    for tsumo in (True, False):
+                                        config = self._make_config(
+                                            seat, is_tsumo=tsumo)
+                                        result = \
+                                            _calculator.estimate_hand_value(
+                                                full_win, win_tile,
+                                                melds=calc_melds,
+                                                config=config,
+                                                dora_indicators=(
+                                                    self.dora_indicators))
+                                        if not result.error:
+                                            w_info['han'] = result.han
+                                            w_info['fu'] = result.fu
+                                            w_info['points'] = (
+                                                result.cost['main']
+                                                + result.cost.get(
+                                                    'additional', 0))
+                                            got_yaku = True
+                                            break
+                                    if not got_yaku:
+                                        w_info['no_yaku'] = True
                                 except Exception:
-                                    pass
+                                    w_info['no_yaku'] = True
                                 waits.append(w_info)
                     except Exception:
                         pass

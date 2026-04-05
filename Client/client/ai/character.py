@@ -123,14 +123,6 @@ _STRUCTURIZE_INSTRUCTION = """\
 - 只输出 JSON"""
 
 
-def _check_truncation(resp) -> None:
-    """检查 Gemini 响应是否因 token 上限被截断"""
-    candidates = getattr(resp, "candidates", None)
-    if candidates and candidates[0].finish_reason and \
-       candidates[0].finish_reason.name == "MAX_TOKENS":
-        raise ValueError("描述过长，请精简后重试")
-
-
 _CHAR_SCHEMA = {
     "type": "object",
     "properties": {

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from rich.text import Text as RichText
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import RichLog, Static
+from textual.widgets import Static
 from textual.widget import Widget
 
 from ..config import (
@@ -70,10 +69,7 @@ class LoginPanel(InputBarMixin, Widget):
         yield Static(id="login-header", markup=True)
         with VerticalScroll(id="login-doc"):
             yield Static(_WELCOME_DOC, markup=True)
-        yield RichLog(
-            id="login-settings", wrap=True, highlight=True,
-            markup=True, max_lines=50, min_width=0,
-        )
+        yield Static("", id="login-settings", markup=True)
         yield Static("", id="login-prompt-text", markup=True)
         yield InputBar(prompt_id="login-prompt", id="login-input-bar")
 
@@ -116,13 +112,13 @@ class LoginPanel(InputBarMixin, Widget):
         """切换标签时显示/隐藏对应内容区"""
         try:
             doc = self.query_one("#login-doc", VerticalScroll)
-            log = self.query_one("#login-settings", RichLog)
+            settings = self.query_one("#login-settings", Static)
             if self._tab == 'settings':
                 doc.display = False
-                log.display = True
+                settings.display = True
             else:
                 doc.display = True
-                log.display = False
+                settings.display = False
         except Exception:
             pass
 
@@ -130,28 +126,27 @@ class LoginPanel(InputBarMixin, Widget):
 
     def _render_settings(self):
         try:
-            log: RichLog = self.query_one("#login-settings", RichLog)
+            widget = self.query_one("#login-settings", Static)
         except Exception:
             return
-        log.clear()
 
+        lines: list[str] = []
         if self._settings_mode == _SETTINGS_MODE_LIST:
             for i, (_, label) in enumerate(_SETTINGS_OPTIONS):
                 if i == self._settings_cursor:
-                    log.write(RichText.from_markup(
-                        f"  [{COLOR_ACCENT}]●[/] {M_BOLD}{label}{M_END}"))
+                    lines.append(
+                        f"  [{COLOR_ACCENT}]●[/] {M_BOLD}{label}{M_END}")
                 else:
-                    log.write(RichText.from_markup(
-                        f"    [{COLOR_FG_SECONDARY}]{label}[/]"))
-            log.write("")
-            log.write(RichText.from_markup(
-                f"  {M_DIM}v{VERSION or 'dev'}{M_END}"))
+                    lines.append(
+                        f"    [{COLOR_FG_SECONDARY}]{label}[/]")
+            lines.append("")
+            lines.append(f"  {M_DIM}v{VERSION or 'dev'}{M_END}")
         elif self._settings_mode == _SETTINGS_MODE_CONFIRM:
             _, label = _SETTINGS_OPTIONS[self._settings_cursor]
-            log.write(RichText.from_markup(
-                f"  {M_DIM}确定{label}？{M_END}"))
-            log.write(RichText.from_markup(
-                f"  {M_DIM}Enter 确认  /  Backspace 取消{M_END}"))
+            lines.append(f"  {M_DIM}确定{label}？{M_END}")
+            lines.append(f"  {M_DIM}Enter 确认  /  Backspace 取消{M_END}")
+
+        widget.update("\n".join(lines))
 
     # ── 导航 ──
 

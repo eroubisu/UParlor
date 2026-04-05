@@ -11,6 +11,8 @@ register_game() 自动从游戏目录加载所有 JSON 数据文件：
 GAME_INFO 只保留代码级配置（locations, create_engine 等）。
 """
 
+from __future__ import annotations
+
 import json
 import os
 
@@ -26,8 +28,8 @@ GAMES = {}
 
 
 def _load_game_json(module_dir, filename):
-    """加载游戏目录下的 JSON 文件，不存在则返回 None"""
-    path = os.path.join(module_dir, filename)
+    """加载游戏 data/ 目录下的 JSON 文件，不存在则返回 None"""
+    path = os.path.join(module_dir, 'data', filename)
     if os.path.exists(path):
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -104,6 +106,18 @@ register_game('wordle', wordle)
 
 from . import mahjong
 register_game('mahjong', mahjong)
+
+from . import chess
+register_game('chess', chess)
+
+from . import blackjack
+register_game('blackjack', blackjack)
+
+from . import holdem
+register_game('holdem', holdem)
+
+from . import doudizhu
+register_game('doudizhu', doudizhu)
 # from . import xxx
 # register_game('xxx', xxx)
 #

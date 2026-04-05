@@ -363,6 +363,32 @@
             "equip_slot": "accessory",
             "stats": {"luck": 8},
             "use_methods": [{"id": "equip", "name": "装备"}]
+        },
+        "fishing_rod": {
+            "name": "竹竿钓竿",
+            "source": "system",
+            "category": "equipment",
+            "desc": "简易竹竿钓竿，可以在水边钓鱼",
+            "stackable": false,
+            "equip_slot": "main_hand",
+            "stats": {},
+            "use_methods": [{"id": "equip", "name": "装备"}]
+        },
+        "raw_fish": {
+            "name": "生鱼",
+            "source": "system",
+            "category": "material",
+            "desc": "刚钓上来的鱼，可以出售",
+            "stackable": true,
+            "sell_price": 8
+        },
+        "rare_fish": {
+            "name": "稀有鱼",
+            "source": "system",
+            "category": "material",
+            "desc": "罕见的鱼种，价值不菲",
+            "stackable": true,
+            "sell_price": 30
         }
     },
 

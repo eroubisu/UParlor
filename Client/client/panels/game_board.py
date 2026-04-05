@@ -10,6 +10,7 @@ from textual.containers import Vertical, VerticalScroll
 
 from ..config import M_DIM, M_END
 from ..state import ModuleStateManager
+from ..protocol.renderer import get_renderer
 from ..widgets import TabMenuBase, InputBar, InputBarMixin
 
 
@@ -29,7 +30,9 @@ class GameHintBar(TabMenuBase):
         return item.command.lstrip('/')
 
     def _item_desc(self, item) -> str:
-        return item.description or ""
+        if self._nav_stack:
+            return item.description or ""
+        return item.label or ""
 
     def _item_sub(self, item) -> list | None:
         return item.sub
@@ -64,22 +67,23 @@ class GameBoardPanel(InputBarMixin, Widget):
             )
 
     def on_mount(self) -> None:
-        display = self.query_one("#game-board-log", Static)
-        display.update(f"{M_DIM}暂无游戏画面{M_END}")
+        self._display = self.query_one("#game-board-log", Static)
+        self._scroll = self.query_one("#game-board-scroll")
+        self._display.update(f"{M_DIM}暂无游戏画面{M_END}")
 
     def on_resize(self, event) -> None:
         # 延迟发送视口确保布局已刷新，content_region 为准确值
         self.call_after_refresh(self._send_viewport)
         if self._last_room_data:
-            # 世界地图渲染依赖服务端视口数据，resize 后等待新数据
-            if self._last_room_data.get('game_type') == 'world':
+            renderer = get_renderer(self._last_room_data.get('game_type', ''))
+            if renderer and getattr(renderer, 'server_viewport', False):
                 return
             self._render_room(self._last_room_data)
 
     def _send_viewport(self) -> None:
         """Notify server of panel dimensions — skip if unchanged"""
         try:
-            scroll = self.query_one("#game-board-scroll")
+            scroll = self._scroll
             region = scroll.content_region
             w, h = region.width, region.height
             # 有纵向滚动条时减1列，防止地图行溢出换行
@@ -92,27 +96,24 @@ class GameBoardPanel(InputBarMixin, Widget):
             pass
 
     def _render_room(self, room_data: dict):
-        from ..protocol.renderer import get_renderer
-        try:
-            display = self.query_one("#game-board-log", Static)
-        except Exception:
+        display = self._display if hasattr(self, '_display') else None
+        if not display:
             self._last_room_data = room_data
             return
         game_type = room_data.get('game_type', '')
         self._game_type = game_type
         self._last_room_data = room_data
-        # 世界地图不需要滚动条——内容始终匹配视口
-        try:
-            scroll = self.query_one("#game-board-scroll")
-            if game_type == 'world':
+        renderer = get_renderer(game_type)
+        scroll = self._scroll if hasattr(self, '_scroll') else None
+        if scroll:
+            # doc-only 的 room_data（如 /help）需要允许滚动
+            is_doc_only = bool(room_data.get('doc')) and not room_data.get('map')
+            if renderer and getattr(renderer, 'no_scroll', False) and not is_doc_only:
                 scroll.add_class('no-scroll')
             else:
                 scroll.remove_class('no-scroll')
-        except Exception:
-            pass
-        renderer = get_renderer(game_type)
         if renderer:
-            state = room_data.get('state', 'waiting')
+            state = room_data.get('room_state', 'waiting')
             if state == 'waiting' and hasattr(renderer, 'render_board_waiting'):
                 content = renderer.render_board_waiting(room_data)
             else:
@@ -213,7 +214,8 @@ class GameBoardPanel(InputBarMixin, Widget):
             return
         from ..protocol.commands import CommandInfo
         sub_items = [
-            CommandInfo(command=it['command'], label=it['label'])
+            CommandInfo(command=it['command'], label=it['label'],
+                        description=it.get('desc', ''))
             for it in items
         ]
         bar._push_stack()

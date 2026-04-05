@@ -11,15 +11,15 @@
   - item_system.py
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 import copy
 import json
 import os
 
 
-# ══════════════════════════════════════════════════
-#  从 JSON 加载框架级静态数据
-# ══════════════════════════════════════════════════
+# ── 从 JSON 加载框架级静态数据 ──
 
 _dir = os.path.join(os.path.dirname(__file__), '..', 'data')
 
@@ -45,20 +45,32 @@ ITEM_SOURCES = _items_data['sources']
 QUALITY_MULTIPLIERS = _items_data.get('quality_multipliers', {})
 
 
-# ══════════════════════════════════════════════════
-#  游戏玩家默认数据注册
-# ══════════════════════════════════════════════════
+# ── 名片默认值 ──
+
+DEFAULT_PATTERN_ID = 'pattern_default'
+DEFAULT_CARD_FIELDS = ['level', 'gold', 'games', 'created']
+DEFAULT_NAME_COLOR = '#ffffff'
+DEFAULT_MOTTO_COLOR = '#b3b3b3'
+DEFAULT_BORDER_COLOR = '#5a5a5a'
+DEFAULT_PATTERN_FALLBACK = {'chars': '.', 'colors': ['#505050']}
+
+
+# ── 游戏玩家默认数据注册 ──
 
 _GAME_PLAYER_DEFAULTS = {}   # {game_id: {默认玩家数据}}
+
+
+def default_titles() -> dict:
+    """返回默认头衔字典（深拷贝）— 所有需要 titles 默认值的地方统一调用此函数"""
+    from ..config import DEFAULT_TITLE_ID
+    return {'owned': [DEFAULT_TITLE_ID], 'displayed': [DEFAULT_TITLE_ID]}
 
 
 def register_game_player_defaults(game_id: str, defaults: dict) -> None:
     _GAME_PLAYER_DEFAULTS[game_id] = defaults
 
 
-# ══════════════════════════════════════════════════
-#  默认用户属性模板
-# ══════════════════════════════════════════════════
+# ── 默认用户属性模板 ──
 
 def get_default_user_template(name="", password_hash=""):
     template = {
@@ -73,11 +85,11 @@ def get_default_user_template(name="", password_hash=""):
 
         'profile_card': {
             'motto': '',
-            'pattern_id': 'pattern_default',
-            'name_color': '#ffffff',
-            'motto_color': '#b3b3b3',
-            'border_color': '#5a5a5a',
-            'card_fields': ['level', 'gold', 'games', 'created'],
+            'pattern_id': DEFAULT_PATTERN_ID,
+            'name_color': DEFAULT_NAME_COLOR,
+            'motto_color': DEFAULT_MOTTO_COLOR,
+            'border_color': DEFAULT_BORDER_COLOR,
+            'card_fields': list(DEFAULT_CARD_FIELDS),
         },
 
         'social_stats': {
@@ -101,10 +113,7 @@ def get_default_user_template(name="", password_hash=""):
             'pattern_default': {"0": 1},
         },
 
-        'titles': {
-            'owned': ['newcomer'],
-            'displayed': ['newcomer'],
-        },
+        'titles': default_titles(),
 
         'window_layout': None,
 
@@ -121,9 +130,7 @@ def get_default_user_template(name="", password_hash=""):
     return template
 
 
-# ══════════════════════════════════════════════════
-#  数据完整性
-# ══════════════════════════════════════════════════
+# ── 数据完整性 ──
 
 def ensure_user_schema(user_data):
     """确保用户数据包含所有必需属性。Returns: (data, changes)"""

@@ -1,0 +1,20 @@
+{
+    "holdem_lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "holdem_room": [
+        {"name": "start",  "label": "开始", "desc": "开始游戏（2-6人）"},
+        {"name": "bot",    "label": "机器人", "desc": "添加机器人玩家"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"}
+    ],
+    "holdem_playing": [
+        {"name": "fold",   "label": "弃牌", "desc": "放弃本手"},
+        {"name": "check",  "label": "过牌", "desc": "不加注（仅当无需跟注时）"},
+        {"name": "call",   "label": "跟注", "desc": "跟上当前下注"},
+        {"name": "raise",  "label": "加注", "desc": "加注"},
+        {"name": "allin",  "label": "全下", "desc": "全部下注"}
+    ]
+}

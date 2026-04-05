@@ -1,5 +1,8 @@
 """维护任务 + 社交追踪"""
 
+from __future__ import annotations
+
+import logging
 import time
 from datetime import datetime
 
@@ -8,6 +11,8 @@ from ..config import MAINTENANCE_HOUR
 from ..player.manager import PlayerManager
 from ..systems.titles import check_all_titles
 from ..msg_types import ACTION, SYSTEM
+
+logger = logging.getLogger(__name__)
 
 
 def check_and_grant_time_titles(player_data):
@@ -29,11 +34,13 @@ def track_login_day(player_data):
 
 
 def track_chat_message(player_name, player_data):
-    """记录聊天消息数并检查头衔"""
+    """记录聊天消息数（每100条消息检查一次头衔，减少重复计算）"""
     social_stats = player_data.get('social_stats', {})
-    social_stats['chat_messages'] = social_stats.get('chat_messages', 0) + 1
+    count = social_stats.get('chat_messages', 0) + 1
+    social_stats['chat_messages'] = count
     player_data['social_stats'] = social_stats
-    check_all_titles(player_data)
+    if count % 100 == 0:
+        check_all_titles(player_data)
 
 
 def maintenance_loop(server):
@@ -50,7 +57,7 @@ def maintenance_loop(server):
 
 def do_maintenance(server):
     """执行每日维护"""
-    print("[维护] 系统维护开始...")
+    logger.info("系统维护开始...")
     server.broadcast({
         'type': SYSTEM,
         'text': '[sys] 系统维护时间到，请在1分钟内保存数据并退出，服务器即将重置聊天记录...',
@@ -68,10 +75,10 @@ def do_maintenance(server):
         try:
             server.send_to(client, {'type': ACTION, 'action': 'maintenance'})
         except Exception:
-            pass
+            logger.debug("维护通知发送失败")
     time.sleep(5)
     for client in clients_to_close:
         server.remove_client(client)
     server.log_mgr.archive()
     server.dm_log_mgr.archive()
-    print("[维护] 系统维护完成，服务器继续运行")
+    logger.info("系统维护完成，服务器继续运行")

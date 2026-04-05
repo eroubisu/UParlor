@@ -52,7 +52,7 @@ def handle_game_invite_accept(server, client_socket, name, player_data, msg):
 
     result = lobby.process_command(player_data, '/accept')
     if result:
-        from ..game_core.result_dispatcher import dispatch_result
+        from ..core.result_dispatcher import dispatch_result
         dispatch_result(server, client_socket, name, player_data, result)
         server.send_to(client_socket, {
             'type': GAME_INVITE_RESULT,

@@ -7,9 +7,7 @@ from datetime import datetime
 from ..player.schema import TITLE_LIBRARY, TITLE_SOURCES
 
 
-# ══════════════════════════════════════════════════
-#  注入接口（由 games/__init__.py::register_game 调用）
-# ══════════════════════════════════════════════════
+# ── 注入接口（由 games/__init__.py::register_game 调用） ──
 
 def register_game_titles(titles: dict) -> None:
     TITLE_LIBRARY.update(titles)
@@ -19,9 +17,7 @@ def register_game_title_sources(sources: dict) -> None:
     TITLE_SOURCES.update(sources)
 
 
-# ══════════════════════════════════════════════════
-#  头衔查询
-# ══════════════════════════════════════════════════
+# ── 头衔查询 ──
 
 def get_title_info(title_id):
     return TITLE_LIBRARY.get(title_id)
@@ -43,16 +39,15 @@ def get_all_title_names():
 
 
 def grant_title(player_data, title_id):
-    titles = player_data.get('titles', {'owned': ['newcomer'], 'displayed': ['newcomer']})
+    from ..player.schema import default_titles
+    titles = player_data.get('titles', default_titles())
     titles.setdefault('owned', [])
     if title_id not in titles['owned']:
         titles['owned'].append(title_id)
     player_data['titles'] = titles
 
 
-# ══════════════════════════════════════════════════
-#  声明式条件检查（基于 titles.json 中的 check 字段）
-# ══════════════════════════════════════════════════
+# ── 声明式条件检查（基于 titles.json 中的 check 字段） ──
 
 def check_title_condition(title_id: str, player_data: dict) -> bool:
     """检查玩家是否满足某头衔的获取条件。
@@ -90,6 +85,18 @@ def check_title_condition(title_id: str, player_data: dict) -> bool:
         game_data = player_data.get(game, {})
         stats = game_data.get('stats', {})
         return stats.get(check['field'], 0) >= check.get('gte', 0)
+
+    elif check_type == 'rank':
+        from .ranks import get_rank_index
+        from ..player.schema import _GAME_PLAYER_DEFAULTS
+        target_rank = check.get('rank', '')
+        target_idx = get_rank_index(target_rank)
+        for game_id in _GAME_PLAYER_DEFAULTS:
+            game_data = player_data.get(game_id, {})
+            player_rank = game_data.get('rank', '')
+            if player_rank and get_rank_index(player_rank, game_id) >= target_idx:
+                return True
+        return False
 
     elif check_type == 'created_before':
         created = player_data.get('created_at', '')

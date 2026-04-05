@@ -1,0 +1,81 @@
+{
+    "building_blacksmith": [
+        {
+            "name": "forge",
+            "label": "锻造",
+            "desc": "打开锻造配方列表"
+        },
+        {
+            "name": "buy",
+            "label": "购买",
+            "desc": "购买武器装备"
+        }
+    ],
+    "building_herbshop": [
+        {
+            "name": "buy",
+            "label": "购买",
+            "desc": "购买药草和药品"
+        },
+        {
+            "name": "brew",
+            "label": "炼药",
+            "desc": "使用配方炼制药品"
+        }
+    ],
+    "building_guild": [
+        {
+            "name": "quest",
+            "label": "任务",
+            "desc": "查看可接任务"
+        },
+        {
+            "name": "board",
+            "label": "布告栏",
+            "desc": "查看冒险者布告栏"
+        }
+    ],
+    "building_tavern": [
+        {
+            "name": "rest",
+            "label": "休息",
+            "desc": "休息恢复HP和MP"
+        },
+        {
+            "name": "rumor",
+            "label": "打听消息",
+            "desc": "听听酒馆里的传言"
+        }
+    ],
+    "building_gamehall": [
+        {
+            "name": "play",
+            "label": "游戏",
+            "desc": "选择并进入小游戏"
+        }
+    ],
+    "building_library": [
+        {
+            "name": "play",
+            "label": "游戏",
+            "desc": "选择并进入小游戏"
+        }
+    ],
+    "building_casino": [
+        {
+            "name": "play",
+            "label": "游戏",
+            "desc": "选择并进入小游戏"
+        }
+    ],
+    "building_chesshall": [
+        {
+            "name": "play",
+            "label": "游戏",
+            "desc": "选择并进入小游戏"
+        }
+    ],
+    "site_cave": [],
+    "site_ruins": [],
+    "site_mine": []
+}

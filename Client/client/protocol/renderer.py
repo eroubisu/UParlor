@@ -8,7 +8,13 @@ from rich.console import RenderableType
 
 @runtime_checkable
 class GameRenderer(Protocol):
-    """游戏渲染协议 — 所有游戏渲染器必须实现"""
+    """游戏渲染协议 — 所有游戏渲染器必须实现
+
+    可选属性（用 getattr 读取）：
+    - no_scroll: bool — 禁用滚动条（内容始终匹配视口）
+    - server_viewport: bool — 渲染依赖服务端视口数据，resize 后等新数据
+    - render_board_waiting(room_data) — 等待状态的自定义渲染
+    """
 
     game_type: str  # 游戏标识符，与 room_data["game_type"] 一致
 

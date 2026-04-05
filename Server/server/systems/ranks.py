@@ -5,17 +5,13 @@ from __future__ import annotations
 from ..player.schema import RANKS, RANK_ORDER, _DEFAULT_RANK_TO_TITLE
 
 
-# ══════════════════════════════════════════════════
-#  注入注册表
-# ══════════════════════════════════════════════════
+# ── 注入注册表 ──
 
 _RANK_TO_TITLE: dict[str, str] = dict(_DEFAULT_RANK_TO_TITLE)   # {rank_id: title_id}
 _GAME_RANKS: dict[str, dict] = {}       # {game_id: {'ranks': {...}, 'rank_order': [...]}}
 
 
-# ══════════════════════════════════════════════════
-#  注入接口（由 games/__init__.py::register_game 调用）
-# ══════════════════════════════════════════════════
+# ── 注入接口（由 games/__init__.py::register_game 调用） ──
 
 def register_rank_titles(mapping: dict) -> None:
     _RANK_TO_TITLE.update(mapping)
@@ -26,9 +22,7 @@ def register_game_ranks(game_id: str, ranks: dict, rank_order: list) -> None:
     _GAME_RANKS[game_id] = {'ranks': ranks, 'rank_order': rank_order}
 
 
-# ══════════════════════════════════════════════════
-#  段位查询（支持 game_type 切换段位体系）
-# ══════════════════════════════════════════════════
+# ── 段位查询（支持 game_type 切换段位体系） ──
 
 def _get_ranks(game_type=None):
     if game_type and game_type in _GAME_RANKS:

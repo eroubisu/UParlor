@@ -20,8 +20,11 @@ build/
 *.pid
 Server/data/
 
+# 工具生成产物
+tools/map_editor/previews/
+
 # 部署脚本（含服务器凭据）
-Server/deploy.py
+Server/scripts/deploy.py
 
 # 环境变量
 .env

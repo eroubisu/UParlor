@@ -11,7 +11,7 @@ from ...config import (
     COLOR_ACCENT,
 )
 from ...widgets.helpers import render_tab_header, _widget_width
-from .card import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
+from ...widgets.card import render_card, CARD_FIELD_DEFS, DEFAULT_CARD_FIELDS
 from ...data import COLOR_PRESETS as _COLOR_PRESETS
 from ...data import EQUIPMENT_SLOT_LABELS, ATTRIBUTE_LABELS
 from ...data import GAME_STATUS_CONFIG
@@ -254,7 +254,7 @@ class StatusRenderMixin:
         log.scroll_home(animate=False)
 
     def _render_game_page(self):
-        """渲染游戏标签页 — 显示游戏名 + 游戏专属槽位（同装备逻辑）"""
+        """渲染游戏标签页 — 显示段位 + 游戏专属槽位"""
         try:
             log: RichLog = self.query_one("#status-content", RichLog)
         except Exception:
@@ -276,6 +276,41 @@ class StatusRenderMixin:
         log.auto_scroll = False
         log.write(RichText.from_markup(f"  {M_BOLD}{game_name}{M_END}"))
         log.write(RichText())
+
+        # 段位信息
+        rank = pd.get('game_rank')
+        if rank:
+            rank_name = rank.get('rank_name', '?')
+            pts = rank.get('rank_points', 0)
+            pts_up = rank.get('points_up')
+            max_name = rank.get('max_rank_name', '?')
+            log.write(RichText.from_markup(
+                f"  {M_DIM}段位{M_END}  {rank_name}"))
+            if pts_up:
+                pct = min(100, int(pts / pts_up * 100))
+                filled = pct // 10
+                bar = '█' * filled + '░' * (10 - filled)
+                log.write(RichText.from_markup(
+                    f"  {M_DIM}进度{M_END}  [{bar}] {pts}pt/{pts_up}pt"))
+            else:
+                log.write(RichText.from_markup(
+                    f"  {M_DIM}进度{M_END}  MAX"))
+            if max_name != rank_name:
+                log.write(RichText.from_markup(
+                    f"  {M_DIM}最高{M_END}  {max_name}"))
+            log.write(RichText())
+
+        # 游戏统计
+        gs = pd.get('game_stats')
+        if gs:
+            total = gs.get('total_games', 0)
+            wins = gs.get('total_wins', 0)
+            log.write(RichText.from_markup(
+                f"  {M_DIM}对局{M_END}  {total}"))
+            if total > 0:
+                log.write(RichText.from_markup(
+                    f"  {M_DIM}胜率{M_END}  {wins}/{total} ({wins * 100 // total}%)"))
+            log.write(RichText())
 
         equip_data = pd.get('equipment', {})
         slots = list(slot_labels.items())

@@ -10,12 +10,10 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config import SERVER_VERSION
-from ..systems.title_commands import cmd_alltitle, cmd_title
+from .title_commands import cmd_alltitle, cmd_title
 
 
-# ══════════════════════════════════════════════════
-#  全局指令处理器注册表
-# ══════════════════════════════════════════════════
+# ── 全局指令处理器注册表 ──
 
 # handler 签名: (lobby, player_name, player_data, args, location) -> dict | str | None
 GlobalHandler = Callable[..., dict | str | None]
@@ -44,9 +42,7 @@ def find_global_handler(cmd: str) -> GlobalHandler | None:
     return _GLOBAL_HANDLERS.get(name)
 
 
-# ══════════════════════════════════════════════════
-#  子菜单构建器注册表
-# ══════════════════════════════════════════════════
+# ── 子菜单构建器注册表 ──
 
 # builder 签名: (lobby, player_data) -> list[dict]
 SubBuilder = Callable[..., list[dict]]
@@ -127,22 +123,62 @@ def _handle_passwd(lobby, player_name, player_data, args, location):
 
 @register_global('help')
 def _handle_help(lobby, player_name, player_data, args, location):
-    """上下文感知帮助：在游戏中显示该游戏帮助，否则显示主帮助"""
-    from .help import get_main_help, get_game_help_text
+    """上下文感知帮助：在游戏中显示该游戏帮助（分节子菜单），否则显示主帮助"""
+    from .help import (
+        get_main_help, get_game_help_text,
+        get_help_sections, get_help_section,
+    )
+    from ..msg_types import ROOM_UPDATE, COMMANDS_UPDATE
+
     game_id = lobby._get_game_for_location(location) if location else None
-    if game_id and game_id != 'world':
+
+    if game_id:
+        sections = get_help_sections(game_id)
+
+        if sections:
+            non_welcome = [(sid, title) for sid, title, _ in sections if sid != 'welcome']
+            # 查看分节后的 hint bar: 只保留 help（重新弹子菜单）+ back
+            help_cmds = [
+                {'name': 'help', 'label': '帮助', 'tab': '帮助'},
+                {'name': 'back', 'label': '返回', 'tab': '导航'},
+            ]
+            cmds_msg = {'type': COMMANDS_UPDATE, 'commands': help_cmds}
+
+            if args:
+                # 子菜单选中 → 返回该分节
+                section_id = args.strip()
+                text = get_help_section(game_id, section_id)
+                if text:
+                    lobby._help_viewers.add(player_name)
+                    return {
+                        'action': 'game_help',
+                        'send_to_caller': [
+                            {'type': ROOM_UPDATE, 'room_data': {'game_type': game_id, 'doc': text}},
+                            cmds_msg,
+                        ],
+                    }
+
+            # 无参数：弹出分节选择子菜单
+            if non_welcome:
+                from ..core.protocol import build_select_menu
+                items = [
+                    {'label': sid, 'desc': title, 'command': f'/help {sid}'}
+                    for sid, title in non_welcome
+                ]
+                return build_select_menu('选择帮助章节', items)
+
+        # 无分节或 world 等 → 整段显示
         help_text = get_game_help_text(game_id)
         if help_text:
-            from ..msg_types import ROOM_UPDATE
+            lobby._help_viewers.add(player_name)
             return {
                 'action': 'game_help',
-                'send_to_caller': [
-                    {'type': ROOM_UPDATE, 'room_data': {
-                        'game_type': game_id,
-                        'doc': help_text,
-                    }},
-                ],
+                'send_to_caller': [{
+                    'type': ROOM_UPDATE,
+                    'room_data': {'game_type': game_id, 'doc': help_text},
+                }],
             }
+
     return get_main_help()
 
 
@@ -150,7 +186,7 @@ def _handle_help(lobby, player_name, player_data, args, location):
 
 # ── 跨模块指令注册 ──
 
-from ..systems.item_commands import cmd_use, cmd_gift, cmd_drop  # noqa: E402
+from .item_commands import cmd_use, cmd_gift, cmd_drop  # noqa: E402
 
 register_global('use', cmd_use)
 register_global('gift', cmd_gift)

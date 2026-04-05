@@ -10,12 +10,11 @@ from __future__ import annotations
 import json
 import os
 import random
-import string
 import time
 
 from mahjong.shanten import Shanten
 
-from ...game_core.protocol import BaseGameEngine
+from ...core.protocol import BaseGameEngine
 from ...msg_types import GAME, ROOM_UPDATE, LOCATION_UPDATE
 
 from .room import MahjongRoom, MAX_PLAYERS
@@ -23,30 +22,21 @@ from .tiles import tile_to_str, tile_to_chinese, hand_to_34, POSITION_NAMES
 from .bot import MahjongBot
 
 _dir = os.path.dirname(__file__)
+_data_dir = os.path.join(_dir, 'data')
 _shanten = Shanten()
 _bot_ai = MahjongBot()
 
 
 def _load_help() -> str:
-    path = os.path.join(_dir, 'help.txt')
+    path = os.path.join(_data_dir, 'help.txt')
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
 
-_HELP_TEXT = _load_help()
-
-
 def _load_rewards() -> dict:
-    path = os.path.join(_dir, 'rewards.json')
+    path = os.path.join(_data_dir, 'rewards.json')
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
-
-
-_REWARDS = _load_rewards()
-
-
-def _gen_room_id() -> str:
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
 
 
 class MahjongEngine(BaseGameEngine):
@@ -56,58 +46,40 @@ class MahjongEngine(BaseGameEngine):
     """
 
     game_key = 'mahjong'
+    display_name = '麻将'
+    _HELP_TEXT = _load_help()
+    _REWARDS = _load_rewards()
+
+    _GLOBAL_COMMANDS: dict[str, str] = {}
+    _COMMAND_MAP = {
+        'lobby': {
+            'create': '_cmd_create',
+            'rooms': '_cmd_rooms',
+            'join': '_cmd_join',
+            'accept': '_cmd_accept',
+        },
+        'room': {
+            'start': '_cmd_start',
+            'bot': '_cmd_bot',
+            'invite': '_cmd_invite',
+            'kick': '_cmd_kick',
+            'mode': '_cmd_mode',
+            'tier': '_cmd_tier',
+        },
+        'playing': {
+            'discard': '_cmd_discard',
+            'tsumo': '_cmd_tsumo',
+            'pon': '_cmd_pon',
+            'chi': '_cmd_chi',
+            'ron': '_cmd_ron',
+            'pass': '_cmd_pass',
+            'riichi': '_cmd_riichi',
+            'abort': '_cmd_abort',
+        },
+    }
 
     def __init__(self):
-        self._rooms: dict[str, MahjongRoom] = {}
-        self._player_room: dict[str, str] = {}
-        self._invites: dict[str, dict] = {}
-        self.pending_confirms: dict[str, dict] = {}
-
-    def handle_command(self, lobby, player_name, player_data, cmd, args):
-        cmd_name = cmd.lstrip('/')
-        location = lobby.get_player_location(player_name)
-
-        if location == 'mahjong_lobby':
-            if cmd_name == 'create':
-                return self._cmd_create(lobby, player_name)
-            if cmd_name == 'rooms':
-                return self._cmd_rooms(player_name)
-            if cmd_name == 'join':
-                return self._cmd_join(lobby, player_name, player_data, args)
-            if cmd_name == 'accept':
-                return self._cmd_accept(lobby, player_name, player_data)
-
-        elif location == 'mahjong_room':
-            if cmd_name == 'start':
-                return self._cmd_start(lobby, player_name, player_data)
-            if cmd_name == 'bot':
-                return self._cmd_bot(lobby, player_name, args)
-            if cmd_name == 'invite':
-                return self._cmd_invite(lobby, player_name, player_data, args)
-            if cmd_name == 'kick':
-                return self._cmd_kick(lobby, player_name, args)
-            if cmd_name == 'mode':
-                return self._cmd_mode(lobby, player_name, args)
-            if cmd_name == 'tier':
-                return self._cmd_tier(lobby, player_name, args)
-
-        elif location == 'mahjong_playing':
-            if cmd_name == 'discard':
-                return self._cmd_discard(lobby, player_name, args)
-            if cmd_name == 'tsumo':
-                return self._cmd_tsumo(lobby, player_name)
-            if cmd_name == 'pon':
-                return self._cmd_pon(lobby, player_name)
-            if cmd_name == 'chi':
-                return self._cmd_chi(lobby, player_name, args)
-            if cmd_name == 'ron':
-                return self._cmd_ron(lobby, player_name)
-            if cmd_name == 'pass':
-                return self._cmd_pass(lobby, player_name)
-            if cmd_name == 'riichi':
-                return self._cmd_riichi(lobby, player_name, args)
-
-        return None
+        self._init_rooms()
 
     def handle_disconnect(self, lobby, player_name):
         location = lobby.get_player_location(player_name)
@@ -139,7 +111,7 @@ class MahjongEngine(BaseGameEngine):
                 # 全员离线 → 直接销毁房间，不再调度 bot
                 humans = [p for p in room.players if p and p not in room.bots]
                 if not humans:
-                    del self._rooms[room_id]
+                    self._rooms.pop(room_id, None)
                     return []
 
                 notify = self._notify_room_game(
@@ -158,14 +130,15 @@ class MahjongEngine(BaseGameEngine):
     def handle_back(self, lobby, player_name, player_data):
         location = lobby.get_player_location(player_name)
         if location == 'mahjong_playing':
-            return self._cmd_abort(lobby, player_name)
+            return self._cmd_abort(lobby, player_name, player_data, '')
         if location == 'mahjong_room':
-            return self._cmd_leave(lobby, player_name)
+            return self._cmd_leave(lobby, player_name, player_data, '')
         return self.handle_quit(lobby, player_name, player_data)
 
     def handle_quit(self, lobby, player_name, player_data):
         self._remove_player(lobby, player_name)
-        lobby.set_player_location(player_name, 'world_gamehall')
+        parent = lobby.get_parent_location(f'{self.game_key}_lobby')
+        lobby.set_player_location(player_name, parent)
         # 请求世界地图更新，让客户端显示建筑内地图
         room_data = lobby.get_player_room_data(player_name)
         send_to_caller = []
@@ -174,20 +147,8 @@ class MahjongEngine(BaseGameEngine):
         send_to_caller.append({'type': GAME, 'text': '离开了麻将。'})
         return {
             'action': 'location_update',
-            'location': 'world_gamehall',
+            'location': parent,
             'send_to_caller': send_to_caller,
-            'refresh_commands': True,
-        }
-
-    def get_welcome_message(self, player_data):
-        board = self._lobby_board()
-        board['doc'] = _HELP_TEXT
-        return {
-            'send_to_caller': [
-                {'type': ROOM_UPDATE, 'room_data': board},
-                {'type': LOCATION_UPDATE, 'location': 'mahjong_lobby'},
-            ],
-            'location': 'mahjong_lobby',
             'refresh_commands': True,
         }
 
@@ -214,8 +175,6 @@ class MahjongEngine(BaseGameEngine):
         self._player_room[player_name] = room_id
         return room, None
 
-    _INVITE_EXPIRE = 240  # 邀请过期时间（秒）
-
     def send_invite(self, from_name, to_name, room_id):
         self._invites[to_name] = {
             'from': from_name, 'room_id': room_id,
@@ -223,8 +182,9 @@ class MahjongEngine(BaseGameEngine):
         }
 
     def get_invite(self, player_name):
+        from ...config import INVITE_EXPIRE
         inv = self._invites.get(player_name)
-        if inv and time.time() - inv['time'] > self._INVITE_EXPIRE:
+        if inv and time.time() - inv['time'] > INVITE_EXPIRE:
             self._invites.pop(player_name, None)
             return None
         return inv
@@ -241,21 +201,23 @@ class MahjongEngine(BaseGameEngine):
             return room.get_game_data(seat) if seat >= 0 else room.get_table_data()
         return room.get_table_data()
 
-    def _lobby_board(self) -> dict:
-        return {'game_type': 'mahjong', 'room_state': 'lobby'}
-
     def _msg(self, player_name, text):
         room = self.get_player_room(player_name)
         if room and room.state == 'playing':
             seat = room.get_position(player_name)
             board = room.get_game_data(seat) if seat >= 0 else room.get_table_data()
+            pa = room._pending_action
+            if pa and seat in pa.get('actions_map', {}):
+                board['available_actions'] = pa['actions_map'][seat]
+                board['action_tile'] = tile_to_chinese(pa['tile'])
         elif room:
             board = room.get_table_data()
         else:
             board = self._lobby_board()
         board['message'] = text
         if board.get('room_state') == 'lobby':
-            board['doc'] = _HELP_TEXT
+            from ...lobby.help import get_help_welcome
+            board['doc'] = get_help_welcome(self.game_key) or self._HELP_TEXT
         return {
             'action': 'mahjong_message',
             'send_to_caller': [{'type': ROOM_UPDATE, 'room_data': board}],
@@ -272,11 +234,11 @@ class MahjongEngine(BaseGameEngine):
         # 真人全部离开 → 删除房间（无论什么状态，纯机器人房间无意义）
         human = [p for p in room.players if p and p not in room.bots]
         if not human:
-            del self._rooms[room_id]
+            self._rooms.pop(room_id, None)
             return
         # 如果房间空了，删除
         if room.get_player_count() == 0:
-            del self._rooms[room_id]
+            self._rooms.pop(room_id, None)
         elif room.host == player_name:
             # 转移房主
             for p in room.players:
@@ -323,11 +285,11 @@ class MahjongEngine(BaseGameEngine):
 
     # ── 指令实现: 大厅 ──
 
-    def _cmd_create(self, lobby, player_name):
+    def _cmd_create(self, lobby, player_name, player_data, args):
         self._remove_player(lobby, player_name)
-        room_id = _gen_room_id()
+        room_id = self.gen_room_id()
         while room_id in self._rooms:
-            room_id = _gen_room_id()
+            room_id = self.gen_room_id()
         room = MahjongRoom(room_id, player_name)
         self._rooms[room_id] = room
         self._player_room[player_name] = room_id
@@ -348,7 +310,7 @@ class MahjongEngine(BaseGameEngine):
             'refresh_commands': True,
         }
 
-    def _cmd_rooms(self, player_name):
+    def _cmd_rooms(self, lobby, player_name, player_data, args):
         if not self._rooms:
             return self._msg(player_name, '暂无房间。')
         lines = ['当前房间:']
@@ -368,23 +330,13 @@ class MahjongEngine(BaseGameEngine):
             items = []
             for room in waiting:
                 cnt = room.get_player_count()
+                label = f'#{room.room_id} {room.host}' if room.host else f'#{room.room_id}'
                 items.append({
-                    'label': f'#{room.room_id}  {room.host}  {cnt}/{MAX_PLAYERS}',
+                    'label': label,
+                    'desc': f'{cnt}/{MAX_PLAYERS}',
                     'command': f'/join {room.room_id}',
                 })
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '加入房间',
-                        'items': items,
-                        'empty_msg': '暂无可加入的房间。',
-                    },
-                }],
-            }
+            return self._select_menu('加入房间', items, '暂无可加入的房间。')
         room_id = args.strip()
         room, error = self.join_room(room_id, player_name)
         if error:
@@ -437,19 +389,7 @@ class MahjongEngine(BaseGameEngine):
                     'label': name,
                     'command': f'/invite @{name}',
                 })
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '邀请好友',
-                        'items': items,
-                        'empty_msg': '没有可邀请的在线好友。',
-                    },
-                }],
-            }
+            return self._select_menu('邀请好友', items, '没有可邀请的在线好友。')
 
         target = args[1:].strip()
         friends = player_data.get('friends', [])
@@ -462,17 +402,18 @@ class MahjongEngine(BaseGameEngine):
         self.send_invite(player_name, target, room.room_id)
         lobby._track_invite(player_name, player_data)
         from ...msg_types import GAME_INVITE
+        from ...config import INVITE_EXPIRE
         if lobby.invite_callback:
             lobby.invite_callback(target, {
                 'type': GAME_INVITE,
                 'from': player_name,
                 'game': 'mahjong',
                 'room_id': room.room_id,
-                'expires_in': self._INVITE_EXPIRE,
+                'expires_in': INVITE_EXPIRE,
             })
         return self._msg(player_name, f'已向 {target} 发送邀请')
 
-    def _cmd_accept(self, lobby, player_name, player_data):
+    def _cmd_accept(self, lobby, player_name, player_data, args):
         invite = self.get_invite(player_name)
         if not invite:
             return self._msg(player_name, '你没有收到邀请，或邀请已过期。')
@@ -508,7 +449,7 @@ class MahjongEngine(BaseGameEngine):
 
     # ── 指令实现: 房间 ──
 
-    def _cmd_start(self, lobby, player_name, player_data):
+    def _cmd_start(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room or room.host != player_name:
             return self._msg(player_name, '你不是房主。')
@@ -582,12 +523,13 @@ class MahjongEngine(BaseGameEngine):
             result['schedule'] = bot_schedule
         return result
 
-    def _cmd_leave(self, lobby, player_name):
+    def _cmd_leave(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         self._remove_player(lobby, player_name)
         lobby.set_player_location(player_name, 'mahjong_lobby')
         board = self._lobby_board()
-        board['doc'] = _HELP_TEXT
+        from ...lobby.help import get_help_welcome
+        board['doc'] = get_help_welcome(self.game_key) or self._HELP_TEXT
 
         # 通知房间剩余真人
         notify = {}
@@ -608,7 +550,7 @@ class MahjongEngine(BaseGameEngine):
             'refresh_commands': True,
         }
 
-    def _cmd_bot(self, lobby, player_name, args):
+    def _cmd_bot(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room:
             return self._msg(player_name, '你不在任何房间中。')
@@ -631,18 +573,7 @@ class MahjongEngine(BaseGameEngine):
                     'label': f'添加 {n} 个机器人',
                     'command': f'/bot {n}',
                 })
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '添加机器人',
-                        'items': items,
-                    },
-                }],
-            }
+            return self._select_menu('添加机器人', items)
 
         count = 1
         try:
@@ -676,7 +607,7 @@ class MahjongEngine(BaseGameEngine):
             'send_to_players': notify,
         }
 
-    def _cmd_kick(self, lobby, player_name, args):
+    def _cmd_kick(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room:
             return self._msg(player_name, '你不在任何房间中。')
@@ -691,24 +622,13 @@ class MahjongEngine(BaseGameEngine):
             for i in range(MAX_PLAYERS):
                 p = room.players[i]
                 if p and p != player_name:
-                    mark = ' (bot)' if room.is_bot(p) else ''
+                    desc = 'bot' if room.is_bot(p) else ''
                     items.append({
-                        'label': f'{p}{mark}',
+                        'label': p,
+                        'desc': desc,
                         'command': f'/kick {i+1}',
                     })
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '踢出玩家',
-                        'items': items,
-                        'empty_msg': '房间里没有其他玩家。',
-                    },
-                }],
-            }
+            return self._select_menu('踢出玩家', items, '房间里没有其他玩家。')
 
         target = args.strip()
         target_name = None
@@ -749,7 +669,7 @@ class MahjongEngine(BaseGameEngine):
                 room, f'{target_name} 被踢出了房间', table_data, exclude=player_name),
         }
 
-    def _cmd_mode(self, lobby, player_name, args):
+    def _cmd_mode(self, lobby, player_name, player_data, args):
         """切换对局模式（东风/南风）— 无参数弹出子菜单"""
         room = self.get_player_room(player_name)
         if not room:
@@ -762,21 +682,10 @@ class MahjongEngine(BaseGameEngine):
         arg = (args or '').strip().lower()
         if not arg:
             current = '东风战' if room.game_mode == 'east' else '南风战'
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': f'对局模式 (当前: {current})',
-                        'items': [
-                            {'label': '东风战', 'command': '/mode east'},
-                            {'label': '南风战', 'command': '/mode south'},
-                        ],
-                    },
-                }],
-            }
+            return self._select_menu(f'对局模式 (当前: {current})', [
+                {'label': '东风战', 'command': '/mode east'},
+                {'label': '南风战', 'command': '/mode south'},
+            ])
 
         if arg in ('east', '东', '东风', '东风战'):
             room.game_mode = 'east'
@@ -834,7 +743,7 @@ class MahjongEngine(BaseGameEngine):
             return f'{tier_label} 需要段位 {req_name} 以上。'
         return None
 
-    def _cmd_tier(self, lobby, player_name, args):
+    def _cmd_tier(self, lobby, player_name, player_data, args):
         """设置房间段位 — 无参数弹出子菜单"""
         room = self.get_player_room(player_name)
         if not room:
@@ -851,18 +760,7 @@ class MahjongEngine(BaseGameEngine):
                 {'label': v, 'command': f'/tier {k}'}
                 for k, v in self._TIER_MAP.items()
             ]
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'mahjong',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': f'房间段位 (当前: {current})',
-                        'items': items,
-                    },
-                }],
-            }
+            return self._select_menu(f'房间段位 (当前: {current})', items)
 
         tier_key = self._TIER_ALIAS.get(arg) or (arg if arg in self._TIER_MAP else None)
         if not tier_key:
@@ -885,36 +783,45 @@ class MahjongEngine(BaseGameEngine):
 
     # ── 指令实现: 游戏中 ──
 
-    def _cmd_discard(self, lobby, player_name, args):
+    def _cmd_discard(self, lobby, player_name, player_data, args):
         """打出一张牌 — 通过序号选择（也路由动作指令）"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
             return self._msg(player_name, '没有进行中的游戏。')
 
         if not args:
-            return self._msg(player_name, '输入序号打出对应的牌。')
+            # 展示手牌选择菜单
+            seat = room.get_position(player_name)
+            if room.current_turn != seat:
+                return self._msg(player_name, '还没轮到你。')
+            full_hand = sorted(list(room.hands[seat]), key=lambda t: t // 4)
+            if room.drawn_tile is not None and room.current_turn == seat:
+                full_hand.append(room.drawn_tile)
+            items = [{'label': tile_to_chinese(t), 'command': f'/discard {i+1}'}
+                     for i, t in enumerate(full_hand)]
+            return self._select_menu('选择打出的牌', items)
 
         arg = args.strip()
 
         # 路由动作指令（输入框直接输入 ron/pon/pass/tsumo/riichi/chi）
         if arg == 'ron':
-            return self._cmd_ron(lobby, player_name)
+            return self._cmd_ron(lobby, player_name, player_data, '')
         if arg == 'pon':
-            return self._cmd_pon(lobby, player_name)
+            return self._cmd_pon(lobby, player_name, player_data, '')
         if arg == 'pass':
-            return self._cmd_pass(lobby, player_name)
+            return self._cmd_pass(lobby, player_name, player_data, '')
         if arg == 'tsumo':
-            return self._cmd_tsumo(lobby, player_name)
+            return self._cmd_tsumo(lobby, player_name, player_data, '')
         if arg == 'riichi':
-            return self._cmd_riichi(lobby, player_name)
+            return self._cmd_riichi(lobby, player_name, player_data, '')
         if arg == 'back':
             return self._cmd_riichi_back(lobby, player_name)
         if arg.startswith('riichi'):
             riichi_args = arg[6:].strip() if len(arg) > 6 else ''
-            return self._cmd_riichi(lobby, player_name, riichi_args)
+            return self._cmd_riichi(lobby, player_name, player_data, riichi_args)
         if arg.startswith('chi'):
             chi_args = arg[3:].strip() if len(arg) > 3 else ''
-            return self._cmd_chi(lobby, player_name, chi_args)
+            return self._cmd_chi(lobby, player_name, player_data, chi_args)
 
         # 以下是打牌逻辑
         seat = room.get_position(player_name)
@@ -946,7 +853,7 @@ class MahjongEngine(BaseGameEngine):
         try:
             idx = int(arg)
         except ValueError:
-            return self._msg(player_name, f'请输入序号（1~{len(full_hand)}）。')
+            return self._msg(player_name, f'无效的序号（1~{len(full_hand)}）。')
 
         if idx < 1 or idx > len(full_hand):
             return self._msg(player_name, f'序号超出范围（1~{len(full_hand)}）。')
@@ -964,7 +871,7 @@ class MahjongEngine(BaseGameEngine):
             idx = int(arg)
         except ValueError:
             room._riichi_pending = None
-            return self._msg(player_name, '用法: riichi <序号>')
+            return self._msg(player_name, '无效的序号。')
 
         valid = room._riichi_pending['valid_indices']
         if idx not in valid:
@@ -1040,6 +947,9 @@ class MahjongEngine(BaseGameEngine):
             if not other_p:
                 continue
             can_ron = room.check_ron(other, tile_136) is not None
+            # 振听不能荣和
+            if can_ron and room.is_furiten(other):
+                can_ron = False
             can_pon = room.can_pon(other, tile_136)
             can_chi = room.can_chi(other, tile_136, seat)
             if not (can_ron or can_pon or can_chi):
@@ -1128,7 +1038,7 @@ class MahjongEngine(BaseGameEngine):
             result['schedule'] = bot_schedule
         return result
 
-    def _cmd_tsumo(self, lobby, player_name):
+    def _cmd_tsumo(self, lobby, player_name, player_data, args):
         """自摸"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
@@ -1143,7 +1053,7 @@ class MahjongEngine(BaseGameEngine):
 
         return self._handle_win(lobby, room, player_name, seat, win_info, is_tsumo=True)
 
-    def _cmd_ron(self, lobby, player_name):
+    def _cmd_ron(self, lobby, player_name, player_data, args):
         """荣和"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
@@ -1162,7 +1072,7 @@ class MahjongEngine(BaseGameEngine):
             win_info, is_tsumo=False,
         )
 
-    def _cmd_pon(self, lobby, player_name):
+    def _cmd_pon(self, lobby, player_name, player_data, args):
         """碰"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
@@ -1200,7 +1110,7 @@ class MahjongEngine(BaseGameEngine):
             'send_to_players': send_to_players,
         }
 
-    def _cmd_chi(self, lobby, player_name, args):
+    def _cmd_chi(self, lobby, player_name, player_data, args):
         """吃"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
@@ -1215,29 +1125,51 @@ class MahjongEngine(BaseGameEngine):
         if not room.can_chi(seat, tile, from_seat):
             return self._msg(player_name, '不能吃这张牌。')
 
+        # 构建与显示序号一致的有序手牌
+        sorted_hand = sorted(list(room.hands[seat]), key=lambda t: t // 4)
+
         if not args:
-            return self._msg(player_name, '用法: chi <序号1> <序号2>')
+            # 枚举所有合法吃牌组合，生成菜单
+            t34 = tile // 4
+            suit = t34 // 9
+            rank = t34 % 9
+            items = []
+            if suit < 3:  # 数牌才能吃
+                for d1, d2 in [(-2, -1), (-1, 1), (1, 2)]:
+                    need = [t34 + d1, t34 + d2]
+                    if any(n < suit * 9 or n >= (suit + 1) * 9 or n < 0 for n in need):
+                        continue
+                    idxs = []
+                    used = set()
+                    for n34 in need:
+                        for i, t136 in enumerate(sorted_hand):
+                            if t136 // 4 == n34 and i not in used:
+                                idxs.append(i + 1)
+                                used.add(i)
+                                break
+                    if len(idxs) == 2:
+                        names = [tile_to_chinese(sorted_hand[i - 1]) for i in idxs]
+                        items.append({
+                            'label': f'{names[0]} + {names[1]} + {tile_to_chinese(tile)}',
+                            'command': f'/discard chi {idxs[0]} {idxs[1]}',
+                        })
+            if not items:
+                return self._msg(player_name, '没有可吃的组合。')
+            return self._select_menu('吃牌', items)
 
         # 解析要组合的牌
         parts = args.strip().split()
         if len(parts) != 2:
-            return self._msg(player_name, '需要指定两张手牌。用法: chi <序号1> <序号2>')
-
-        # 构建与显示序号一致的有序手牌
-        sorted_hand = sorted(list(room.hands[seat]), key=lambda t: t // 4)
+            return self._msg(player_name, '需要指定两张手牌。')
 
         combo = []
         for p in parts:
             try:
                 idx = int(p)
             except ValueError:
-                return self._msg(
-                    player_name,
-                    f'请输入序号（1~{len(sorted_hand)}）。')
+                return self._msg(player_name, '无效的序号。')
             if idx < 1 or idx > len(sorted_hand):
-                return self._msg(
-                    player_name,
-                    f'序号超出范围（1~{len(sorted_hand)}）。')
+                return self._msg(player_name, f'序号超出范围（1~{len(sorted_hand)}）。')
             found = sorted_hand[idx - 1]
             if found in combo:
                 return self._msg(player_name, '不能选择同一张牌两次。')
@@ -1274,13 +1206,19 @@ class MahjongEngine(BaseGameEngine):
             'send_to_players': send_to_players,
         }
 
-    def _cmd_pass(self, lobby, player_name):
+    def _cmd_pass(self, lobby, player_name, player_data, args):
         """放弃 碰/吃/和 的机会"""
         room = self.get_player_room(player_name)
         if not room or not room._pending_action:
             return self._msg(player_name, '没有需要响应的操作。')
 
         seat = room.get_position(player_name)
+        # 放弃荣和 → 同巡振听
+        acts = room._pending_action.get('actions_map', {}).get(seat, [])
+        if 'ron' in acts:
+            room.temp_furiten[seat] = True
+            # 立直中放弃荣和 → 永久振听（立直振听）用 temp 标记即可，
+            # 立直中不会再清除 temp_furiten（next_turn 清除但立直自动摸切）
         room._pending_action['responses'][seat] = 'pass'
         room._pending_action['waiting'].discard(seat)
 
@@ -1324,7 +1262,7 @@ class MahjongEngine(BaseGameEngine):
 
         return self._msg(player_name, '已放弃，等待其他玩家。')
 
-    def _cmd_riichi(self, lobby, player_name, args=''):
+    def _cmd_riichi(self, lobby, player_name, player_data, args):
         """宣言立直 — riichi <序号> 一步完成"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
@@ -1345,7 +1283,18 @@ class MahjongEngine(BaseGameEngine):
 
         arg = args.strip() if args else ''
         if not arg:
-            return self._msg(player_name, '用法: riichi <序号>')
+            # 展示可立直打出的牌菜单
+            items = []
+            for opt in options:
+                tile_name = opt.get('tile_chinese', f'牌{opt["idx"]}')
+                waiting_info = ', '.join(
+                    w['name'] for w in opt.get('waiting', []))
+                label = f'{tile_name} → 听 {waiting_info}' if waiting_info else tile_name
+                items.append({
+                    'label': label,
+                    'command': f'/discard riichi {opt["idx"]}',
+                })
+            return self._select_menu('立直 — 选择打出的牌', items)
 
         room._riichi_pending = {
             'seat': seat,
@@ -1353,11 +1302,17 @@ class MahjongEngine(BaseGameEngine):
         }
         return self._riichi_discard(lobby, room, player_name, seat, arg)
 
-    def _cmd_abort(self, lobby, player_name):
+    def _cmd_abort(self, lobby, player_name, player_data, args):
         """中途退出"""
         room = self.get_player_room(player_name)
         if not room:
-            return self._cmd_leave(lobby, player_name)
+            return self._cmd_leave(lobby, player_name, player_data, '')
+
+        if not args or args.strip() != 'y':
+            return self._select_menu('确认退出？游戏将结束', [
+                {'label': '确认退出', 'command': '/abort y'},
+                {'label': '取消', 'command': ''},
+            ])
 
         room.state = 'finished'
         finished_data = room.get_finished_data()
@@ -1378,7 +1333,8 @@ class MahjongEngine(BaseGameEngine):
         self._remove_player(lobby, player_name)
         lobby.set_player_location(player_name, 'mahjong_lobby')
         board = self._lobby_board()
-        board['doc'] = _HELP_TEXT
+        from ...lobby.help import get_help_welcome
+        board['doc'] = get_help_welcome(self.game_key) or self._HELP_TEXT
         return {
             'action': 'mahjong_abort',
             'send_to_caller': [
@@ -1485,9 +1441,8 @@ class MahjongEngine(BaseGameEngine):
             if promoted:
                 title_id = get_title_id_from_rank(new_rank)
                 if title_id:
-                    titles = pd.setdefault('titles',
-                                           {'owned': ['newcomer'],
-                                            'displayed': ['newcomer']})
+                    from ...player.schema import default_titles
+                    titles = pd.setdefault('titles', default_titles())
                     if title_id not in titles['owned']:
                         titles['owned'].append(title_id)
 
@@ -1519,7 +1474,7 @@ class MahjongEngine(BaseGameEngine):
 
         rankings = sorted(range(MAX_PLAYERS),
                           key=lambda i: room.scores[i], reverse=True)
-        reward_base = _REWARDS.get('placement', [
+        reward_base = self._REWARDS.get('placement', [
             [2400, 500], [1500, 250], [900, 0], [400, -100]])
 
         # 段位结算
@@ -1548,7 +1503,7 @@ class MahjongEngine(BaseGameEngine):
                 continue
             base_exp, base_gold = reward_base[rank_idx]
             # 点数加成: (终点 - 25000) / 1000 × 系数
-            sf = _REWARDS.get('score_factor', {})
+            sf = self._REWARDS.get('score_factor', {})
             score_delta = (room.scores[seat] - INITIAL_SCORE) / 1000
             base_exp += score_delta * sf.get('exp_per_1k', 0)
             base_gold += score_delta * sf.get('gold_per_1k', 0)
@@ -1941,7 +1896,7 @@ import threading
 class MahjongBotScheduler:
     """延迟执行机器人回合"""
 
-    BOT_DELAY = 1.5
+    from ...config import BOT_DELAY
 
     def __init__(self, server):
         self._server = server

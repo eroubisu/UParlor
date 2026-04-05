@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..protocol.handler import register_handler, GameHandlerContext
+from ...protocol.handler import register_handler, GameHandlerContext
 
 
 class GameClientHandler:

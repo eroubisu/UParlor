@@ -18,20 +18,19 @@ import time
 
 from english_words import get_english_words_set
 
-from ...game_core.protocol import BaseGameEngine
+from ...core.protocol import BaseGameEngine
 from ...msg_types import GAME, ROOM_UPDATE, LOCATION_UPDATE
 
 _dir = os.path.dirname(__file__)
+_data_dir = os.path.join(_dir, 'data')
 
 MAX_GUESSES = 6
 WORD_LENGTH = 5
 MAX_PLAYERS = 4
 
-_INVITE_EXPIRE = 240
-
 
 def _load_answers() -> list[str]:
-    path = os.path.join(_dir, 'words.json')
+    path = os.path.join(_data_dir, 'words.json')
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
@@ -47,7 +46,7 @@ _VALID_WORDS = _build_valid_set() | set(_ANSWERS)
 
 
 def _load_help() -> str:
-    path = os.path.join(_dir, 'help.txt')
+    path = os.path.join(_data_dir, 'help.txt')
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
@@ -56,7 +55,7 @@ _HELP_TEXT = _load_help()
 
 
 def _load_rewards() -> dict:
-    path = os.path.join(_dir, 'rewards.json')
+    path = os.path.join(_data_dir, 'rewards.json')
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
@@ -260,40 +259,31 @@ class WordleEngine(BaseGameEngine):
     """
 
     game_key = 'wordle'
+    display_name = 'Wordle'
+
+    _GLOBAL_COMMANDS: dict[str, str] = {}
+    _COMMAND_MAP = {
+        'lobby': {
+            'create': '_cmd_create',
+            'rooms': '_cmd_rooms',
+            'accept': '_cmd_accept',
+        },
+        'room': {
+            'start': '_cmd_start',
+            'invite': '_cmd_invite',
+            'kick': '_cmd_kick',
+        },
+        'playing': {
+            'guess': '_cmd_guess',
+            'giveup': '_cmd_giveup',
+        },
+    }
 
     def __init__(self):
         self._rooms: dict[str, WordleRoom] = {}
         self._player_room: dict[str, str] = {}  # player_name → room_id
         self._invites: dict[str, dict] = {}
         self.pending_confirms: dict[str, dict] = {}
-
-    def handle_command(self, lobby, player_name, player_data, cmd, args):
-        cmd_name = cmd.lstrip('/')
-        location = lobby.get_player_location(player_name)
-
-        if location == 'wordle_lobby':
-            if cmd_name == 'create':
-                return self._cmd_create(lobby, player_name)
-            if cmd_name == 'rooms':
-                return self._cmd_rooms(player_name)
-            if cmd_name == 'accept':
-                return self._cmd_accept(lobby, player_name, player_data)
-
-        elif location == 'wordle_room':
-            if cmd_name == 'start':
-                return self._cmd_start(lobby, player_name, player_data)
-            if cmd_name == 'invite':
-                return self._cmd_invite(lobby, player_name, player_data, args)
-            if cmd_name == 'kick':
-                return self._cmd_kick(lobby, player_name, args)
-            if cmd_name == 'leave':
-                return self._cmd_leave(lobby, player_name)
-
-        elif location == 'wordle_playing':
-            if cmd_name == 'guess':
-                return self._cmd_guess(lobby, player_name, player_data, args)
-
-        return None
 
     def get_player_room(self, player_name: str) -> WordleRoom | None:
         room_id = self._player_room.get(player_name)
@@ -325,12 +315,13 @@ class WordleEngine(BaseGameEngine):
         if location == 'wordle_finished':
             return self._cmd_back_finished(lobby, player_name)
         if location == 'wordle_room':
-            return self._cmd_leave(lobby, player_name)
+            return self._cmd_leave(lobby, player_name, player_data, '')
         return self.handle_quit(lobby, player_name, player_data)
 
     def handle_quit(self, lobby, player_name, player_data):
         self._remove_player(player_name)
-        lobby.set_player_location(player_name, 'world_library')
+        parent = lobby.get_parent_location(f'{self.game_key}_lobby')
+        lobby.set_player_location(player_name, parent)
         room_data = lobby.get_player_room_data(player_name)
         send_to_caller = []
         if room_data:
@@ -338,7 +329,7 @@ class WordleEngine(BaseGameEngine):
         send_to_caller.append({'type': GAME, 'text': '离开了 Wordle。'})
         return {
             'action': 'location_update',
-            'location': 'world_library',
+            'location': parent,
             'send_to_caller': send_to_caller,
             'refresh_commands': True,
         }
@@ -365,8 +356,9 @@ class WordleEngine(BaseGameEngine):
         }
 
     def get_pending_invite(self, player_name):
+        from ...config import INVITE_EXPIRE
         inv = self._invites.get(player_name)
-        if inv and time.time() - inv['time'] > _INVITE_EXPIRE:
+        if inv and time.time() - inv['time'] > INVITE_EXPIRE:
             del self._invites[player_name]
             return None
         return inv
@@ -444,7 +436,7 @@ class WordleEngine(BaseGameEngine):
 
     # ── 指令实现: 大厅 ──
 
-    def _cmd_create(self, lobby, player_name):
+    def _cmd_create(self, lobby, player_name, player_data, args):
         self._remove_player(player_name)
         room_id = _gen_room_id()
         while room_id in self._rooms:
@@ -463,7 +455,7 @@ class WordleEngine(BaseGameEngine):
             'refresh_commands': True,
         }
 
-    def _cmd_rooms(self, player_name):
+    def _cmd_rooms(self, lobby, player_name, player_data, args):
         if not self._rooms:
             return self._msg(player_name, '暂无房间。')
         lines = ['当前房间:']
@@ -475,7 +467,7 @@ class WordleEngine(BaseGameEngine):
             )
         return self._msg(player_name, '\n'.join(lines))
 
-    def _cmd_accept(self, lobby, player_name, player_data):
+    def _cmd_accept(self, lobby, player_name, player_data, args):
         """接受邀请加入房间"""
         inv = self.get_pending_invite(player_name)
         if not inv:
@@ -530,19 +522,7 @@ class WordleEngine(BaseGameEngine):
                     'label': name,
                     'command': f'/invite @{name}',
                 })
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'wordle',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '邀请好友',
-                        'items': items,
-                        'empty_msg': '没有可邀请的在线好友。',
-                    },
-                }],
-            }
+            return self._select_menu('邀请好友', items, '没有可邀请的在线好友。')
 
         target = args[1:].strip()
         friends = player_data.get('friends', [])
@@ -555,17 +535,18 @@ class WordleEngine(BaseGameEngine):
         self.send_invite(player_name, target, room.room_id)
         lobby._track_invite(player_name, player_data)
         from ...msg_types import GAME_INVITE
+        from ...config import INVITE_EXPIRE
         if lobby.invite_callback:
             lobby.invite_callback(target, {
                 'type': GAME_INVITE,
                 'from': player_name,
                 'game': 'wordle',
                 'room_id': room.room_id,
-                'expires_in': _INVITE_EXPIRE,
+                'expires_in': INVITE_EXPIRE,
             })
         return self._msg(player_name, f'已向 {target} 发送邀请。')
 
-    def _cmd_kick(self, lobby, player_name, args):
+    def _cmd_kick(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room or room.host != player_name:
             return self._msg(player_name, '只有房主才能踢人。')
@@ -578,18 +559,7 @@ class WordleEngine(BaseGameEngine):
 
         if not args or not args.startswith('@'):
             items = [{'label': p, 'command': f'/kick @{p}'} for p in others]
-            return {
-                'action': 'select_menu',
-                'send_to_caller': [{
-                    'type': 'game_event',
-                    'game_type': 'wordle',
-                    'event': 'select_menu',
-                    'data': {
-                        'title': '踢出玩家',
-                        'items': items,
-                    },
-                }],
-            }
+            return self._select_menu('踢出玩家', items)
 
         target = args[1:].strip()
         if target not in others:
@@ -617,7 +587,7 @@ class WordleEngine(BaseGameEngine):
             'refresh_commands': True,
         }
 
-    def _cmd_start(self, lobby, player_name, player_data):
+    def _cmd_start(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room or room.host != player_name:
             return self._msg(player_name, '你不是房主。')
@@ -650,7 +620,7 @@ class WordleEngine(BaseGameEngine):
             'refresh_commands': True,
         }
 
-    def _cmd_leave(self, lobby, player_name):
+    def _cmd_leave(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         is_host = room and room.host == player_name
 
@@ -679,14 +649,14 @@ class WordleEngine(BaseGameEngine):
 
     # ── 指令实现: 游戏中 ──
 
-    def _cmd_guess(self, lobby, player_name, player_data, word):
+    def _cmd_guess(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
             return self._msg(player_name, '没有进行中的游戏。')
         if room.player_done(player_name):
             return self._msg(player_name, '你已经结束了。')
 
-        word = word.strip().lower() if word else ''
+        word = args.strip().lower() if args else ''
         if len(word) != WORD_LENGTH:
             return self._msg(player_name, f'需要 {WORD_LENGTH} 个字母。')
         if not word.isalpha():
@@ -721,6 +691,11 @@ class WordleEngine(BaseGameEngine):
             exp_gain, gold_gain = r[0], r[1]
             reward_msg = self._apply_reward(
                 lobby, player_name, player_data, exp_gain, gold_gain)
+            self.report_game_result(lobby, player_name, player_data, 'win')
+            rc = self._update_player_rank(player_data, 'win')
+            rk = self._format_rank_change(rc)
+            if rk:
+                reward_msg += f'\n{rk}'
             lobby.set_player_location(player_name, 'wordle_finished')
             return {
                 'action': 'wordle_win',
@@ -731,20 +706,28 @@ class WordleEngine(BaseGameEngine):
                     {'type': LOCATION_UPDATE, 'location': 'wordle_finished'},
                 ],
                 'refresh_commands': True,
+                'refresh_status': [player_name],
             }
 
         if done:
             board['message'] = '很遗憾'
             answer = room.answer or '?????'
+            self.report_game_result(lobby, player_name, player_data, 'loss')
+            rc = self._update_player_rank(player_data, 'loss')
+            rk = self._format_rank_change(rc)
+            loss_text = f'Wordle 失败，答案: {answer.upper()}'
+            if rk:
+                loss_text += f'\n{rk}'
             lobby.set_player_location(player_name, 'wordle_finished')
             return {
                 'action': 'wordle_lose',
                 'send_to_caller': [
-                    {'type': GAME, 'text': f'Wordle 失败，答案: {answer.upper()}'},
+                    {'type': GAME, 'text': loss_text},
                     {'type': ROOM_UPDATE, 'room_data': board},
                     {'type': LOCATION_UPDATE, 'location': 'wordle_finished'},
                 ],
                 'refresh_commands': True,
+                'refresh_status': [player_name],
             }
 
         return {
@@ -788,6 +771,7 @@ class WordleEngine(BaseGameEngine):
         winner = room.winner
         reward_lines = []
         num_losers = sum(1 for p in room.players if p != winner) if winner else 0
+        rank_changes = {}
 
         for p in room.players:
             pd = lobby.online_players.get(p)
@@ -797,13 +781,23 @@ class WordleEngine(BaseGameEngine):
                 wb, wl = mr['winner_base'], mr['winner_per_loser']
                 exp_gain = wb[0] + wl[0] * num_losers
                 gold_gain = wb[1] + wl[1] * num_losers
+                self.report_game_result(lobby, p, pd, 'win')
+                rc = self._update_player_rank(pd, 'win')
                 reward_lines.append(f'{p}: +{exp_gain}exp +{gold_gain}金币 (优胜)')
             elif winner:
                 exp_gain, gold_gain = mr['loser'][0], mr['loser'][1]
+                self.report_game_result(lobby, p, pd, 'loss')
+                rc = self._update_player_rank(pd, 'loss')
                 reward_lines.append(f'{p}: +{exp_gain}exp {gold_gain}金币')
             else:
                 exp_gain, gold_gain = mr['timeout'][0], mr['timeout'][1]
+                self.report_game_result(lobby, p, pd, 'draw')
+                rc = self._update_player_rank(pd, 'draw')
                 reward_lines.append(f'{p}: +{exp_gain}exp')
+            rank_changes[p] = rc
+            rk = self._format_rank_change(rc)
+            if rk:
+                reward_lines.append(f'  {rk}')
             pd['exp'] = pd.get('exp', 0) + exp_gain
             check_level_up(pd)
             pd['gold'] = max(0, pd.get('gold', 0) + gold_gain)
@@ -823,6 +817,7 @@ class WordleEngine(BaseGameEngine):
             lobby.set_player_location(p, 'wordle_finished')
             pb = room.get_board_data(viewer=p)
             pb['message'] = f'优胜: {winner}' if winner else '无人猜对'
+            pb['rank_changes'] = rank_changes
             msgs = [
                 {'type': GAME, 'text': summary},
                 {'type': ROOM_UPDATE, 'room_data': pb},
@@ -859,11 +854,20 @@ class WordleEngine(BaseGameEngine):
 
     # ── 返回/放弃 ──
 
-    def _cmd_back_playing(self, lobby, player_name):
+    def _cmd_giveup(self, lobby, player_name, player_data, args):
+        return self._cmd_back_playing(lobby, player_name, confirmed=True)
+
+    def _cmd_back_playing(self, lobby, player_name, confirmed=False):
         """playing 时 back — 放弃"""
         room = self.get_player_room(player_name)
         if not room or room.state != 'playing':
             return self._msg(player_name, '没有进行中的游戏。')
+
+        if not confirmed:
+            return self._select_menu('确定放弃？', [
+                {'label': '确认放弃', 'command': '/giveup y'},
+                {'label': '取消', 'command': ''},
+            ])
 
         if room._multiplayer:
             # 多人: 放弃退出，不发奖励不扣金币

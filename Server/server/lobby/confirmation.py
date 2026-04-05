@@ -1,7 +1,9 @@
 """大厅级待确认状态处理（rename/password）"""
 
+from __future__ import annotations
+
 from .account import do_rename, do_change_password
-from ..systems.item_commands import (
+from .item_commands import (
     pending_use_rename_card, pending_gift_item, pending_drop_item,
 )
 

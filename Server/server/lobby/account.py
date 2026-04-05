@@ -1,5 +1,8 @@
 """账号操作工具函数（rename / password / delete）"""
 
+from __future__ import annotations
+
+from ..config import DEFAULT_LOCATION
 from ..player.manager import PlayerManager
 from ..systems.items import inv_get, inv_sub
 
@@ -22,7 +25,7 @@ def do_rename(lobby, player_name, player_data, new_name, quality=0):
 
     if old_name in lobby.online_players:
         lobby.online_players[new_name] = lobby.online_players.pop(old_name)
-    location = lobby.player_locations.pop(old_name, 'lobby')
+    location = lobby.player_locations.pop(old_name, DEFAULT_LOCATION)
     lobby.player_locations[new_name] = location
 
     PlayerManager.save_player_data(new_name, player_data)

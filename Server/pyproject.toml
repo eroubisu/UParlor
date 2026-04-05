@@ -10,10 +10,20 @@ dependencies = [
     "werkzeug",
     "english-words",
     "mahjong",
+    "python-chess",
 ]
 
 [project.scripts]
 uparlor-server = "server:main"
 
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools.packages.find]
 include = ["server*"]
+
+[tool.setuptools.package-data]
+server = ["**/*.json", "**/*.txt"]

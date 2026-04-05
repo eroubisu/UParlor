@@ -60,10 +60,13 @@
     },
 
     "game_status": {
-        "mahjong": {
-            "name": "麻将",
-            "slots": {"riichi_stick": "立直棒"}
-        }
+        "chess":     {"name": "国际象棋"},
+        "mahjong":   {"name": "麻将", "slots": {"riichi_stick": "立直棒"}},
+        "doudizhu":  {"name": "斗地主"},
+        "holdem":    {"name": "德州扑克"},
+        "blackjack": {"name": "21点"},
+        "wordle":    {"name": "猜词"},
+        "world":     {"name": "开放世界"}
     },
 
     "attribute_labels": {

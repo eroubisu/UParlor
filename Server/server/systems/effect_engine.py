@@ -37,9 +37,7 @@ def process_effect(player_data: dict, effect_cfg: dict, quality: int = 0) -> str
     return None
 
 
-# ══════════════════════════════════════════════════
-#  内置效果处理器
-# ══════════════════════════════════════════════════
+# ── 内置效果处理器 ──
 
 def _effect_add_exp(player_data: dict, cfg: dict, quality: int) -> str:
     from .leveling import check_level_up

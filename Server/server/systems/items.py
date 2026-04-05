@@ -5,9 +5,7 @@ from __future__ import annotations
 from ..player.schema import ITEM_LIBRARY, ITEM_SOURCES, QUALITY_MULTIPLIERS
 
 
-# ══════════════════════════════════════════════════
-#  品质系统
-# ══════════════════════════════════════════════════
+# ── 品质系统 ──
 
 def quality_mult(quality: int) -> float:
     return QUALITY_MULTIPLIERS.get(str(quality), 1.0)
@@ -90,9 +88,7 @@ def parse_item_key(key: str) -> tuple[str, int]:
     return key, 0
 
 
-# ══════════════════════════════════════════════════
-#  注入接口（由 games/__init__.py::register_game 调用）
-# ══════════════════════════════════════════════════
+# ── 注入接口（由 games/__init__.py::register_game 调用） ──
 
 def register_game_items(items: dict) -> None:
     ITEM_LIBRARY.update(items)
@@ -102,9 +98,7 @@ def register_game_item_sources(sources: dict) -> None:
     ITEM_SOURCES.update(sources)
 
 
-# ══════════════════════════════════════════════════
-#  物品查询
-# ══════════════════════════════════════════════════
+# ── 物品查询 ──
 
 def get_item_info(item_id):
     return ITEM_LIBRARY.get(item_id)

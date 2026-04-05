@@ -59,6 +59,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             yield Static(" NORMAL ", id="mode-indicator")
             yield Static("HOME", id="location-indicator")
             yield Static("", id="badge-indicator")
+            yield Static("", id="tile-indicator")
             yield Static(" ---- ", id="connection-status")
 
     def on_mount(self) -> None:
@@ -95,6 +96,7 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
             return
         else:
             self._layout_tree = get_game_layout()
+            self._layout_loaded = True
         await self.canvas.rebuild(self._layout_tree)
         self._restore_all_modules()
         # 恢复聚焦窗口
@@ -103,13 +105,21 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         if saved_focus and any(p.pane_id == saved_focus for p in panes):
             self._set_focused_pane(saved_focus)
         else:
+            # 优先聚焦 game_board，其次 cmd
+            target = None
             for p in panes:
-                if p.module == 'cmd':
-                    self._set_focused_pane(p.pane_id)
+                if p.module == 'game_board':
+                    target = p.pane_id
                     break
-            else:
-                if panes:
-                    self._set_focused_pane(panes[0].pane_id)
+            if not target:
+                for p in panes:
+                    if p.module == 'cmd':
+                        target = p.pane_id
+                        break
+            if not target and panes:
+                target = panes[0].pane_id
+            if target:
+                self._set_focused_pane(target)
         self.action_enter_normal()
         self.update_badges()
 
@@ -145,22 +155,23 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
     # ── 焦点管理 ──
 
     def _set_focused_pane(self, pane_id: str):
+        old_id = self._focused_pane_id
         self._focused_pane_id = pane_id
         focused_pane = find_pane(self._layout_tree, pane_id)
         if hasattr(self, 'state'):
             self.state.chat.panel_focused = (
                 focused_pane is not None and focused_pane.module == 'chat')
         canvas = self.canvas
-        for p in all_panes(self._layout_tree):
-            wrapper = canvas.get_pane(p.pane_id)
+        if old_id and old_id != pane_id:
+            wrapper = canvas.get_pane(old_id)
             if wrapper:
-                if p.pane_id == pane_id:
-                    wrapper.add_class("--focused")
-                    w = wrapper.module_widget
-                    if w and hasattr(w, 'on_panel_focus'):
-                        w.on_panel_focus()
-                else:
-                    wrapper.remove_class("--focused")
+                wrapper.remove_class("--focused")
+        wrapper = canvas.get_pane(pane_id)
+        if wrapper:
+            wrapper.add_class("--focused")
+            w = wrapper.module_widget
+            if w and hasattr(w, 'on_panel_focus'):
+                w.on_panel_focus()
 
     def _focused_module(self) -> str | None:
         pane = find_pane(self._layout_tree, self._focused_pane_id)

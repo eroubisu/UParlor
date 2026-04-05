@@ -14,12 +14,19 @@
       {game_id}.json — 游戏专属数据
 """
 
-import os
+from __future__ import annotations
+
 import json
+import logging
+import os
 import shutil
+import threading
+
 from werkzeug.security import generate_password_hash, check_password_hash
 from ..config import USERS_DIR
 from .schema import get_default_user_template, ensure_user_schema
+
+logger = logging.getLogger(__name__)
 
 
 # ── 模块映射：固定 key → 文件名 ──
@@ -48,18 +55,42 @@ def _read_json(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error("读取 %s 失败: %s", path, e)
         return None
 
 
 def _write_json(path, data):
+    """仅在内容变化时写入文件"""
+    new_content = json.dumps(data, ensure_ascii=False, indent=2)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            if f.read() == new_content:
+                return
+    except (FileNotFoundError, OSError):
+        pass
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write(new_content)
 
 
 class PlayerManager:
     """玩家数据管理 - 注册、登录、存档"""
+
+    # 每玩家写锁 — 防止并发写入数据损坏
+    _player_locks: dict[str, threading.Lock] = {}
+    _locks_guard = threading.Lock()
+
+    @staticmethod
+    def _get_lock(name: str) -> threading.Lock:
+        with PlayerManager._locks_guard:
+            lock = PlayerManager._player_locks.get(name)
+            if lock is None:
+                lock = threading.Lock()
+                PlayerManager._player_locks[name] = lock
+            return lock
 
     @staticmethod
     def hash_password(password):
@@ -123,36 +154,37 @@ class PlayerManager:
     @staticmethod
     def _save_user_file(name, data):
         """将完整 data dict 拆分写入多文件"""
-        user_dir = PlayerManager._get_user_dir(name)
-        os.makedirs(user_dir, exist_ok=True)
+        with PlayerManager._get_lock(name):
+            user_dir = PlayerManager._get_user_dir(name)
+            os.makedirs(user_dir, exist_ok=True)
 
-        # 按模块分组
-        buckets = {mod: {} for mod in _MODULE_MAP}
-        game_data = {}
+            # 按模块分组
+            buckets = {mod: {} for mod in _MODULE_MAP}
+            game_data = {}
 
-        for key, value in data.items():
-            mod = _KEY_TO_MODULE.get(key)
-            if mod:
-                buckets[mod][key] = value
-            elif key not in _ALL_KNOWN_KEYS:
-                game_data[key] = value
+            for key, value in data.items():
+                mod = _KEY_TO_MODULE.get(key)
+                if mod:
+                    buckets[mod][key] = value
+                elif key not in _ALL_KNOWN_KEYS:
+                    game_data[key] = value
 
-        # 写入固定模块
-        for mod_name, content in buckets.items():
-            if content:
-                _write_json(os.path.join(user_dir, f'{mod_name}.json'), content)
+            # 写入固定模块
+            for mod_name, content in buckets.items():
+                if content:
+                    _write_json(os.path.join(user_dir, f'{mod_name}.json'), content)
 
-        # 写入游戏数据
-        if game_data:
-            games_dir = os.path.join(user_dir, 'games')
-            os.makedirs(games_dir, exist_ok=True)
-            for game_id, game_content in game_data.items():
-                _write_json(os.path.join(games_dir, f'{game_id}.json'), game_content)
+            # 写入游戏数据
+            if game_data:
+                games_dir = os.path.join(user_dir, 'games')
+                os.makedirs(games_dir, exist_ok=True)
+                for game_id, game_content in game_data.items():
+                    _write_json(os.path.join(games_dir, f'{game_id}.json'), game_content)
 
-        # 删除旧单文件（迁移完成）
-        legacy = PlayerManager._get_legacy_file(name)
-        if os.path.exists(legacy):
-            os.remove(legacy)
+            # 删除旧单文件（迁移完成）
+            legacy = PlayerManager._get_legacy_file(name)
+            if os.path.exists(legacy):
+                os.remove(legacy)
 
     # ── 公开接口（签名不变）──
 
@@ -190,20 +222,22 @@ class PlayerManager:
             updated_data, changes = ensure_user_schema(data)
             if changes or legacy:
                 if changes:
-                    print(f"[用户数据更新] {name}: {len(changes)} 个属性已补充")
+                    logger.info("用户数据更新 %s: %d 个属性已补充", name, len(changes))
                 if legacy:
-                    print(f"[数据迁移] {name}: 单文件 → 多文件")
+                    logger.info("数据迁移 %s: 单文件 → 多文件", name)
                 PlayerManager._save_user_file(name, updated_data)
             return {k: v for k, v in updated_data.items() if k != 'password_hash'}
-        except Exception as e:
-            print(f"[错误] 加载用户数据失败 {name}: {e}")
+        except Exception:
+            logger.exception("加载用户数据失败 %s", name)
             return None
 
     @staticmethod
     def save_player_data(name, data):
-        old_data = PlayerManager._load_user_file(name)
-        if old_data and 'password_hash' in old_data:
-            data['password_hash'] = old_data['password_hash']
+        if 'password_hash' not in data:
+            auth_path = os.path.join(PlayerManager._get_user_dir(name), 'auth.json')
+            auth = _read_json(auth_path)
+            if auth and 'password_hash' in auth:
+                data['password_hash'] = auth['password_hash']
         PlayerManager._save_user_file(name, data)
 
     @staticmethod

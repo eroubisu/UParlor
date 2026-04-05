@@ -1,0 +1,56 @@
+{
+  "blacksmith_npc": {
+    "name": "铁匠",
+    "char": "*",
+    "color": "#c8a882",
+    "dialog": "需要锻造什么？看看我的货架吧。"
+  },
+  "casino_npc": {
+    "name": "荷官",
+    "char": "*",
+    "color": "#c8a882",
+    "dialog": "欢迎光临赌场。21点还是德州扑克？"
+  },
+  "chesshall_npc": {
+    "name": "棋馆主人",
+    "char": "*",
+    "color": "#a0b8c8",
+    "dialog": "来一局国际象棋？这里有最好的棋盘。"
+  },
+  "fishery_npc": {
+    "name": "渔夫",
+    "char": "*",
+    "color": "#6a9ab0",
+    "dialog": "想要钓鱼？先买根钓竿吧！去水边就能钓了。"
+  },
+  "gamehall_npc": {
+    "name": "馆主",
+    "char": "*",
+    "color": "#b882c8",
+    "dialog": "开一局麻将吗？随时奉陪。"
+  },
+  "guild_npc": {
+    "name": "公会接待",
+    "char": "*",
+    "color": "#c8c882",
+    "dialog": "欢迎来到冒险者公会，看看今天的任务吧。"
+  },
+  "herbshop_npc": {
+    "name": "药师",
+    "char": "*",
+    "color": "#82c888",
+    "dialog": "药草和药剂，应有尽有。"
+  },
+  "library_npc": {
+    "name": "文字馆主人",
+    "char": "*",
+    "color": "#90a8c0",
+    "dialog": "欢迎来到文字馆! 这里有各种文字谜题，目前可以玩 Wordle，支持单人和多人对战。"
+  },
+  "tavern_npc": {
+    "name": "酒保",
+    "char": "*",
+    "color": "#c8b882",
+    "dialog": "来杯酒吗？这里也提供住宿。"
+  }
+}

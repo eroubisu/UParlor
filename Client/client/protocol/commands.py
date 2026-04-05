@@ -70,8 +70,8 @@ def get_command_tabs() -> list[tuple[str, list[CommandInfo]]]:
 
 
 def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
-    """获取游戏指令标签页（过滤掉全局指令 back/help/clear/exit）"""
-    _global_cmds = {'/help', '/clear', '/exit'}
+    """获取游戏指令标签页（过滤掉全局指令 back/clear/exit）"""
+    _global_cmds = {'/clear', '/exit'}
     result = []
     for tab_name, items in _tabs:
         filtered = [c for c in items if c.command not in _global_cmds]

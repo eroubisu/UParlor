@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from . import register
 from ..player.manager import PlayerManager
+from ..player.schema import (
+    DEFAULT_PATTERN_ID, DEFAULT_CARD_FIELDS,
+    DEFAULT_NAME_COLOR, DEFAULT_MOTTO_COLOR, DEFAULT_BORDER_COLOR,
+    DEFAULT_PATTERN_FALLBACK,
+)
 from ..systems.titles import get_title_name
 from ..systems.items import get_item_info
 from ..msg_types import PROFILE_CARD
@@ -18,7 +23,7 @@ def handle_get_profile_card(server, client_socket, name, player_data, msg):
     if not target_data:
         return
     pc = target_data.get('profile_card', {})
-    pattern_id = pc.get('pattern_id', 'pattern_default')
+    pattern_id = pc.get('pattern_id', DEFAULT_PATTERN_ID)
     pattern_info = get_item_info(pattern_id) or {}
     titles_data = target_data.get('titles', {})
     displayed = titles_data.get('displayed', [])
@@ -29,11 +34,11 @@ def handle_get_profile_card(server, client_socket, name, player_data, msg):
         'gold': target_data.get('gold', 0),
         'title': title_display,
         'motto': pc.get('motto', ''),
-        'name_color': pc.get('name_color', '#ffffff'),
-        'motto_color': pc.get('motto_color', '#b3b3b3'),
-        'border_color': pc.get('border_color', '#5a5a5a'),
-        'pattern': pattern_info.get('pattern', {'chars': '.', 'colors': ['#505050']}),
-        'card_fields': pc.get('card_fields', ['level', 'gold', 'games', 'created']),
+        'name_color': pc.get('name_color', DEFAULT_NAME_COLOR),
+        'motto_color': pc.get('motto_color', DEFAULT_MOTTO_COLOR),
+        'border_color': pc.get('border_color', DEFAULT_BORDER_COLOR),
+        'pattern': pattern_info.get('pattern', DEFAULT_PATTERN_FALLBACK),
+        'card_fields': pc.get('card_fields', list(DEFAULT_CARD_FIELDS)),
         'created_at': target_data.get('created_at', ''),
         'game_stats': target_data.get('game_stats', {}),
         'social_stats': target_data.get('social_stats', {}),

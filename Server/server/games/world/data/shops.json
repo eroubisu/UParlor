@@ -1,0 +1,57 @@
+{
+    "building_blacksmith": {
+        "buy": [
+            {
+                "id": "iron_sword",
+                "price": 200
+            },
+            {
+                "id": "steel_sword",
+                "price": 500
+            },
+            {
+                "id": "leather_armor",
+                "price": 150
+            },
+            {
+                "id": "iron_armor",
+                "price": 400
+            },
+            {
+                "id": "iron_helmet",
+                "price": 250
+            },
+            {
+                "id": "leather_boots",
+                "price": 120
+            },
+            {
+                "id": "iron_boots",
+                "price": 300
+            }
+        ],
+        "sell_rate": 0.4
+    },
+    "building_herbshop": {
+        "buy": [
+            {
+                "id": "healing_herb",
+                "price": 30
+            },
+            {
+                "id": "exp_potion",
+                "price": 80
+            }
+        ],
+        "sell_rate": 0.5
+    },
+    "building_fishery": {
+        "buy": [
+            {
+                "id": "fishing_rod",
+                "price": 150
+            }
+        ],
+        "sell_rate": 0.4
+    }
+}

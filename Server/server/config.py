@@ -2,6 +2,8 @@
 服务器配置
 """
 
+from __future__ import annotations
+
 import os
 
 # 版本号（从 version.txt 读取，由 build_server.py 打包时生成）
@@ -19,7 +21,7 @@ def _get_server_version():
 SERVER_VERSION = _get_server_version()
 
 # 客户端最新版本号（upload.py 上传时自动更新）
-CLIENT_VERSION = "0.1.14"
+CLIENT_VERSION = "0.2.1"
 
 # 网络配置
 HOST = '0.0.0.0'
@@ -33,6 +35,9 @@ CHAT_LOG_DIR = os.path.join(DATA_DIR, 'chat_logs')
 CHAT_HISTORY_DIR = os.path.join(CHAT_LOG_DIR, 'history')
 DM_LOG_DIR = os.path.join(DATA_DIR, 'dm_logs')
 DM_HISTORY_DIR = os.path.join(DM_LOG_DIR, 'history')
+
+# 外部引擎路径
+STOCKFISH_PATH = os.environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
 
 # 系统维护时间（北京时间凌晨4点）
 MAINTENANCE_HOUR = 4
@@ -69,3 +74,32 @@ COMMAND_TABLE: dict[str, list[dict]] = _load_command_table()
 os.makedirs(USERS_DIR, exist_ok=True)
 os.makedirs(CHAT_LOG_DIR, exist_ok=True)
 os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
+
+# ── 全局常量 ──
+
+# 网络
+MAX_BUFFER_SIZE = 65536         # 单客户端接收缓冲区上限（字节）
+MAX_VIEWPORT_WIDTH = 500        # 客户端视口宽度上限
+MAX_VIEWPORT_HEIGHT = 200       # 客户端视口高度上限
+
+# 认证
+MAX_LOGIN_ATTEMPTS = 5          # 连续密码错误上限
+LOGIN_COOLDOWN = 60             # 触发限流后的冷却时间（秒）
+
+# 时间
+INVITE_EXPIRE = 240     # 邀请过期时间（秒）
+BOT_DELAY = 1.5         # Bot 动作延迟（秒）
+
+# 段位系统
+BOT_TIER_THRESHOLD = 3          # Bot 对局不涨分的段位阶梯（expert+）
+BOT_REWARD_DIVISOR = 2          # Bot 对局正收益除数
+DEMOTION_RECOVERY_DIVISOR = 2   # 降段后恢复点数除数
+RANK_BAR_WIDTH = 10             # 段位进度条宽度（字符数）
+
+# 默认头衔
+DEFAULT_TITLE_ID = 'newcomer'
+
+# 位置
+DEFAULT_LOCATION = 'world_town'         # 玩家默认/回退位置
+DEFAULT_MAP = 'starter_town'            # 默认地图 ID
+OUTDOOR_MAP_TYPES = ('world', 'road', 'site')  # 室外地图类型

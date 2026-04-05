@@ -75,6 +75,17 @@ def heal_hp(player_data: dict, amount: int) -> int:
     return actual
 
 
+def damage_hp(player_data: dict, amount: int) -> int:
+    """扣除 HP，返回实际扣除量 (可降至 0)"""
+    attrs = player_data.setdefault('attributes', {})
+    max_hp = get_max_hp(player_data)
+    current = attrs.get('current_hp', max_hp)
+    new_hp = max(0, current - amount)
+    actual = current - new_hp
+    attrs['current_hp'] = new_hp
+    return actual
+
+
 def heal_mp(player_data: dict, amount: int) -> int:
     """恢复 MP，返回实际恢复量"""
     attrs = player_data.setdefault('attributes', {})

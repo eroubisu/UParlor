@@ -104,7 +104,7 @@ RichLog {
 }
 
 #game-board-scroll.no-scroll {
-    overflow-y: hidden;
+    overflow: hidden;
 }
 
 #game-board-log {
@@ -311,6 +311,13 @@ InputTextArea:focus {
 #location-indicator {
     width: 1fr;
     padding: 0 1;
+    background: transparent;
+}
+
+#tile-indicator {
+    width: auto;
+    padding: 0;
+    color: $color-fg-secondary;
     background: transparent;
 }
 

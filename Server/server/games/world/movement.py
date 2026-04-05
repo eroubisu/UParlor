@@ -8,7 +8,8 @@ from __future__ import annotations
 import time
 
 from ...msg_types import ROOM_UPDATE
-from ...systems.town_map import load_map, get_visible_region, check_door
+from ...config import DEFAULT_MAP
+from .town_map import load_map, get_visible_region, get_door, get_tile, get_tile_cd_mult, is_concealed
 from ...systems.attributes import get_total_stats
 
 # 方向映射: hjkl → (dx, dy)
@@ -30,28 +31,37 @@ class MovementMixin:
     依赖 FollowMixin._get_followers_recursive（用于链冷却计算和 delta 跳过）。
     """
 
-    def _get_move_cooldown(self, player_data: dict) -> float:
-        """计算移动冷却时间（考虑速度加成）"""
+    def _get_move_cooldown(self, player_data: dict,
+                           map_data: dict | None = None,
+                           pos: list[int] | None = None) -> float:
+        """计算移动冷却时间（考虑速度加成 + 地形倍率）"""
         stats = get_total_stats(player_data)
         agility = stats.get('agility', 10)
         bonus = max(0, agility - 10)
-        cd = _BASE_COOLDOWN * (1.0 - bonus * 0.01)
+        terrain = 1.0
+        if map_data and pos:
+            terrain = get_tile_cd_mult(map_data, pos[0], pos[1])
+        cd = _BASE_COOLDOWN * terrain * (1.0 - bonus * 0.01)
         return max(_MIN_COOLDOWN, cd)
 
-    def _check_cooldown(self, player_name: str, player_data: dict) -> bool:
+    def _check_cooldown(self, player_name: str, player_data: dict,
+                         map_data: dict | None = None,
+                         pos: list[int] | None = None) -> bool:
         """检查移动冷却，返回 True=可移动（snap-to-grid 保证均匀节奏）"""
         now = time.monotonic()
         last = self._last_move.get(player_name, 0.0)
-        cd = self._get_chain_cooldown(player_name, player_data)
-        if now - last < cd:
+        cd = self._get_chain_cooldown(player_name, player_data, map_data, pos)
+        if now - last < cd - 0.03:
             return False
         expected = last + cd
         self._last_move[player_name] = expected if now - expected < cd else now
         return True
 
-    def _get_chain_cooldown(self, player_name: str, player_data: dict) -> float:
+    def _get_chain_cooldown(self, player_name: str, player_data: dict,
+                            map_data: dict | None = None,
+                            pos: list[int] | None = None) -> float:
         """计算考虑跟随链后的实际冷却（取链中最慢者）"""
-        cd = self._get_move_cooldown(player_data)
+        cd = self._get_move_cooldown(player_data, map_data, pos)
         self._cooldowns[player_name] = cd
         followers = self._get_followers_recursive(player_name)
         if not followers:
@@ -97,7 +107,7 @@ class MovementMixin:
 
     def _build_map_update(self, player_name: str) -> dict:
         """构建完整地图更新消息（用于初次加载/视口变化）"""
-        map_id = self._maps.get(player_name, 'starter_town')
+        map_id = self._maps.get(player_name, DEFAULT_MAP)
         map_data = load_map(map_id)
         pos = self._positions.get(player_name, [20, 14])
         vp = self._viewports.get(player_name)
@@ -111,8 +121,14 @@ class MovementMixin:
                 if p:
                     other_players.append({'x': p[0], 'y': p[1], 'name': name})
 
-        view = get_visible_region(map_data, pos, view_w, view_h, other_players)
-        door = check_door(map_data, pos[0], pos[1])
+        view = get_visible_region(map_data, pos, view_w, view_h, other_players,
+                                   map_id=map_id)
+        door = get_door(map_data, pos[0], pos[1])
+
+        tile = get_tile(map_data, pos[0], pos[1])
+        tile_name = tile.get('name', '') if tile else ''
+
+        move_cd = self._cooldowns.get(player_name, _BASE_COOLDOWN)
 
         return {
             'type': ROOM_UPDATE,
@@ -122,6 +138,8 @@ class MovementMixin:
                 'map': view,
                 'door': {'name': door['name'], 'building_id': door['building_id']} if door else None,
                 'pos': pos,
+                'tile_name': tile_name,
+                'move_cd': round(move_cd, 3),
             },
         }
 
@@ -133,14 +151,18 @@ class MovementMixin:
         """
         updates: dict[str, list] = {}
         chain_followers = self._get_followers_recursive(player_name)
+        map_data = load_map(map_id)
+        # 隐蔽地块上的玩家对其他人不可见
+        was_concealed = is_concealed(map_data, old_pos[0], old_pos[1])
+        now_concealed = is_concealed(map_data, new_pos[0], new_pos[1])
         for name in self._map_players.get(map_id, ()):
             if name == player_name or name in chain_followers:
                 continue
             vr = self._player_viewport_range(name)
             if not vr:
                 continue
-            old_in = self._in_viewport(vr, old_pos[0], old_pos[1])
-            new_in = self._in_viewport(vr, new_pos[0], new_pos[1])
+            old_in = self._in_viewport(vr, old_pos[0], old_pos[1]) and not was_concealed
+            new_in = self._in_viewport(vr, new_pos[0], new_pos[1]) and not now_concealed
             if not old_in and not new_in:
                 continue
             obs_pos = self._positions.get(name, [0, 0])
