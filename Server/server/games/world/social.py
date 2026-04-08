@@ -65,6 +65,21 @@ def cmd_enter(engine, lobby, player_name, player_data, args, map_id, map_data):
     lobby.set_player_location(player_name, location)
     engine._save_world_state(player_name, player_data, location)
 
+    # 跟随者也切换到同一建筑
+    for fname in engine._get_followers_recursive(player_name):
+        fdata = lobby.online_players.get(fname)
+        if fdata and engine._maps.get(fname) == map_id:
+            fn = engine._switch_map(fname, building_id, enter_pos)
+            lobby.set_player_location(fname, location)
+            engine._save_world_state(fname, fdata, location)
+            for t, msgs in fn.items():
+                notify.setdefault(t, []).extend(msgs)
+            # 跟随者自身也需要收到完整地图更新
+            f_map_update = engine._build_map_update(fname)
+            notify.setdefault(fname, []).append(f_map_update)
+            notify.setdefault(fname, []).append(
+                {'type': 'game', 'text': f'跟随进入了 {door["name"]}。'})
+
     door_name = door['name']
     enter_text = f"前往 {door_name}。" if map_type in ('world', 'road') else f"进入了 {door_name}。"
     map_update = engine._build_map_update(player_name)

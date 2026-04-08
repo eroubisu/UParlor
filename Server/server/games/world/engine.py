@@ -434,6 +434,7 @@ class WorldEngine(MovementMixin, FollowMixin, BaseGameEngine):
         local_cmds = _load_json('commands.json')
         cmds = [
             {'name': 'talk', 'label': '交谈', 'desc': '与NPC交谈', 'tab': '操作'},
+            {'name': 'user', 'label': '玩家', 'desc': '查看附近玩家', 'tab': '操作'},
         ]
         cmds.extend(local_cmds.get(location, []))
         # 站在出口门上时显示 /enter（标签显示"离开"）

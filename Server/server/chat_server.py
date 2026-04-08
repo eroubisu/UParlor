@@ -362,7 +362,12 @@ class ChatServer(AuthMixin):
         
         else:
             from .handlers import dispatch_playing
-            dispatch_playing(self, client_socket, name, player_data, msg)
+            try:
+                dispatch_playing(self, client_socket, name, player_data, msg)
+            except Exception:
+                logger.exception("dispatch_playing 异常: player=%s type=%s",
+                                 name, msg_type)
+                self.send_to(client_socket, {'type': GAME, 'text': '[服务器错误]'})
 
     def send_player_status(self, client_socket, player_data):
         """发送游戏大厅状态"""

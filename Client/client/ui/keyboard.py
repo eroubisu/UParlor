@@ -58,6 +58,7 @@ class KeyboardMixin:
         # ── CMD_SELECT 模式（指令栏打开时）──
         if self._cmd_select_mode:
             vim._count_buffer = ""
+            _WASD_NAV = {'w': 'up', 's': 'down', 'a': 'left', 'd': 'right'}
             if key == "escape":
                 self._close_cmd_select()
             elif key == "J":
@@ -68,6 +69,8 @@ class KeyboardMixin:
                 self._hint_nav('left')
             elif key == "L":
                 self._hint_nav('right')
+            elif key in _WASD_NAV:
+                self._hint_nav(_WASD_NAV[key])
             elif key == "enter":
                 chain_done = self._hint_enter()
                 if chain_done and not self._cmd_select_sticky:

@@ -280,17 +280,9 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
             if target_data:
                 _send_status_to_player(server, target, target_data)
 
-    # 6. refresh_commands: 为所有涉及玩家重新下发指令列表
+    # 6. refresh_commands: 仅为 caller 重新下发指令列表
     if result.get('refresh_commands'):
-        refreshed = set()
-        for target in result.get('send_to_players', {}):
-            target_data = server._get_player_data(target)
-            if target_data:
-                loc = lobby.get_player_location(target)
-                cmds = lobby.get_commands_for_location(loc, target_data)
-                server.send_to_player(target, {'type': COMMANDS_UPDATE, 'commands': cmds})
-                refreshed.add(target)
-        if caller_name and caller_name not in refreshed and caller_socket:
+        if caller_name and caller_socket:
             _refresh_caller_commands(server, caller_socket, caller_name, caller_data)
 
 
