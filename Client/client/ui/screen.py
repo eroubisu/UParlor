@@ -21,6 +21,8 @@ from .layout import (
     serialize, deserialize,
     all_panes, find_pane, find_module_pane,
     split_pane, close_pane, resize_pane,
+    swap_modules, next_sibling_id, equalize,
+    PRESETS,
 )
 from ..panels import LoginPanel, AIChatPanel
 from ..panels.inventory import InventoryPanel
@@ -483,6 +485,64 @@ class GameScreen(KeyboardMixin, InputMixin, SpaceMenuMixin, Screen):
         await self.canvas.rebuild(self._layout_tree)
         self._restore_all_modules()
         self._set_focused_pane(self._focused_pane_id)
+
+    # ── Zoom / Swap / Equalize ──
+
+    _zoom_saved: tuple | None = None  # (tree, focused_id) before zoom
+
+    async def _do_zoom(self):
+        """全屏切换：当前窗格独占 ↔ 恢复原布局"""
+        if self._zoom_saved:
+            tree, fid = self._zoom_saved
+            self._zoom_saved = None
+            self._layout_tree = tree
+            self._focused_pane_id = fid
+            await self.canvas.rebuild(self._layout_tree)
+            self._restore_all_modules()
+            self._set_focused_pane(fid)
+            self._save_layout()
+            return
+        panes = all_panes(self._layout_tree)
+        if len(panes) <= 1:
+            return
+        current = find_pane(self._layout_tree, self._focused_pane_id)
+        if not current:
+            return
+        self._zoom_saved = (self._layout_tree, self._focused_pane_id)
+        self._layout_tree = PaneNode(current.module, current.pane_id)
+        await self.canvas.rebuild(self._layout_tree)
+        self._restore_all_modules()
+        self._set_focused_pane(current.pane_id)
+
+    async def _do_swap(self):
+        """交换当前窗格与下一个兄弟窗格的模块"""
+        sibling_id = next_sibling_id(self._layout_tree, self._focused_pane_id)
+        if not sibling_id:
+            return
+        if swap_modules(self._layout_tree, self._focused_pane_id, sibling_id):
+            await self.canvas.rebuild(self._layout_tree)
+            self._restore_all_modules()
+            self._set_focused_pane(self._focused_pane_id)
+            self._save_layout()
+
+    def _do_equalize(self):
+        """均分当前窗格所在容器的大小"""
+        if equalize(self._layout_tree, self._focused_pane_id):
+            self.canvas.sync_weights(self._layout_tree)
+            self._save_layout()
+
+    async def _do_load_preset(self, idx: int):
+        """加载预设布局"""
+        if idx < 0 or idx >= len(PRESETS):
+            return
+        _, factory = PRESETS[idx]
+        self._zoom_saved = None
+        self._layout_tree = factory()
+        self._focused_pane_id = all_panes(self._layout_tree)[0].pane_id
+        await self.canvas.rebuild(self._layout_tree)
+        self._restore_all_modules()
+        self._set_focused_pane(self._focused_pane_id)
+        self._save_layout()
 
     def _save_layout(self):
         if not self.logged_in:

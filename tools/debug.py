@@ -80,6 +80,7 @@ def main():
 
     # 前台启动客户端（连接本地）
     os.environ["UPARLOR_HOST"] = "127.0.0.1"
+    os.environ["UPARLOR_DEBUG"] = "1"
     os.chdir(CLIENT_DIR)
     sys.path.insert(0, CLIENT_DIR)
     from client.app import main as client_main

@@ -270,7 +270,8 @@ def _uninstall():
 
 def _check_update(current: str | None):
     """启动前查 PyPI 最新版，版本不一致或查询失败均阻止启动（dev 版本跳过）"""
-    if current and '.dev' in current:
+    import os
+    if os.environ.get('UPARLOR_DEBUG') or (current and '.dev' in current):
         return
     import json
     import re

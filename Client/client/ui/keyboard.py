@@ -58,7 +58,6 @@ class KeyboardMixin:
         # ── CMD_SELECT 模式（指令栏打开时）──
         if self._cmd_select_mode:
             vim._count_buffer = ""
-            _WASD_NAV = {'w': 'up', 's': 'down', 'a': 'left', 'd': 'right'}
             if key == "escape":
                 self._close_cmd_select()
             elif key == "J":
@@ -69,8 +68,14 @@ class KeyboardMixin:
                 self._hint_nav('left')
             elif key == "L":
                 self._hint_nav('right')
-            elif key in _WASD_NAV:
-                self._hint_nav(_WASD_NAV[key])
+            elif key == "S":
+                self._hint_nav('down')
+            elif key == "W":
+                self._hint_nav('up')
+            elif key == "A":
+                self._hint_nav('left')
+            elif key == "D":
+                self._hint_nav('right')
             elif key == "enter":
                 chain_done = self._hint_enter()
                 if chain_done and not self._cmd_select_sticky:
@@ -88,25 +93,30 @@ class KeyboardMixin:
                 self._hint_filter(self._cmd_filter_buf)
             return
 
-        # 数字前缀累积（vim 风格: 5j = 向下移动5步）
-        if key.isdigit() and (key != '0' or vim._count_buffer):
+        # 数字前缀累积（vim 风格: 5j = 向下移动5步）— wk 菜单内跳过
+        if not self._wk.is_open and key.isdigit() and (key != '0' or vim._count_buffer):
             vim._count_buffer += key
             self._update_mode_indicator()
             return
 
-        # Space 菜单（jk 导航，Enter 进入子菜单，Backspace 返回）
+        # Space 菜单（快捷键优先，wasd/jk 导航回退）
         if self._wk.is_open:
             vim._count_buffer = ""
             self._update_mode_indicator()
             if key == "escape":
                 self._wk.close()
-            elif key == "j":
-                self._wk.nav_down()
-            elif key == "k":
-                self._wk.nav_up()
             elif key == "enter":
                 self._handle_space_enter()
             elif key == "backspace":
+                if not self._wk.back():
+                    self._wk.close()
+            elif len(key) == 1 and self._wk.key_select(key):
+                self._handle_space_enter()
+            elif key in ("j", "s"):
+                self._wk.nav_down()
+            elif key in ("k", "w"):
+                self._wk.nav_up()
+            elif key == "a":
                 if not self._wk.back():
                     self._wk.close()
             return

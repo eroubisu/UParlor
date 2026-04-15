@@ -5,13 +5,14 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.widgets import Static
 
+from ..config import COLOR_CMD
 from ..widgets import TabMenuBase
 
 
 class WhichKeyPanel(TabMenuBase):
     """Space 菜单：继承 TabMenuBase，单列表 + 子菜单钻入。
 
-    items 为 tuple (name, desc[, sub_items])
+    items 为 tuple (name, desc[, sub_items[, key]])
     """
 
     _tabs_widget_id = "wk-title"
@@ -29,7 +30,11 @@ class WhichKeyPanel(TabMenuBase):
     # ── TabMenuBase 钩子 ──
 
     def _item_name(self, item) -> str:
-        return item[0]
+        key = item[3] if len(item) > 3 and item[3] else None
+        name = item[0]
+        if key:
+            return f"[{COLOR_CMD}]{key}[/] {name}"
+        return name
 
     def _item_desc(self, item) -> str:
         return item[1] if len(item) > 1 else ""
@@ -69,6 +74,16 @@ class WhichKeyPanel(TabMenuBase):
         pass
 
     # ── 公共接口 ──
+
+    def key_select(self, key: str) -> bool:
+        """按快捷键选中项目。返回 True 表示命中。"""
+        items = self._current_items()
+        for i, item in enumerate(items):
+            item_key = item[3] if len(item) > 3 else None
+            if item_key and item_key == key:
+                self._selected_idx = i
+                return True
+        return False
 
     def open(self, items: list[tuple]):
         """打开菜单，items 为顶级列表项（可含子菜单）"""

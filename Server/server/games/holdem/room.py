@@ -45,7 +45,7 @@ class HoldemRoom:
         self.room_id = room_id
         self.host = host
         self.state = 'waiting'  # waiting → playing → showdown → finished
-        self.seats: list[PlayerSeat | None] = [None] * self.MAX_PLAYERS
+        self.seats: list[PlayerSeat | None] = [PlayerSeat(host)] + [None] * (self.MAX_PLAYERS - 1)
         self.deck: Deck = Deck()
         self.bots: set[str] = set()
 

@@ -461,6 +461,7 @@ class HoldemEngine(BaseGameEngine):
 
         winners = {w['name'] for w in room.winners}
         send_to_players = {}
+        caller_msgs = None
         refresh_status = []
         has_bots = bool(room.bots)
         rank_changes = {}
@@ -495,8 +496,14 @@ class HoldemEngine(BaseGameEngine):
             lobby.set_player_location(p, 'holdem_room')
             board = room.get_game_data(viewer=p)
             board['rank_changes'] = rank_changes
-            w_info = room.winners[0] if room.winners else {}
-            summary = f'本手结束 — {w_info.get("name", "?")} 赢得 {w_info.get("amount", 0)} ({w_info.get("hand_name", "")})'
+            if len(room.winners) == 1:
+                w = room.winners[0]
+                summary = f'本手结束 — {w.get("name", "?")} 赢得 {w.get("amount", 0)} ({w.get("hand_name", "")})'
+            elif room.winners:
+                parts = [f'{w.get("name", "?")} 赢得 {w.get("amount", 0)}' for w in room.winners]
+                summary = f'本手结束 — {"、".join(parts)}'
+            else:
+                summary = '本手结束'
             rk = self._format_rank_change(rank_changes.get(p))
             if rk:
                 summary += f'\n{rk}'
@@ -515,7 +522,7 @@ class HoldemEngine(BaseGameEngine):
 
         return {
             'action': 'holdem_game_over',
-            'send_to_caller': caller_msgs,
+            'send_to_caller': caller_msgs or [],
             'send_to_players': send_to_players,
             'refresh_commands': True,
             'refresh_status': refresh_status,

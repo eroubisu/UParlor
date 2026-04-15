@@ -49,6 +49,58 @@ def get_game_layout() -> LayoutNode:
     ], [1.0, 1.0])
 
 
+# ── 预设布局 ──
+
+def preset_game_focus() -> LayoutNode:
+    """游戏为主：大面积游戏面板 + 右侧窄聊天"""
+    return SplitNode('h', [
+        PaneNode('game_board', 'pane-0'),
+        PaneNode('chat', 'pane-1'),
+    ], [2.0, 1.0])
+
+
+def preset_chat_focus() -> LayoutNode:
+    """社交为主：聊天为主 + 右侧在线用户"""
+    return SplitNode('h', [
+        PaneNode('chat', 'pane-0'),
+        SplitNode('v', [
+            PaneNode('online', 'pane-1'),
+            PaneNode('cmd', 'pane-2'),
+        ], [1.0, 1.0]),
+    ], [2.0, 1.0])
+
+
+def preset_balanced() -> LayoutNode:
+    """均衡三栏：游戏 + 聊天 + 记录"""
+    return SplitNode('h', [
+        PaneNode('game_board', 'pane-0'),
+        PaneNode('chat', 'pane-1'),
+        PaneNode('cmd', 'pane-2'),
+    ], [1.0, 1.0, 1.0])
+
+
+def preset_quad() -> LayoutNode:
+    """四分屏：2x2 网格"""
+    return SplitNode('h', [
+        SplitNode('v', [
+            PaneNode('game_board', 'pane-0'),
+            PaneNode('cmd', 'pane-1'),
+        ], [1.0, 1.0]),
+        SplitNode('v', [
+            PaneNode('chat', 'pane-2'),
+            PaneNode('online', 'pane-3'),
+        ], [1.0, 1.0]),
+    ], [1.0, 1.0])
+
+
+PRESETS = [
+    ("游戏为主", preset_game_focus),
+    ("社交为主", preset_chat_focus),
+    ("均衡三栏", preset_balanced),
+    ("四分屏", preset_quad),
+]
+
+
 # ── 序列化 / 反序列化 ──
 
 def serialize(node: LayoutNode) -> dict:
@@ -338,3 +390,36 @@ def resize_pane(root: LayoutNode, pane_id: str, delta: float, direction: str = '
         parent.weights = [w * n / total for w in parent.weights]
         return True
     return False
+
+
+def swap_modules(root: LayoutNode, id_a: str, id_b: str) -> bool:
+    """交换两个窗格的模块内容。返回是否成功。"""
+    pane_a = find_pane(root, id_a)
+    pane_b = find_pane(root, id_b)
+    if not pane_a or not pane_b or id_a == id_b:
+        return False
+    pane_a.module, pane_b.module = pane_b.module, pane_a.module
+    return True
+
+
+def next_sibling_id(root: LayoutNode, pane_id: str) -> str | None:
+    """返回同级下一个窗格的 ID（循环），无兄弟返回 None。"""
+    parent, idx = _find_parent(root, pane_id)
+    if parent is None:
+        return None
+    n = len(parent.children)
+    for offset in range(1, n):
+        sibling = parent.children[(idx + offset) % n]
+        panes = all_panes(sibling)
+        if panes:
+            return panes[0].pane_id
+    return None
+
+
+def equalize(root: LayoutNode, pane_id: str) -> bool:
+    """将窗格所在父容器的所有子节点权重均分。返回是否成功。"""
+    parent, _ = _find_parent(root, pane_id)
+    if parent is None:
+        return False
+    parent.weights = [1.0] * len(parent.children)
+    return True

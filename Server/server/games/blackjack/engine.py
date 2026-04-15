@@ -433,6 +433,7 @@ class BlackjackEngine(BaseGameEngine):
 
         results = room.get_results()
         send_to_players = {}
+        caller_msgs = None
         refresh_status = []
         has_bots = bool(room.bots)
         rank_changes = {}
@@ -490,7 +491,7 @@ class BlackjackEngine(BaseGameEngine):
 
         return {
             'action': 'blackjack_game_over',
-            'send_to_caller': caller_msgs,
+            'send_to_caller': caller_msgs or [],
             'send_to_players': send_to_players,
             'refresh_commands': True,
             'refresh_status': refresh_status,
