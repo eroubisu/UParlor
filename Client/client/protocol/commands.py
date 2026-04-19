@@ -22,6 +22,7 @@ class CommandInfo:
     scope: str = "cmd"     # 归属面板: cmd=指令面板, inventory=物品栏
     sub: list | None = None  # 子菜单项列表（递归 CommandInfo）
     confirm: str = ""  # 非空时执行前显示确认子菜单
+    type: str = "option"   # option | separator | text
 
 
 # ── 当前位置指令集（唯一缓存）──
@@ -47,6 +48,7 @@ def _parse_command(c: dict) -> CommandInfo:
         scope=c.get('scope', 'cmd'),
         sub=sub,
         confirm=c.get('confirm', ''),
+        type=c.get('type', 'option'),
     )
 
 
@@ -64,11 +66,6 @@ def set_commands(commands: list[dict]) -> None:
     _tabs = list(tabs.items())
 
 
-def get_command_tabs() -> list[tuple[str, list[CommandInfo]]]:
-    """获取按标签页分组的指令列表"""
-    return list(_tabs)
-
-
 def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
     """获取游戏指令标签页（过滤掉全局指令 back/clear/exit）"""
     _global_cmds = {'/clear', '/exit'}
@@ -80,9 +77,4 @@ def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
     return result
 
 
-def filter_commands(prefix: str) -> list[CommandInfo]:
-    """根据输入前缀过滤可用指令（prefix 应带 / 前缀）"""
-    if not prefix:
-        return list(_commands)
-    p = prefix if prefix.startswith('/') else '/' + prefix
-    return [c for c in _commands if c.command.startswith(p)]
+

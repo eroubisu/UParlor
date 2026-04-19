@@ -1,12 +1,8 @@
-/* 极简终端风格 — 大厅主界面纯灰度，游戏内容可用彩色 */
-/* 原则：全透明背景，继承终端本身的背景色 */
-
-App {
-    background: ansi_default;
-    color: ansi_default;
-}
+/* UParlor 全局样式 — 极简终端风格 */
+/* 大厅主界面纯灰度，游戏内容可用彩色 */
 
 * {
+    background: transparent;
     scrollbar-size: 1 1;
     scrollbar-background: transparent;
     scrollbar-background-hover: transparent;
@@ -14,7 +10,6 @@ App {
     scrollbar-color: $color-border;
     scrollbar-color-hover: $color-border-light;
     scrollbar-color-active: $color-border-light;
-    background: transparent;
 }
 
 Static, Horizontal, Vertical {
@@ -24,242 +19,83 @@ Static, Horizontal, Vertical {
 Screen {
     layout: vertical;
     background: ansi_default;
-    layers: default overlay;
+    layers: default windows floating overlay;
     align: center middle;
 }
 
-/* ── 画布 ── */
-#canvas {
-    height: 1fr;
-}
+/* ── footer ── */
 
-/* ── 拆分容器 ── */
-.split-h {
-    layout: horizontal;
-    height: 1fr;
+#footer-bar {
+    dock: bottom;
+    height: 1;
     width: 1fr;
-}
-
-.split-v {
-    layout: vertical;
-    height: 1fr;
-    width: 1fr;
-}
-
-/* ── 窗格包装器（无 width，由 inline fr 权重控制） ── */
-.pane-wrapper {
-    border: round $color-border;
-    height: 1fr;
-    min-width: 16;
-    min-height: 4;
     background: transparent;
-    border-title-background: transparent;
-    border-subtitle-background: transparent;
+    layer: overlay;
+    padding: 0 0 0 1;
 }
 
-.pane-wrapper.--focused {
-    border: round $color-fg-secondary;
+#footer-bar > Static {
+    height: 1;
+    width: auto;
+    background: transparent;
+    color: $color-fg-secondary;
 }
 
-/* ── 空窗格提示 ── */
-EmptyPane {
-    height: 1fr;
+#footer-bar > #footer-spacer {
     width: 1fr;
-    content-align: center middle;
+}
+
+#footer-bar > #mode-indicator {
+    background: $color-fg-primary;
+    color: #1a1a1a;
+}
+
+/* ── Input ── */
+
+Input {
     background: transparent;
 }
 
-.empty-hint {
-    text-align: center;
-    color: $color-fg-tertiary;
-    width: 100%;
-    height: 100%;
-    content-align: center middle;
+Input:disabled {
     background: transparent;
+    opacity: 1.0;
 }
 
-/* ── RichLog ── */
-RichLog {
-    background: transparent;
-    height: 1fr;
-    width: 1fr;
-    overflow-x: hidden;
+Input > .input--cursor {
+    background: $color-fg-primary;
+    color: #1a1a1a;
 }
 
-#game-board-toast {
-    height: auto;
-    min-height: 1;
-    width: 1fr;
-    padding: 0 1;
-    overflow: hidden hidden;
-    background: transparent;
-    border: round $color-accent;
-}
+/* ── 全屏 Window 避开底栏 ── */
 
-#game-board-scroll {
-    height: 1fr;
-    width: 1fr;
-    background: transparent;
-    scrollbar-size: 1 1;
-}
-
-#game-board-scroll.no-scroll {
-    overflow: hidden;
-}
-
-#game-board-log {
-    width: 1fr;
-    height: auto;
-    background: transparent;
-}
-
-RichLog:focus {
-    background-tint: transparent;
-}
-
-/* ── 面板组件 ── */
-ChatPanel, CommandPanel, StatusPanel, OnlineUsersPanel, LoginPanel, AIChatPanel, GameBoardPanel {
-    height: 1fr;
-    width: 1fr;
-    background: transparent;
-}
-
-AIChatPanel {
-    layout: vertical;
-}
-
-/* ── 登录面板 ── */
-#login-doc {
-    height: 1fr;
-    width: 1fr;
-    overflow-x: hidden;
-    scrollbar-size: 1 1;
-}
-
-#login-settings {
-    height: 1fr;
-    width: 1fr;
-    display: none;
-    scrollbar-size: 1 1;
-}
-
-#login-prompt-text {
-    height: auto;
-    width: 1fr;
-    padding: 0 1;
-}
-
-/* ── 面板内输入提示行 ── */
-.panel-prompt {
-    height: auto;
-    max-height: 4;
-    display: none;
-    border: none;
-    background: transparent;
+#login-window, #lobby-window, #waiting-window, #game-window {
+    margin-bottom: 1;
 }
 
 .panel-prompt.visible {
     display: block;
 }
 
-/* ── InputTextArea 基础样式 ── */
-InputTextArea {
-    height: auto;
-    max-height: 4;
-    border: none;
-    background: transparent;
-    padding: 0;
-    color: $color-fg-primary;
+/* ── 物品栏列表 ── */
+#inventory-list {
+    height: 1fr;
 }
 
-InputTextArea:focus {
-    border: none;
-    background: transparent;
-}
-
-/* ── AI 面板常驻顶栏（Tab + 状态） ── */
-#ai-chat-header {
-    height: auto;
-    dock: top;
+#status-list {
+    height: 1fr;
     display: none;
-    background: transparent;
-    border: round $color-border;
-    padding: 0 1;
-}
-
-/* ── AI 聊天日志 ── */
-#ai-chat-log {
-    scrollbar-size: 1 1;
-}
-
-/* ── AI 面板内容区（可滚动） ── */
-#ai-panel-content {
-    height: 1fr;
-    overflow-y: auto;
-    scrollbar-size: 1 1;
-}
-
-/* ── 物品栏内容（可滚动） ── */
-#inventory-content {
-    height: 1fr;
-    overflow-y: auto;
 }
 
 /* ── 面板标签栏 ── */
-#chat-header, #online-header, #notify-header, #inventory-header, #status-header, #login-header {
+#chat-header, #online-header, #notify-header, #inventory-header, #status-header {
     height: auto;
     dock: top;
     background: transparent;
-    border: round $color-border;
+    border: none;
     padding: 0 1;
 }
 
-/* ── 指令提示栏 / 聊天输入栏（InputBar 系列） ── */
-#chat-input-bar, #cmd-input-bar, #inventory-input-bar, #ai-input-bar, #online-input-bar, #login-input-bar, #status-input-bar {
-    height: auto;
-    border: round $color-accent;
-    border-title-color: $color-accent;
-    padding: 0 1;
-    display: none;
-}
-
-#chat-input-bar.visible, #cmd-input-bar.visible, #inventory-input-bar.visible, #ai-input-bar.visible, #online-input-bar.visible, #login-input-bar.visible, #status-input-bar.visible {
-    display: block;
-}
-
-/* ── 游戏面板指令栏+输入框容器 ── */
-#game-cmd-bar {
-    height: auto;
-    padding: 0;
-    background: transparent;
-}
-
-#game-cmd-bar #game-hint-bar {
-    height: auto;
-    max-height: 8;
-    border: round $color-accent;
-    padding: 0 1;
-    display: none;
-}
-
-#game-cmd-bar #game-hint-bar.visible {
-    display: block;
-}
-
-#game-cmd-bar #game-input-bar {
-    height: auto;
-    border: round $color-accent;
-    padding: 0 1;
-    display: none;
-}
-
-#game-cmd-bar #game-input-bar.visible {
-    display: block;
-}
-
-#game-cmd-bar InputTextArea {
-    max-height: 1;
-}
+/* ── 游戏面板指令栏容器 ── */
 
 #chat-input-bar {
     max-height: 7;
@@ -267,10 +103,6 @@ InputTextArea:focus {
 
 #inventory-input-bar {
     max-height: 7;
-}
-
-#ai-input-bar {
-    max-height: 8;
 }
 
 .input-bar-prompt {
@@ -293,55 +125,29 @@ InputTextArea:focus {
     padding: 0 1 0 0;
 }
 
-/* ── 底部状态栏 ── */
-#footer-bar {
-    dock: bottom;
-    height: 1;
-    background: transparent;
+/* ── 聚焦指示 ── */
+Panel.-focused {
+    border: round $color-fg-secondary;
+    border-title-color: $color-fg-primary;
 }
 
-#mode-indicator {
-    width: 12;
-    text-style: bold;
-    color: $color-fg-primary;
-    content-align: left middle;
-    background: transparent;
-}
-
-#location-indicator {
-    width: 1fr;
-    padding: 0 1;
-    background: transparent;
-}
-
-#tile-indicator {
-    width: auto;
-    padding: 0;
-    color: $color-fg-secondary;
-    background: transparent;
-}
-
-#connection-status {
-    width: auto;
-    padding: 0 1;
-    background: transparent;
-}
-
-#badge-indicator {
-    width: auto;
-    padding: 0;
-    color: $color-fg-primary;
-    background: transparent;
+/* ── 聊天浮窗 ── */
+#chat-window {
+    margin-bottom: 1;
 }
 
 /* ── which-key 浮动弹窗 ── */
 #which-key-overlay {
     layer: overlay;
     display: none;
-    width: 80%;
-    min-width: 30;
+    dock: bottom;
+    align-horizontal: right;
+    width: auto;
+    min-width: 20;
+    max-width: 40;
     height: auto;
     max-height: 20;
+    margin: 0 0 1 0;
     border: round $color-accent;
     border-title-color: $color-accent;
     padding: 0 1;
@@ -352,14 +158,8 @@ InputTextArea:focus {
     display: block;
 }
 
-#wk-title {
-    width: 100%;
-    height: 1;
-}
-
 #wk-content {
     width: 100%;
-    height: 4;
+    height: auto;
     color: $color-fg-secondary;
-    padding: 0 1 0 0;
 }

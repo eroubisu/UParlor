@@ -10,16 +10,22 @@ from rich.console import RenderableType
 class GameRenderer(Protocol):
     """游戏渲染协议 — 所有游戏渲染器必须实现
 
+    render_board() 返回 dict，包含三个分区的 Rich 可渲染对象：
+    - 'info': 顶部固定区（游戏状态头）
+    - 'board': 中间可滚动区（主要游戏内容）
+    - 'controls': 底部固定区（手牌/操作按钮）
+    空分区传 None。
+
     可选属性（用 getattr 读取）：
     - no_scroll: bool — 禁用滚动条（内容始终匹配视口）
     - server_viewport: bool — 渲染依赖服务端视口数据，resize 后等新数据
-    - render_board_waiting(room_data) — 等待状态的自定义渲染
+    - scroll_hint: int — 建议滚动到的行号（board 区内，-1=不滚动）
     """
 
     game_type: str  # 游戏标识符，与 room_data["game_type"] 一致
 
-    def render_board(self, room_data: dict) -> RenderableType:
-        """渲染游戏主画面，返回 Rich 可渲染对象"""
+    def render_board(self, room_data: dict) -> dict[str, RenderableType | None]:
+        """渲染游戏主画面，返回分区 dict"""
         ...
 
 
@@ -56,7 +62,9 @@ def render_doc(text: str, commands: set[str] | None = None) -> RenderableType:
 
     for line in text.split('\n'):
         if line.lstrip().startswith('◆'):
-            result.append(line + '\n', style='bold #e0e0e0')
+            from ..config import NF_STAR
+            heading = line.lstrip().replace('◆', NF_STAR, 1)
+            result.append(heading + '\n', style='bold #e0e0e0')
         elif pat:
             last = 0
             for m in pat.finditer(line):

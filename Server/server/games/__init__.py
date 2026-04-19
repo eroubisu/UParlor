@@ -5,7 +5,6 @@ register_game() 自动从游戏目录加载所有 JSON 数据文件：
   - commands.json     → config.COMMAND_TABLE
   - ranks.json        → 游戏专属段位体系
   - titles.json       → user_schema.TITLE_LIBRARY / TITLE_SOURCES
-  - items.json        → user_schema.ITEM_LIBRARY / ITEM_SOURCES
   - player_data.json  → 用户模板默认值
 
 GAME_INFO 只保留代码级配置（locations, create_engine 等）。
@@ -20,8 +19,7 @@ from ..config import register_game_locations, COMMAND_TABLE
 from ..player.schema import register_game_player_defaults
 from ..systems.ranks import register_game_ranks, register_rank_titles
 from ..systems.titles import register_game_titles, register_game_title_sources
-from ..systems.items import register_game_items, register_game_item_sources
-from ..systems.recipes import register_game_recipes
+
 
 # 注册的游戏列表
 GAMES = {}
@@ -66,17 +64,6 @@ def register_game(game_id, game_module):
         register_game_titles(data.get('titles', {}))
         register_game_title_sources(data.get('sources', {}))
 
-    # ── 物品（items.json） ──
-    data = _load_game_json(module_dir, 'items.json')
-    if data:
-        register_game_items(data.get('items', {}))
-        register_game_item_sources(data.get('sources', {}))
-
-    # ── 配方（recipes.json） ──
-    data = _load_game_json(module_dir, 'recipes.json')
-    if data:
-        register_game_recipes(game_id, data)
-
     # ── 默认玩家数据（player_data.json） ──
     data = _load_game_json(module_dir, 'player_data.json')
     if data:
@@ -98,29 +85,12 @@ def get_all_games():
 
 
 # 注册所有游戏（添加新游戏只需在此添加两行）
-from . import world
-register_game('world', world)
+# 游戏模块已移至 _archive/server_games/，恢复时取消注释。
+# from . import wordle
+# register_game('wordle', wordle)
 
-from . import wordle
-register_game('wordle', wordle)
-
-from . import mahjong
-register_game('mahjong', mahjong)
-
-from . import chess
-register_game('chess', chess)
-
-from . import blackjack
-register_game('blackjack', blackjack)
-
-from . import holdem
-register_game('holdem', holdem)
-
-from . import doudizhu
-register_game('doudizhu', doudizhu)
-# from . import xxx
-# register_game('xxx', xxx)
-#
+from . import uno
+register_game('uno', uno)
 # 游戏模块目录结构（JSON 文件均为可选，存在即自动注入）:
 #   games/chess/
 #       __init__.py        — GAME_INFO（id, name, icon, locations, create_engine）

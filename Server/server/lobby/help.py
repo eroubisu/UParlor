@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..config import COMMAND_TABLE
 from .command_registry import register_sub_builder
 from ..games import get_game, get_all_games
+
+
+# ── 显示宽度工具 ──
+
+def _char_width(ch):
+    eaw = unicodedata.east_asian_width(ch)
+    return 2 if eaw in ('F', 'W') else 1
+
+
+def display_width(text):
+    return sum(_char_width(ch) for ch in text)
+
+
+def pad_left(text, width, fillchar=' '):
+    tw = display_width(text)
+    if tw >= width:
+        return text
+    return text + fillchar * (width - tw)
 
 
 # ── 帮助文本 — 分节解析 ──
@@ -89,7 +108,6 @@ def get_help_welcome(game_id: str) -> str | None:
 
 def get_main_help():
     """获取主帮助文本（从 commands.json 自动生成）"""
-    from .text_utils import pad_left
 
     all_cmds = COMMAND_TABLE.get('*', []) + COMMAND_TABLE.get('lobby', [])
     lines = ['HOME 指令', '']
@@ -112,8 +130,6 @@ def get_main_help():
     lines.append('')
     return '\n'.join(lines)
 
-
-_GAME_NAV_PREFIX = "  back → 返回大厅    home → 回到首页\n"
 
 
 def get_game_help_text(game_id) -> str | None:
@@ -148,34 +164,8 @@ def get_game_help_text(game_id) -> str | None:
     return '\n\n'.join(parts) if parts else raw
 
 
-def get_game_help(game_id, page=None):
-    """获取游戏帮助文本（通用）"""
-    game_module = get_game(game_id)
-    if not game_module:
-        return f"未找到游戏: {game_id}"
-
-    # 优先: 模块提供的 get_help_text(page)
-    get_help = getattr(game_module, 'get_help_text', None)
-    if get_help:
-        content = get_help(page)
-        return _GAME_NAV_PREFIX + '\n' + content
-
-    raw = _load_help_raw(game_id)
-    if raw:
-        return _GAME_NAV_PREFIX + '\n' + raw
-
-    # 回退到基本信息
-    info = getattr(game_module, 'GAME_INFO', {})
-    desc = info.get('description', '暂无描述')
-    min_p = info.get('min_players', '?')
-    max_p = info.get('max_players', '?')
-    content = f"{name}\n{desc}\n\n玩家人数: {min_p}-{max_p}人\n"
-    return _GAME_NAV_PREFIX + '\n' + content
-
-
 def get_games_list():
     """获取游戏列表"""
-    from .text_utils import pad_left
     games = [g for g in get_all_games() if not g.get('per_player')]
     if not games:
         return '暂无可用游戏'
@@ -197,19 +187,12 @@ def get_games_list():
 
 @register_sub_builder('play')
 def _sub_play(lobby, player_data):
-    """生成 play 子菜单：当前建筑可用的游戏"""
-    from ..games.world.building_handlers import _BUILDING_GAMES
-    player_name = player_data.get('name', '')
-    location = lobby.get_player_location(player_name)
-    allowed_ids = _BUILDING_GAMES.get(location, [])
-    if not allowed_ids:
-        return []
+    """生成 play 子菜单：所有可用游戏"""
     result = []
     for g in get_all_games():
-        if g['id'] in allowed_ids:
-            result.append(
-                {'name': f"play {g['id']}", 'label': g['id'],
-                 'desc': g.get('name', g['id'])})
+        result.append(
+            {'name': f"play {g['id']}", 'label': g['id'],
+             'desc': g.get('name', g['id'])})
     return result
 
 

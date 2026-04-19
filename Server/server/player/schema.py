@@ -3,56 +3,24 @@
 所有静态数据从 JSON 文件加载：
   - ranks.json   — 默认段位阶梯（通用/后备）
   - titles.json  — 系统/社交/活动头衔
-  - items.json   — 系统物品
 
-段位/头衔/物品的查询与注册分别在：
-  - rank_system.py
-  - title_system.py
-  - item_system.py
+段位/头衔的查询与注册分别在 systems/ranks.py、systems/titles.py。
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 import copy
-import json
-import os
 
-
-# ── 从 JSON 加载框架级静态数据 ──
-
-_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-
-
-def _load_json(filename):
-    path = os.path.join(_dir, filename)
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
-_ranks_data = _load_json('ranks.json')
-RANKS = _ranks_data['ranks']
-RANK_ORDER = _ranks_data['rank_order']
-_DEFAULT_RANK_TO_TITLE = _ranks_data.get('rank_to_title', {})
-
-_titles_data = _load_json('titles.json')
-TITLE_LIBRARY = _titles_data['titles']
-TITLE_SOURCES = _titles_data['sources']
-
-_items_data = _load_json('items.json')
-ITEM_LIBRARY = _items_data['items']
-ITEM_SOURCES = _items_data['sources']
-QUALITY_MULTIPLIERS = _items_data.get('quality_multipliers', {})
+from ..systems.titles import TITLE_LIBRARY
 
 
 # ── 名片默认值 ──
 
-DEFAULT_PATTERN_ID = 'pattern_default'
 DEFAULT_CARD_FIELDS = ['level', 'gold', 'games', 'created']
 DEFAULT_NAME_COLOR = '#ffffff'
 DEFAULT_MOTTO_COLOR = '#b3b3b3'
 DEFAULT_BORDER_COLOR = '#5a5a5a'
-DEFAULT_PATTERN_FALLBACK = {'chars': '.', 'colors': ['#505050']}
 
 
 # ── 游戏玩家默认数据注册 ──
@@ -85,18 +53,10 @@ def get_default_user_template(name="", password_hash=""):
 
         'profile_card': {
             'motto': '',
-            'pattern_id': DEFAULT_PATTERN_ID,
             'name_color': DEFAULT_NAME_COLOR,
             'motto_color': DEFAULT_MOTTO_COLOR,
             'border_color': DEFAULT_BORDER_COLOR,
             'card_fields': list(DEFAULT_CARD_FIELDS),
-        },
-
-        'social_stats': {
-            'login_days': 0,
-            'last_login_date': '',
-            'chat_messages': 0,
-            'invites_sent': 0,
         },
 
         'friends': [],
@@ -108,20 +68,11 @@ def get_default_user_template(name="", password_hash=""):
             'total_draws': 0,
         },
 
-        'inventory': {
-            'rename_card': {"0": 2},
-            'pattern_default': {"0": 1},
-        },
+        'inventory': {},
 
         'titles': default_titles(),
 
         'window_layout': None,
-
-        'ai_companions': {},
-        'ai_token_stats': {},
-
-        'attributes': {},
-        'equipment': {},
     }
 
     for game_id, defaults in _GAME_PLAYER_DEFAULTS.items():
@@ -181,6 +132,32 @@ def ensure_user_schema(user_data):
         if not games_data:
             user_data.pop('games', None)
             changes.append("删除: 空的 games 字段")
+
+    # ── 删除废弃字段 ──
+    for field in ('attributes', 'equipment'):
+        if field in user_data:
+            user_data.pop(field)
+            changes.append(f"删除: 废弃字段 {field}")
+
+    # ── 迁移品质格式库存 {item_id: {"0": count}} → {item_id: count} ──
+    inv = user_data.get('inventory')
+    if isinstance(inv, dict):
+        for iid in list(inv.keys()):
+            val = inv[iid]
+            if isinstance(val, dict):
+                total = sum(v for v in val.values() if isinstance(v, int))
+                inv[iid] = total
+                changes.append(f"迁移库存: {iid} 品质格式 -> 简单计数")
+            # 删除已移除的物品
+            if iid in ('healing_herb', 'teleport_stone', 'enchanted_ring',
+                        'iron_ore', 'dragon_scale', 'raw_fish', 'rare_fish',
+                        'iron_sword', 'steel_sword', 'leather_armor', 'iron_armor',
+                        'iron_helmet', 'leather_boots', 'iron_boots', 'wooden_shield',
+                        'iron_shield', 'leather_gloves', 'traveler_cloak',
+                        'silver_necklace', 'jade_earring', 'strength_ring',
+                        'leather_belt', 'lucky_charm', 'fishing_rod'):
+                inv.pop(iid, None)
+                changes.append(f"删除: 已移除物品 {iid}")
 
     # ── 递归补全缺失字段 ──
 

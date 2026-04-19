@@ -9,7 +9,6 @@
     inventory.json  — inventory
     titles.json     — titles
     layout.json     — window_layout
-    ai.json         — ai_companions
     games/
       {game_id}.json — 游戏专属数据
 """
@@ -38,7 +37,6 @@ _MODULE_MAP = {
     'inventory':  ('inventory',),
     'titles':     ('titles',),
     'layout':     ('window_layout',),
-    'ai':         ('ai_companions', 'ai_token_stats'),
     'attributes': ('attributes',),
     'equipment':  ('equipment',),
 }
@@ -239,24 +237,6 @@ class PlayerManager:
             if auth and 'password_hash' in auth:
                 data['password_hash'] = auth['password_hash']
         PlayerManager._save_user_file(name, data)
-
-    @staticmethod
-    def rename_player(old_name, new_name):
-        if not PlayerManager.player_exists(old_name) or PlayerManager.player_exists(new_name):
-            return False
-        data = PlayerManager._load_user_file(old_name)
-        if not data:
-            return False
-        data['name'] = new_name
-        PlayerManager._save_user_file(new_name, data)
-        # 删除旧目录或旧文件
-        old_dir = PlayerManager._get_user_dir(old_name)
-        if os.path.isdir(old_dir):
-            shutil.rmtree(old_dir)
-        old_file = PlayerManager._get_legacy_file(old_name)
-        if os.path.exists(old_file):
-            os.remove(old_file)
-        return True
 
     @staticmethod
     def change_password(name, new_password):

@@ -5,18 +5,13 @@ from textual.containers import Vertical
 from rich.table import Table
 
 from ..config import COLOR_HINT_TAB_ACTIVE, COLOR_HINT_TAB_DIM
+from .panel import text_width
 
 MAX_TAB_VISIBLE = 4
 
 
-def _text_width(s: str) -> int:
-    """纯文本显示宽度 — 使用 Rich 的 cell_len 保证与渲染一致"""
-    from rich.cells import cell_len
-    return cell_len(s)
-
-
 class TabMenuBase(Vertical):
-    """标签页菜单通用基类 — CommandHintBar 和 WhichKeyPanel 共同继承。
+    """标签页菜单通用基类 — WhichKeyPanel 继承。
 
     子类需重写：
       _item_name(item) -> str    — 项目显示名
@@ -35,7 +30,6 @@ class TabMenuBase(Vertical):
         self._selected_idx: int = 0
         self._scroll_offset: int = 0
         self._nav_stack: list[dict] = []
-        self._filter_text: str = ''
 
     # ── 子类钩子（必须重写）──
 
@@ -64,17 +58,6 @@ class TabMenuBase(Vertical):
 
     def _current_items(self) -> list:
         if self._tabs and self._active_tab < len(self._tabs):
-            if self._filter_text:
-                ft = self._filter_text.lower()
-                all_items = []
-                seen = set()
-                for _, items in self._tabs:
-                    for it in items:
-                        key = id(it)
-                        if key not in seen and ft in self._item_name(it).lower():
-                            seen.add(key)
-                            all_items.append(it)
-                return all_items
             return self._tabs[self._active_tab][1]
         return []
 
@@ -126,7 +109,6 @@ class TabMenuBase(Vertical):
             self._active_tab = 0
             self._selected_idx = 0
             self._scroll_offset = 0
-            self._filter_text = ''
             self._refresh_display()
             return None
         return item
@@ -144,16 +126,8 @@ class TabMenuBase(Vertical):
             return True
         return False
 
-    def filter_items(self, text: str):
-        """按文本过滤当前列表，只显示包含该文本的项目"""
-        self._filter_text = text.strip()
-        self._selected_idx = 0
-        self._scroll_offset = 0
-        self._refresh_display()
-
     def reset_to_root(self):
         """重置到根菜单（逐层弹出导航栈恢复根状态）"""
-        self._filter_text = ''
         while self._nav_stack:
             state = self._nav_stack.pop()
             self._tabs = state['tabs']
@@ -198,16 +172,10 @@ class TabMenuBase(Vertical):
             self._refresh_display()
 
     def _update_widgets(self, tab_text, content):
-        try:
-            self.query_one(f"#{self._tabs_widget_id}", Static).update(tab_text)
-            self.query_one(f"#{self._content_widget_id}", Static).update(content)
-        except Exception:
-            pass
+        self.query_one(f"#{self._tabs_widget_id}", Static).update(tab_text)
+        self.query_one(f"#{self._content_widget_id}", Static).update(content)
 
     def _render_tabs(self) -> str:
-        if self._filter_text:
-            return f"  [{COLOR_HINT_TAB_ACTIVE}]补全[/]"
-
         if self._nav_stack:
             return f"  [{COLOR_HINT_TAB_ACTIVE}]<[/] [bold {COLOR_HINT_TAB_ACTIVE}]{self._tabs[0][0]}[/]"
 
@@ -215,15 +183,15 @@ class TabMenuBase(Vertical):
         tab_parts = []
         for i, (name, _) in enumerate(self._tabs):
             if i == self._active_tab:
-                plain = f"● {name}"
-                tab_parts.append((f"[bold {COLOR_HINT_TAB_ACTIVE}]{plain}[/]", _text_width(plain)))
+                plain = f"> {name}"
+                tab_parts.append((f"[bold {COLOR_HINT_TAB_ACTIVE}]{plain}[/]", text_width(plain)))
             else:
                 plain = f"  {name}"
-                tab_parts.append((f"[{COLOR_HINT_TAB_DIM}]{plain}[/]", _text_width(plain)))
+                tab_parts.append((f"[{COLOR_HINT_TAB_DIM}]{plain}[/]", text_width(plain)))
 
         total_width = sum(w for _, w in tab_parts) + max(0, len(tab_parts) - 1)
 
-        from .helpers import _widget_width
+        from .panel import _widget_width
         avail = _widget_width(self, self._tabs_widget_id)
 
         # 全部放得下 → 直接拼接（标签间加空格）
@@ -313,7 +281,7 @@ class TabMenuBase(Vertical):
             for i, item in enumerate(visible):
                 real_idx = offset + i
                 if real_idx == self._selected_idx:
-                    arrow = f"[bold {COLOR_HINT_TAB_ACTIVE}]● [/]"
+                    arrow = f"[bold {COLOR_HINT_TAB_ACTIVE}]> [/]"
                 else:
                     arrow = "  "
                 row = [arrow, self._item_name(item), self._item_desc(item)]
@@ -329,14 +297,5 @@ class TabMenuBase(Vertical):
                 if need_sb:
                     row.append("")
                 table.add_row(*row)
-
-        # 底部过滤行（始终显示）
-        if self._filter_text:
-            filter_row = ["", f"[{COLOR_HINT_TAB_DIM}]> {self._filter_text}[/]", ""]
-        else:
-            filter_row = ["", "", ""]
-        if need_sb:
-            filter_row.append("")
-        table.add_row(*filter_row)
 
         return table

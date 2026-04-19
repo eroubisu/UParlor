@@ -18,12 +18,6 @@ from .config import (
     MAX_LINES_CHAT,
 )
 
-# 聊天消息条目类型
-MSG = 'msg'          # (MSG, name, text, channel, time_str)
-SYS = 'sys'          # (SYS, text)
-HISTORY = 'history'  # (HISTORY, messages_list, channel) — 替换该频道的全部消息
-DM = 'dm'            # (DM, from_name, to_name, text, time_str) — 私聊消息
-
 
 class BaseState:
     """State 基类 — 统一的多监听器通知机制"""
@@ -47,56 +41,55 @@ class BaseState:
 
 
 class ChatState(BaseState):
-    """聊天面板的全部状态 — 支持频道 + 私聊标签页"""
+    """聊天状态 — 世界频道 + 私聊 + 房间"""
 
     def __init__(self):
         super().__init__()
-        self.entries: list[tuple] = []
-        self.current_channel: int = 1
-        self.online_count: int = 0
-        # 私聊状态
+        self.world_messages: list[tuple[str, str, str]] = []  # [(name, text, time)]
+        self.room_messages: list[tuple[str, str, str]] = []   # [(name, text, time)]
         self.dm_entries: dict[str, list[tuple]] = {}  # {peer_name: [(from, text, time), ...]}
-        self.dm_tabs: list[str] = []  # 已打开的私聊标签页（按打开顺序）
-        self.active_tab: str = "global"  # "global" | peer_name
-        self.dm_unread: dict[str, int] = {}  # {peer: unread_count}
-        self.panel_focused: bool = False  # 聊天面板是否当前聚焦
-        self._closed_tabs: set[str] = set()  # 用户手动关闭过的标签（防止重登时自动恢复）
+        self.dm_tabs: list[str] = []
+        self.active_tab: str = "world"
+        self.dm_unread: dict[str, int] = {}
+        self.dm_muted: set[str] = set()    # 已关闭通知的 peer
+        self.viewing_dm: str = ''  # 当前正在查看的私聊对象（为空表示未查看）
+        self._player_name: str = ''
 
-    def add_message(self, name: str, text: str, channel: int = 1, time_str: str = ""):
-        self.entries.append((MSG, name, text, channel, time_str))
-        if len(self.entries) > MAX_LINES_CHAT:
-            self.entries = self.entries[-MAX_LINES_CHAT:]
-        self._notify('add_message', name, text, channel, time_str)
+    def set_player_name(self, name: str):
+        self._player_name = name
 
-    def add_system_message(self, text: str):
-        self.entries.append((SYS, text))
-        if len(self.entries) > MAX_LINES_CHAT:
-            self.entries = self.entries[-MAX_LINES_CHAT:]
-        self._notify('add_system_message', text)
+    # ── 世界频道 ──
 
-    def set_history(self, messages: list, channel: int):
-        self.entries = [e for e in self.entries
-                        if not (e[0] == MSG and e[3] == channel)]
-        self.entries.append((HISTORY, messages, channel))
-        self._notify('set_history', messages, channel)
+    def add_world_message(self, name: str, text: str, time: str):
+        self.world_messages.append((name, text, time))
+        if len(self.world_messages) > MAX_LINES_CHAT:
+            self.world_messages = self.world_messages[-MAX_LINES_CHAT:]
+        self._notify('add_world_message', name, text, time)
 
-    def switch_channel(self, channel_id: int):
-        self.current_channel = channel_id
-        self._notify('switch_channel', channel_id)
+    def set_world_history(self, messages: list[dict]):
+        self.world_messages = [
+            (m.get('name', ''), m.get('text', ''), m.get('time', ''))
+            for m in messages
+        ]
+        self._notify('set_world_history')
 
-    def update_online_count(self, users: list):
-        self.online_count = len(users) if users else 0
-        self._notify('update_online_count', users)
+    # ── 房间聊天 ──
+
+    def add_room_message(self, name: str, text: str, time: str):
+        self.room_messages.append((name, text, time))
+        if len(self.room_messages) > MAX_LINES_CHAT:
+            self.room_messages = self.room_messages[-MAX_LINES_CHAT:]
+        self._notify('add_room_message', name, text, time)
+
+    def clear_room_messages(self):
+        self.room_messages.clear()
+        self._notify('clear_room_messages')
 
     # ── 私聊 ──
 
     def set_dm_history(self, conversations: dict):
-        """批量填充私聊历史（登录时服务端下发）
-
-        conversations: {peer_name: [{from, text, time}, ...]}
-        """
         for peer, msgs in conversations.items():
-            if peer not in self._closed_tabs and peer not in self.dm_tabs:
+            if peer not in self.dm_tabs:
                 self.dm_tabs.append(peer)
             self.dm_entries[peer] = [
                 (m.get('from', ''), m.get('text', ''), m.get('time', ''))
@@ -104,59 +97,29 @@ class ChatState(BaseState):
             ]
         self._notify('update_dm_history')
 
-    def open_private_tab(self, peer_name: str):
-        """打开（或切换到）一个私聊标签页"""
-        self._closed_tabs.discard(peer_name)
-        if peer_name not in self.dm_tabs:
-            self.dm_tabs.append(peer_name)
-            self.dm_entries.setdefault(peer_name, [])
-        self.active_tab = peer_name
-        self.dm_unread.pop(peer_name, None)
-        self._notify('open_private_tab', peer_name)
-
-    def close_private_tab(self, peer_name: str):
-        """关闭一个私聊标签页"""
-        if peer_name in self.dm_tabs:
-            self.dm_tabs.remove(peer_name)
-        self._closed_tabs.add(peer_name)
-        if self.active_tab == peer_name:
-            self.active_tab = "global"
-        self._notify('close_private_tab', peer_name)
-
-    def clear_private_tab(self, peer_name: str):
-        """清空一个私聊标签页的消息"""
-        if peer_name in self.dm_entries:
-            self.dm_entries[peer_name] = []
-        self._notify('switch_tab', peer_name)
-
-    def switch_tab(self, tab_name: str):
-        """切换标签页: "global" 或 peer_name"""
-        self.active_tab = tab_name
-        self.dm_unread.pop(tab_name, None)
-        self._notify('switch_tab', tab_name)
-
     def add_private_message(self, from_name: str, to_name: str, text: str, time_str: str = ""):
-        """收到私聊消息 — 自动打开标签页"""
-        # 确定对方名字（可能是我发的也可能是对方发的）
-        peer = to_name if from_name == self._my_name else from_name
+        peer = to_name if from_name == self._player_name else from_name
         if peer not in self.dm_tabs:
             self.dm_tabs.append(peer)
         self.dm_entries.setdefault(peer, []).append((from_name, text, time_str))
         if len(self.dm_entries[peer]) > MAX_LINES_CHAT:
             self.dm_entries[peer] = self.dm_entries[peer][-MAX_LINES_CHAT:]
-        # 不在当前标签 → 标记未读（自己发送的不标记）
-        if from_name != self._my_name:
-            if not (self.panel_focused and self.active_tab == peer):
-                self.dm_unread[peer] = self.dm_unread.get(peer, 0) + 1
+        if from_name != self._player_name and peer != self.viewing_dm and peer not in self.dm_muted:
+            self.dm_unread[peer] = self.dm_unread.get(peer, 0) + 1
         self._notify('add_private_message', peer, from_name, text, time_str)
 
-    @property
-    def _my_name(self) -> str:
-        """从 ModuleStateManager 获取当前玩家名字"""
-        return getattr(self, '_player_name', '')
+    def close_dm_tab(self, peer: str):
+        """关闭私聊标签页"""
+        if peer in self.dm_tabs:
+            self.dm_tabs.remove(peer)
+        self.dm_entries.pop(peer, None)
+        self.dm_unread.pop(peer, None)
+        self._notify('close_private_tab', peer)
 
-    def set_player_name(self, name: str):
-        self._player_name = name
+    def clear_dm_entries(self, peer: str):
+        """清空本地私聊记录"""
+        self.dm_entries[peer] = []
+        self._notify('update_dm_history')
 
 
 class CmdState(BaseState):
@@ -189,8 +152,6 @@ class StatusState(BaseState):
         self.player_data: dict = {}
         self.location: str = ''
         self.location_path: str = ''
-        self.page: str = 'status'     # status | card | settings
-        self.settings_cursor: int = 0
 
     def update_player_info(self, player_data: dict):
         self.player_data = player_data
@@ -215,11 +176,10 @@ class OnlineState(BaseState):
     def __init__(self):
         super().__init__()
         self.users: list = []
-        self.friends: list[str] = []
+        self.friends: list[str] | None = None
         self.all_users: list[str] = []
         self.tab: str = "friends"
         self.cursor: int = 0
-        self.search_query: str = ""
         self.viewed_card: dict | None = None
 
     def update_users(self, users: list):
@@ -242,131 +202,27 @@ class OnlineState(BaseState):
 class GameBoardState(BaseState):
     """游戏面板的全部状态"""
 
-    _MAX_EVENTS = 10
-
     def __init__(self):
         super().__init__()
         self.room_data: dict = {}
-        self.recent_events: list[str] = []
-        self.following: str = ''  # 正在跟随的目标名（空=未跟随）
+        self.games: list[dict] = []  # 可用游戏列表 [{id, name, icon, ...}]
+        self.rooms: list[dict] = []  # 活跃房间列表
+
+    def set_games(self, games: list[dict]):
+        self.games = games
+        self._notify('set_games', games)
+
+    def set_rooms(self, rooms: list[dict]):
+        self.rooms = rooms
+        self._notify('set_rooms', rooms)
 
     def update_room(self, room_data: dict):
         self.room_data = room_data
         self._notify('update_room', room_data)
 
-    def push_event(self, description: str):
-        self.recent_events.append(description)
-        if len(self.recent_events) > self._MAX_EVENTS:
-            self.recent_events = self.recent_events[-self._MAX_EVENTS:]
-
     def clear(self):
         self.room_data = {}
-        self.recent_events.clear()
-        self.following = ''
         self._notify('clear')
-
-
-class InventoryState(BaseState):
-    """物品栏面板的全部状态"""
-
-    def __init__(self):
-        super().__init__()
-        self.items: list[dict] = []   # [{id, name, count, desc, use_methods}]
-        self.gold: int = 0
-        self.cursor: int = 0
-        self.filter_tab: str = "all"
-        self.quality_filter: str = "all"
-        self.sort_cursor: int = 0
-        self.tab_row: int = 0
-
-    def update_inventory(self, player_data: dict):
-        """从 player_data 提取物品并更新
-
-        服务端推送列表格式: inventory = [{id, quality, count, name, desc, category, use_methods}, ...]
-        兼容旧字典格式: inventory = {item_id: {count, name, ...}}
-        """
-        self.gold = player_data.get('gold', 0)
-        inventory = player_data.get('inventory', {})
-        items = []
-        if isinstance(inventory, list):
-            for entry in inventory:
-                if entry.get('count', 0) > 0:
-                    items.append({
-                        'id': entry.get('id', ''),
-                        'name': entry.get('name', entry.get('id', '')),
-                        'desc': entry.get('desc', ''),
-                        'category': entry.get('category', ''),
-                        'quality': entry.get('quality', 0),
-                        'count': entry['count'],
-                        'use_methods': entry.get('use_methods', []),
-                        'pattern': entry.get('pattern'),
-                        'equipped': entry.get('equipped', ''),
-                    })
-        elif isinstance(inventory, dict):
-            for item_id, info in inventory.items():
-                if isinstance(info, dict):
-                    if info.get('count', 0) > 0:
-                        items.append({
-                            'id': item_id,
-                            'name': info.get('name', item_id),
-                            'desc': info.get('desc', ''),
-                            'category': info.get('category', ''),
-                            'quality': info.get('quality', 0),
-                            'count': info['count'],
-                            'use_methods': info.get('use_methods', []),
-                        })
-                elif isinstance(info, int) and info > 0:
-                    # 兼容旧格式 {item_id: count}
-                        items.append({
-                            'id': item_id,
-                            'name': item_id,
-                            'desc': '',
-                            'category': '',
-                            'quality': 0,
-                            'count': info,
-                            'use_methods': [],
-                        })
-        self.items = items
-        self._notify('update_inventory')
-
-
-class AIChatState(BaseState):
-    """AI 聊天面板状态 — 多视图 + 菜单 + 状态显示"""
-
-    def __init__(self):
-        super().__init__()
-        self.messages: list[dict] = []   # [{role, content}]
-        self.view: str = "select"        # select | create | chat | setup
-        self.current_char_id: str = ""
-        self.menu_tab: str = "chat"      # chat | gift | action | settings
-
-        # CREATE/SETUP 视图瞬态（rebuild 时保留）
-        self.create_step: str = ""       # desc | review
-        self.create_desc: str = ""
-        self.create_char = None          # Character | None
-        self.create_status: str = ""
-        self.setup_step: str = "provider" # provider | base_url | api_key | model | model_input
-        self.setup_key: str = ""
-        self.setup_provider: str = ""
-        self.setup_base_url: str = ""
-        self.wants_insert: bool = False
-        self.streaming_interrupted: bool = False
-
-    def add_user_message(self, text: str):
-        self.messages.append({"role": "user", "content": text})
-        self._notify("add_user", text)
-
-    def add_ai_message(self, text: str):
-        self.messages.append({"role": "assistant", "content": text})
-        self._notify("add_ai", text)
-
-    def switch_view(self, view: str):
-        self.view = view
-        self._notify("view_change", view)
-
-    def switch_tab(self, tab: str):
-        self.menu_tab = tab
-        self._notify("tab_change", tab)
 
 
 class NotificationState(BaseState):
@@ -383,9 +239,11 @@ class NotificationState(BaseState):
         self.game_invites: list[dict] = []
         self.tab: str = "system"
         self.cursor: int = 0
+        self.badge_seen: bool = False  # 打开通知面板后标记为已读
 
     def set_friend_requests(self, names: list[str]):
         """设置完整的好友申请列表（服务端推送的待处理列表）"""
+        self.badge_seen = False
         # 保留已处理的记录，更新 pending 列表
         existing = {r['name']: r for r in self.friend_requests}
         new_list = []
@@ -404,6 +262,7 @@ class NotificationState(BaseState):
 
     def add_friend_request(self, from_name: str):
         """新增一条好友申请"""
+        self.badge_seen = False
         for r in self.friend_requests:
             if r['name'] == from_name:
                 # 如果已存在，重置为 pending
@@ -411,19 +270,6 @@ class NotificationState(BaseState):
                 self._notify('update_friend_requests')
                 return
         self.friend_requests.append({'name': from_name, 'status': 'pending'})
-        self._notify('update_friend_requests')
-
-    def mark_friend_request(self, name: str, status: str):
-        """标记好友申请状态: 'accepted' | 'rejected'"""
-        for r in self.friend_requests:
-            if r['name'] == name:
-                r['status'] = status
-                break
-        self._notify('update_friend_requests')
-
-    def remove_friend_request(self, name: str):
-        """删除好友申请记录"""
-        self.friend_requests = [r for r in self.friend_requests if r['name'] != name]
         self._notify('update_friend_requests')
 
     @property
@@ -436,6 +282,7 @@ class NotificationState(BaseState):
     def add_game_invite(self, from_name: str, game: str, room_id: str,
                         expires_in: int = 300):
         """新增游戏邀请（同一游戏同一人只保留最新）"""
+        self.badge_seen = False
         import time
         self.game_invites = [
             inv for inv in self.game_invites
@@ -490,7 +337,5 @@ class ModuleStateManager:
         self.status = StatusState()
         self.online = OnlineState()
         self.game_board = GameBoardState()
-        self.inventory = InventoryState()
-        self.ai_chat = AIChatState()
         self.notify = NotificationState()
         self.location = "lobby"

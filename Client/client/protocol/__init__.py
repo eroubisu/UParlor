@@ -2,10 +2,10 @@
 
 from .handler import GameHandlerContext, GameClientHandler, register_handler, get_handler
 from .renderer import GameRenderer, register_renderer, get_renderer
-from .commands import CommandInfo, filter_commands, get_game_tabs, set_commands
+from .commands import CommandInfo, get_game_tabs, set_commands
 
 __all__ = [
     'GameHandlerContext', 'GameClientHandler', 'register_handler', 'get_handler',
     'GameRenderer', 'register_renderer', 'get_renderer',
-    'CommandInfo', 'filter_commands', 'get_game_tabs', 'set_commands',
+    'CommandInfo', 'get_game_tabs', 'set_commands',
 ]

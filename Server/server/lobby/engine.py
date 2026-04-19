@@ -6,7 +6,7 @@ import threading
 
 from ..config import COMMAND_TABLE, LOCATION_HIERARCHY
 from ..config import DEFAULT_LOCATION
-from .confirmation import handle_lobby_pending
+from .account import handle_lobby_pending
 from .command_registry import find_global_handler
 from . import help as lobby_help
 from ..games import get_game, GAMES
@@ -36,11 +36,8 @@ class LobbyEngine:
         """注册在线玩家 — 恢复上次位置"""
         with self._lock:
             self.online_players[player_name] = player_data
-            saved_location = player_data.get('world', {}).get('location', DEFAULT_LOCATION)
-            self.player_locations[player_name] = saved_location
+            self.player_locations[player_name] = DEFAULT_LOCATION
             self.pending_confirms.pop(player_name, None)
-            # 自动初始化世界引擎并加载玩家位置
-            self._ensure_engine('world', player_name)
 
     def unregister_player(self, player_name):
         """注销玩家，返回需要通知的房间信息列表"""
@@ -101,65 +98,23 @@ class LobbyEngine:
     # ── 位置工具 ──
 
     def get_location_path(self, location, player_name=None):
-        """获取位置的完整路径（面包屑导航）
-        
-        当提供 player_name 且玩家在房间中时，自动附加房间号。
-        """
-        path = []
-        path_keys = []
-        current = location
-        while current:
-            info = LOCATION_HIERARCHY.get(current)
-            if info:
-                path.append(info[0])
-                path_keys.append(current)
-                current = info[1]
-            else:
-                path.append(current)
-                path_keys.append(current)
-                break
-        path.reverse()
-        path_keys.reverse()
-        if not path:
-            return 'HOME'
-        # 附加地图名到世界根位置（用城镇地图的 meta.name 替代层级定义）
-        if player_name and path_keys and path_keys[0].startswith('world_'):
-            game_id = self._get_game_for_location(location)
-            if game_id:
-                engine = self._get_engine(game_id, player_name)
-                if engine and hasattr(engine, 'get_status_extras'):
-                    pdata = self.online_players.get(player_name, {})
-                    extras = engine.get_status_extras(player_name, pdata)
-                    if extras:
-                        # 建筑内: 用保存的城镇名; 户外: 用当前地图名
-                        if len(path) > 1 and extras.get('town_map_name'):
-                            path[0] = extras['town_map_name']
-                        elif extras.get('world_map'):
-                            path[0] = extras['world_map']
-        # 附加房间号到"房间"层级
-        if player_name and location and ('_room' in location or '_playing' in location):
-            game_id = self._get_game_for_location(location)
-            if game_id:
-                engine = self._get_engine(game_id, player_name)
-                if engine:
-                    room = engine.get_player_room(player_name)
-                    if room and hasattr(room, 'room_id'):
-                        for i, key in enumerate(path_keys):
-                            if '_room' in key:
-                                path[i] = f"{path[i]}#{room.room_id}"
-                                break
-        return ' > '.join(path)
-
-    def get_parent_location(self, location):
-        """获取父位置"""
+        """获取位置的显示路径（面包屑导航）"""
+        if '#' in location:
+            # game#room_id 格式
+            game_id, room_id = location.split('#', 1)
+            info = self._get_game_info(game_id)
+            name = info.get('name', game_id) if info else game_id
+            # 判断房间状态
+            engine = self._get_engine(game_id, player_name)
+            if engine:
+                room = engine.get_player_room(player_name) if player_name else None
+                if room and room.state == 'playing':
+                    return f'{name} > #{room_id} 对局中'
+            return f'{name} > #{room_id}'
         info = LOCATION_HIERARCHY.get(location)
         if info:
-            return info[1] or DEFAULT_LOCATION
-        return DEFAULT_LOCATION
-
-    def get_online_player_names(self):
-        """获取在线玩家名列表"""
-        return list(self.online_players.keys())
+            return info[0]
+        return location
 
     def get_commands_for_location(self, location: str, player_data: dict | None = None) -> list[dict]:
         """获取指定位置的全部可用指令（动态注入子菜单）
@@ -174,10 +129,6 @@ class LobbyEngine:
         loc_info = LOCATION_HIERARCHY.get(location)
         if loc_info and loc_info[1] is None:
             global_cmds = [c for c in global_cmds if c.get('name') != 'home']
-
-        # 世界地图内隐藏 back，必须通过门移动
-        if location.startswith('world_') or location.startswith('building_'):
-            global_cmds = [c for c in global_cmds if c.get('name') != 'back']
 
         # 尝试引擎动态指令
         game_id = self._get_game_for_location(location)
@@ -219,13 +170,12 @@ class LobbyEngine:
 
     def _get_game_for_location(self, location):
         """根据位置确定玩家在哪个游戏中"""
+        if '#' in location:
+            game_id = location.split('#', 1)[0]
+            return game_id if game_id in GAMES else None
         for game_id, module in GAMES.items():
             info = getattr(module, 'GAME_INFO', {})
             if location in info.get('locations', {}):
-                return game_id
-        # 后备: 根据前缀
-        for game_id in GAMES:
-            if location.startswith(game_id):
                 return game_id
         return None
 
@@ -235,6 +185,29 @@ class LobbyEngine:
         if module:
             return getattr(module, 'GAME_INFO', {})
         return {}
+
+    def get_all_rooms(self) -> list[dict]:
+        """收集所有游戏引擎的活跃房间"""
+        rooms = []
+        for key, engine in self.game_engines.items():
+            if not hasattr(engine, '_rooms'):
+                continue
+            info = getattr(engine, 'GAME_INFO', {})
+            game_name = info.get('name', engine.game_key)
+            game_icon = info.get('icon', '')
+            max_players = info.get('max_players', 0)
+            for room in engine._rooms.values():
+                rooms.append({
+                    'room_id': room.room_id,
+                    'game_type': engine.game_key,
+                    'game_name': game_name,
+                    'game_icon': game_icon,
+                    'host': room.host,
+                    'state': room.state,
+                    'player_count': len(room.players),
+                    'max_players': max_players,
+                })
+        return rooms
 
     def _get_engine(self, game_id, player_name=None):
         """获取游戏引擎实例（per_player 用带玩家名的 key）"""
@@ -259,12 +232,6 @@ class LobbyEngine:
         return self.game_engines.get(key)
 
     # ── 帮助 / 列表  → lobby_help.py ──
-
-    def get_main_help(self):
-        return lobby_help.get_main_help()
-
-    def get_game_help(self, game_id, page=None):
-        return lobby_help.get_game_help(game_id, page)
 
     def get_games_list(self):
         return lobby_help.get_games_list()
@@ -292,28 +259,29 @@ class LobbyEngine:
             if result is not None:
                 return result
 
-        # ── 2. 全局指令（注册表驱动，任何位置有效）──
+        # ── 2. 游戏内指令路由（优先于全局指令）──
+        game_id = self._get_game_for_location(location)
+        if game_id:
+            engine = self._get_engine(game_id, player_name)
+            if engine:
+                result = engine.handle_command(
+                    self, player_name, player_data, cmd, args)
+                if result is not None:
+                    return result
+
+        # ── 3. 全局指令（注册表驱动，任何位置有效）──
         global_handler = find_global_handler(cmd)
         if global_handler is not None:
             return global_handler(self, player_name, player_data, args, location)
 
-        # ── 3. 导航指令 /home, /back ──
+        # ── 4. 导航指令 /home, /back ──
         if cmd == '/home':
             self._help_viewers.discard(player_name)
             return self._handle_navigation(player_name, player_data, location)
         if cmd == '/back':
             return self._handle_back(player_name, player_data, location)
 
-        # ── 4. 游戏内指令路由 ──
-        game_id = self._get_game_for_location(location)
         if game_id:
-            engine = self._get_engine(game_id, player_name)
-            if engine:
-                # 其他游戏指令
-                result = engine.handle_command(
-                    self, player_name, player_data, cmd, args)
-                if result is not None:
-                    return result
             return '未知指令。'
 
         if not cmd.startswith('/'):
@@ -346,44 +314,29 @@ class LobbyEngine:
         if game_id:
             engine = self._get_engine(game_id, player_name)
             if engine:
-                result = engine.handle_back(self, player_name, player_data)
-                # 跨游戏过渡: 离开当前游戏后落在另一个游戏内，重新进入父游戏
-                new_loc = self.get_player_location(player_name)
-                new_game = self._get_game_for_location(new_loc)
-                if new_game and new_game != game_id:
-                    return self._enter_game(player_name, player_data, new_game)
-                return result
+                return engine.handle_back(self, player_name, player_data)
         return '无法再返回了。'
 
     def _handle_navigation(self, player_name, player_data, location):
         """处理 /home 导航"""
-        root = LOCATION_HIERARCHY.get(location)
-        if root and root[1] is None:
-            return '你已经在城镇中了。'
+        if location == DEFAULT_LOCATION:
+            return '你已经在大厅了。'
 
-        # 游戏内：委托引擎处理
         game_id = self._get_game_for_location(location)
         if game_id:
             engine = self._get_engine(game_id, player_name)
             if engine:
-                result = engine.handle_quit(self, player_name, player_data)
-                # 跨游戏过渡: 离开后落在另一个游戏内
-                new_loc = self.get_player_location(player_name)
-                new_game = self._get_game_for_location(new_loc)
-                if new_game and new_game != game_id:
-                    return self._enter_game(player_name, player_data, new_game)
-                return result
+                return engine.handle_quit(self, player_name, player_data)
 
-        # 非游戏位置：直接回城镇
         self.set_player_location(player_name, DEFAULT_LOCATION)
         return {
             'action': 'location_update',
-            'send_to_caller': [{'type': 'game', 'text': f"已返回{self.get_location_path(DEFAULT_LOCATION)}。"}],
+            'send_to_caller': [{'type': 'game', 'text': '已返回大厅。'}],
             'location': DEFAULT_LOCATION,
         }
 
     def _enter_game(self, player_name, player_data, game_id):
-        """通用进入游戏"""
+        """通用进入游戏 — 确保引擎存在，不改变位置（由具体指令设置）"""
         game_module = get_game(game_id)
         if not game_module:
             return f"未找到游戏: {game_id}"
@@ -392,42 +345,20 @@ class LobbyEngine:
         if not engine:
             return f"游戏引擎初始化失败: {game_id}"
 
-        info = self._get_game_info(game_id)
+        return engine.get_welcome_message(player_data)
 
-        # 设置位置 — 如果当前已在该游戏的某个子位置，保留；否则用根位置
-        locations = info.get('locations', {})
-        current_loc = self.get_player_location(player_name)
-        if current_loc not in locations:
-            root_location = game_id  # 默认
-            for loc_key, (_, parent) in locations.items():
-                if parent is None or parent not in locations:
-                    root_location = loc_key
-                    break
-            self.set_player_location(player_name, root_location)
-
-        # 获取欢迎信息
-        result = engine.get_welcome_message(player_data)
-        if isinstance(result, dict):
-            # 确保客户端收到 location 更新
-            if 'location' not in result:
-                result['location'] = root_location
-        return result
-
-    # ── 背包/头衔指令 ──  → lobby/title_commands.py
     # ── 大厅级待确认处理 ──  → confirmation.py
 
     # ── 通用服务 ──
 
     def _track_invite(self, player_name, player_data):
-        """记录邀请统计并检查头衔"""
+        """记录邀请统计"""
         from ..player.manager import PlayerManager
-        from ..systems.titles import check_all_titles
 
         social_stats = player_data.get('social_stats', {})
         social_stats['invites_sent'] = social_stats.get('invites_sent', 0) + 1
         player_data['social_stats'] = social_stats
 
-        check_all_titles(player_data)
         PlayerManager.save_player_data(player_name, player_data)
 
     def get_player_room_data(self, player_name):

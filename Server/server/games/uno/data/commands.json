@@ -1,0 +1,21 @@
+{
+    "uno:lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "uno:room": [
+        {"name": "start",  "label": "开始", "desc": "开始游戏（2-10人）"},
+        {"name": "bot",    "label": "机器人", "desc": "添加机器人玩家"},
+        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"},
+        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "back",   "label": "退出", "desc": "退出房间"}
+    ],
+    "uno:playing": [
+        {"name": "play",      "label": "出牌", "desc": "选择一张牌打出"},
+        {"name": "draw",      "label": "摸牌", "desc": "从牌堆摸牌"},
+        {"name": "uno",       "label": "UNO",  "desc": "剩一张牌时喊UNO"},
+        {"name": "pass",      "label": "跳过", "desc": "摸牌后放弃出牌"},
+        {"name": "challenge", "label": "挑战", "desc": "挑战上家的Wild Draw"}
+    ]
+}

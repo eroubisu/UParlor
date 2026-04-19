@@ -17,7 +17,6 @@ from .player.manager import PlayerManager
 from .lobby.engine import LobbyEngine
 from .storage.chat_log import ChatLogManager
 from .storage.dm_log import DMLogManager
-from .storage import maintenance
 from .player.auth import AuthMixin
 from .core.result_dispatcher import (
     dispatch_game_result as _dispatch_game_result_impl,
@@ -30,7 +29,7 @@ from .msg_types import (
 )
 
 # 触发消息处理器注册
-from .handlers import client_state, friends, profile, chat, game_invite  # noqa: F401
+from .handlers import client_state, friends, profile, chat, game_invite, room  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +63,6 @@ class ChatServer(AuthMixin):
         self.running = False
         self.log_mgr = ChatLogManager()
         self.dm_log_mgr = DMLogManager()
-        self.maintenance_thread = None
     
     # ── Rich Result 通用分发器 → result_dispatcher.py ──
 
@@ -316,18 +314,6 @@ class ChatServer(AuthMixin):
         _inject_location_path_impl(msg, self.lobby_engine, player_data)
         self.send_to(client_socket, msg)
 
-    def _send_world_welcome(self, client_socket, name, player_data):
-        """登录后发送世界地图初始画面"""
-        engine = self.lobby_engine._get_engine('world', name)
-        if engine:
-            result = engine.get_welcome_message(player_data)
-            if isinstance(result, dict):
-                for m in result.get('send_to_caller', []):
-                    self.send_to(client_socket, m)
-                for target, messages in result.get('send_to_players', {}).items():
-                    for m in messages:
-                        self.send_to_player(target, m)
-
     def _handle_playing(self, client_socket, msg):
         with self.lock:
             name = self.clients[client_socket]['name']
@@ -425,16 +411,8 @@ class ChatServer(AuthMixin):
         if total > 0:
             logger.info("用户数据检查: 共 %d 个用户，已更新 %d 个", total, updated)
         
-        # 启动维护检查线程
-        self.maintenance_thread = threading.Thread(
-            target=maintenance.maintenance_loop, args=(self,))
-        self.maintenance_thread.daemon = True
-        self.maintenance_thread.start()
-        
         ip = self.get_local_ip()
         logger.info("游戏大厅服务器已启动 — %s:%d", ip, PORT)
-        logger.info("当前日期: %s | 维护时间: 每日 %d:00",
-                    self.log_mgr.current_date, maintenance.MAINTENANCE_HOUR)
         
         while self.running:
             try:
@@ -444,13 +422,6 @@ class ChatServer(AuthMixin):
                 thread.start()
             except OSError:
                 break
-
-    def stop(self):
-        self.running = False
-        try:
-            self.server.close()
-        except OSError:
-            pass
 
     def graceful_stop(self):
         """优雅关闭：保存所有在线玩家数据，刷盘日志，关闭连接"""

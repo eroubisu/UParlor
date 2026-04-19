@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from ..player.schema import RANKS, RANK_ORDER, _DEFAULT_RANK_TO_TITLE
+import json
+import os
+
+# ── 从 JSON 加载框架级段位数据 ──
+
+_data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+with open(os.path.join(_data_dir, 'ranks.json'), 'r', encoding='utf-8') as _f:
+    _ranks_data = json.load(_f)
+
+RANKS = _ranks_data['ranks']
+RANK_ORDER = _ranks_data['rank_order']
+_DEFAULT_RANK_TO_TITLE = _ranks_data.get('rank_to_title', {})
 
 
 # ── 注入注册表 ──

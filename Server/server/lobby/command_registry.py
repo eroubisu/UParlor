@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config import SERVER_VERSION
-from .title_commands import cmd_alltitle, cmd_title
 
 
 # ── 全局指令处理器注册表 ──
@@ -77,6 +76,33 @@ def _handle_games(lobby, player_name, player_data, args, location):
     return lobby.get_games_list()
 
 
+@register_global('play')
+def _handle_play(lobby, player_name, player_data, args, location):
+    game_id = args.strip()
+    if not game_id:
+        return '请指定游戏: /play <游戏ID>'
+    return lobby._enter_game(player_name, player_data, game_id)
+
+
+@register_global('create')
+def _handle_create(lobby, player_name, player_data, args, location):
+    """创建房间（全局指令）
+
+    格式: /create <game_id> [settings_json]
+    """
+    parts = args.strip().split(' ', 1)
+    game_id = parts[0] if parts else ''
+    if not game_id:
+        return '请指定游戏: /create <游戏ID>'
+    settings_str = parts[1] if len(parts) > 1 else ''
+
+    engine = lobby._ensure_engine(game_id, player_name)
+    if not engine:
+        return f'游戏引擎初始化失败: {game_id}'
+    return engine.handle_command(
+        lobby, player_name, player_data, '/create', settings_str)
+
+
 @register_global('clear')
 def _handle_clear(lobby, player_name, player_data, args, location):
     return {'action': 'clear'}
@@ -95,24 +121,6 @@ def _handle_exit(lobby, player_name, player_data, args, location):
     if arg == 'n':
         return '已取消退出。'
     return '输入 exit y 确认退出。'
-
-
-@register_sub_builder('exit')
-def _exit_sub_builder(lobby, player_data):
-    return [
-        {'name': 'exit y', 'label': '确认退出', 'desc': '关闭程序'},
-        {'name': 'exit n', 'label': '取消', 'desc': '返回'},
-    ]
-
-
-@register_global('title')
-def _handle_title(lobby, player_name, player_data, args, location):
-    return cmd_alltitle(player_data, args)
-
-
-@register_global('settitle')
-def _handle_settitle(lobby, player_name, player_data, args, location):
-    return cmd_title(player_name, player_data, args)
 
 
 @register_global('passwd')
@@ -162,10 +170,11 @@ def _handle_help(lobby, player_name, player_data, args, location):
             if non_welcome:
                 from ..core.protocol import build_select_menu
                 items = [
-                    {'label': sid, 'desc': title, 'command': f'/help {sid}'}
+                    {'label': title, 'command': f'/help {sid}'}
                     for sid, title in non_welcome
                 ]
-                return build_select_menu('选择帮助章节', items)
+                items.append({'label': '返回', 'command': '/back'})
+                return build_select_menu('帮助', items)
 
         # 无分节或 world 等 → 整段显示
         help_text = get_game_help_text(game_id)
@@ -184,11 +193,5 @@ def _handle_help(lobby, player_name, player_data, args, location):
 
 
 
-# ── 跨模块指令注册 ──
 
-from .item_commands import cmd_use, cmd_gift, cmd_drop  # noqa: E402
-
-register_global('use', cmd_use)
-register_global('gift', cmd_gift)
-register_global('drop', cmd_drop)
 

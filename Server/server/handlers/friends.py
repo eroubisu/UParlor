@@ -10,18 +10,29 @@ from ..msg_types import FRIEND_REQUEST, SYSTEM
 @register('friend_request')
 def handle_friend_request(server, client_socket, name, player_data, msg):
     target = msg.get('name', '').strip()
-    if not target or target == name or not PlayerManager.player_exists(target):
+    if not target:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': '请指定用户名。'})
+        return
+    if target == name:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': '不能添加自己为好友。'})
+        return
+    if not PlayerManager.player_exists(target):
+        server.send_to(client_socket, {'type': SYSTEM, 'text': f'用户 {target} 不存在。'})
         return
     friends = player_data.get('friends', [])
     if target in friends:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': f'{target} 已经是你的好友'})
         return
     target_data = PlayerManager.load_player_data(target)
     if not target_data:
         return
     pending = target_data.setdefault('pending_friend_requests', [])
-    if name not in pending:
-        pending.append(name)
-        PlayerManager.save_player_data(target, target_data)
+    if name in pending:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': f'已发送过好友申请，等待对方回应'})
+        return
+    pending.append(name)
+    PlayerManager.save_player_data(target, target_data)
+    server.send_to(client_socket, {'type': SYSTEM, 'text': f'已向 {target} 发送好友申请'})
     cs = server._name_to_socket.get(target)
     if cs:
         info = server.clients.get(cs)
@@ -80,6 +91,7 @@ def handle_friend_reject(server, client_socket, name, player_data, msg):
     if target in pending:
         pending.remove(target)
         PlayerManager.save_player_data(name, player_data)
+    server.send_to(client_socket, {'type': SYSTEM, 'text': f'已拒绝 {target} 的好友申请'})
     server.send_to(client_socket, {
         'type': FRIEND_REQUEST,
         'pending': player_data.get('pending_friend_requests', []),

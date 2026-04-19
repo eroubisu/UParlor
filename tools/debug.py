@@ -41,8 +41,7 @@ def _install(target):
 
 
 def main():
-    _clear_pycache(SERVER_DIR)
-    _clear_pycache(CLIENT_DIR)
+    _clear_pycache(ROOT)
     _install("s")
     _install("c")
 

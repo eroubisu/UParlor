@@ -1,13 +1,36 @@
 {
     "*": [
-        {"name": "back",      "label": "返回",     "desc": "返回上一层",           "tab": "导航"},
-        {"name": "help",      "label": "帮助",     "desc": "显示帮助信息",       "tab": "系统"},
-        {"name": "clear",     "label": "清屏",     "desc": "清空指令面板",       "tab": "系统"},
-        {"name": "exit",      "label": "退出",     "desc": "关闭程序",           "tab": "系统"}
+        {
+            "name": "back",
+            "label": "返回",
+            "desc": "返回上一层",
+            "tab": "导航"
+        },
+        {
+            "name": "help",
+            "label": "帮助",
+            "desc": "显示帮助信息",
+            "tab": "系统"
+        },
+        {
+            "name": "clear",
+            "label": "清屏",
+            "desc": "清空指令面板",
+            "tab": "系统"
+        },
+        {
+            "name": "exit",
+            "label": "退出",
+            "desc": "关闭程序",
+            "tab": "系统"
+        }
     ],
-    "world_town": [
-        {"name": "title",     "label": "头衔图鉴", "desc": "查看全部头衔",       "tab": "个人"},
-        {"name": "settitle",  "label": "切换头衔", "desc": "设置显示的头衔",     "tab": "个人"},
-        {"name": "version",   "label": "版本",     "desc": "显示版本信息",       "tab": "系统"}
+    "lobby": [
+        {
+            "name": "version",
+            "label": "版本",
+            "desc": "显示版本信息",
+            "tab": "系统"
+        }
     ]
 }

@@ -63,7 +63,7 @@ class DMLogManager:
             'from': from_name,
             'to': to_name,
             'text': text,
-            'time': now.strftime('%H:%M:%S'),
+            'time': now.strftime('%H:%M'),
         }
         if pair not in self._cache:
             self._cache[pair] = self._load_pair(pair)
@@ -160,6 +160,18 @@ class DMLogManager:
                 for m in msgs
             ]
         return result
+
+    def clear_history(self, name_a: str, name_b: str):
+        """清空两人之间的所有私聊记录（含归档）"""
+        import shutil
+        pair = _pair_key(name_a, name_b)
+        self._cache.pop(pair, None)
+        pair_dir = self._log_dir(pair)
+        if os.path.isdir(pair_dir):
+            shutil.rmtree(pair_dir, ignore_errors=True)
+        hist_dir = os.path.join(DM_HISTORY_DIR, pair)
+        if os.path.isdir(hist_dir):
+            shutil.rmtree(hist_dir, ignore_errors=True)
 
     def archive(self):
         """归档旧日志（每日维护时调用）"""

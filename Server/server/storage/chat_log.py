@@ -98,7 +98,7 @@ class ChatLogManager:
     def save(self, channel, name, text):
         """保存一条聊天记录（标记脏页，延迟写盘）"""
         now = get_beijing_now()
-        msg = {'name': name, 'text': text, 'time': now.strftime('%H:%M:%S')}
+        msg = {'name': name, 'text': text, 'time': now.strftime('%H:%M')}
         msgs = self.chat_logs[channel]
         msgs.append(msg)
         # 内存截断：仅保留最近 _MAX_CHANNEL_MESSAGES 条

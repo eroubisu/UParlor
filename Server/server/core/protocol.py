@@ -10,14 +10,11 @@
 
 from __future__ import annotations
 
-import json
-import os
 import random
 import string
-from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable, Any
 
-from ..msg_types import ROOM_UPDATE, LOCATION_UPDATE
+from ..msg_types import ROOM_UPDATE
 
 
 # ── 共享构建器 ──
@@ -76,8 +73,6 @@ class BaseGameEngine:
 
     房间制引擎子类应设置类属性:
         game_key: str        — 游戏标识（如 'chess'）
-        _HELP_TEXT: str      — 帮助文档（由 _load_help 加载）
-        _REWARDS: dict       — 奖励配置（由 _load_rewards 加载）
     """
 
     game_key: str = ''
@@ -85,18 +80,26 @@ class BaseGameEngine:
 
     # ── 指令路由表 ──
     # 子类覆盖这两个类属性即可，无需重写 handle_command。
-    # 位置后缀由 game_key + '_' 前缀去除得到，如 'chess_lobby' → 'lobby'。
+    # 路由键由房间状态决定: 无房间→'lobby', waiting→'room', playing→'playing'
     _GLOBAL_COMMANDS: dict[str, str] = {}   # cmd_name → method_name
-    _COMMAND_MAP: dict[str, dict[str, str]] = {}  # location_suffix → {cmd → method}
+    _COMMAND_MAP: dict[str, dict[str, str]] = {}  # state_key → {cmd → method}
+
+    def _get_command_key(self, player_name) -> str:
+        """根据玩家房间状态返回指令路由键。"""
+        room = self.get_player_room(player_name)
+        if not room:
+            return 'lobby'
+        if room.state == 'playing':
+            return 'playing'
+        return 'room'
 
     def handle_command(self, lobby, player_name, player_data, cmd, args):
         """通用指令路由 — 子类通过 _COMMAND_MAP / _GLOBAL_COMMANDS 声明即可。"""
         cmd_name = cmd.lstrip('/')
         method_name = self._GLOBAL_COMMANDS.get(cmd_name)
         if not method_name:
-            location = lobby.get_player_location(player_name)
-            suffix = location.removeprefix(f'{self.game_key}_')
-            commands = self._COMMAND_MAP.get(suffix, {})
+            key = self._get_command_key(player_name)
+            commands = self._COMMAND_MAP.get(key, {})
             method_name = commands.get(cmd_name)
         if method_name:
             return getattr(self, method_name)(lobby, player_name, player_data, args)
@@ -105,20 +108,6 @@ class BaseGameEngine:
     @staticmethod
     def gen_room_id() -> str:
         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
-
-    @classmethod
-    def _load_help(cls) -> str:
-        path = os.path.join(os.path.dirname(cls._module_file), 'help.txt')
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        return ''
-
-    @classmethod
-    def _load_rewards(cls) -> dict:
-        path = os.path.join(os.path.dirname(cls._module_file), 'rewards.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
 
     def _init_rooms(self):
         """初始化房间制引擎的通用容器"""
@@ -149,15 +138,14 @@ class BaseGameEngine:
 
     def get_welcome_message(self, player_data):
         from ..lobby.help import get_help_welcome
-        lobby_loc = f'{self.game_key}_lobby'
+        from ..config import DEFAULT_LOCATION
         board = self._lobby_board()
         board['doc'] = get_help_welcome(self.game_key) or self._HELP_TEXT
         return {
             'send_to_caller': [
                 {'type': ROOM_UPDATE, 'room_data': board},
-                {'type': LOCATION_UPDATE, 'location': lobby_loc},
             ],
-            'location': lobby_loc,
+            'location': DEFAULT_LOCATION,
             'refresh_commands': True,
         }
 
@@ -188,7 +176,6 @@ class BaseGameEngine:
             game_specific: 游戏专属统计增量（如 {'yakuman_count': 1}），
                            将累加到 player_data[game_key]['stats'] 中。
         """
-        from ..systems.titles import check_all_titles
         from ..player.manager import PlayerManager
 
         # 更新全局 game_stats
@@ -211,47 +198,10 @@ class BaseGameEngine:
             for key, delta in game_specific.items():
                 stats[key] = stats.get(key, 0) + delta
 
-        # 检查所有头衔
-        check_all_titles(player_data)
         PlayerManager.save_player_data(player_data['name'], player_data)
 
     def leave_room(self, player_name: str) -> None:
         """离开房间"""
-
-    # ── 段位系统 ──
-
-    def _cmd_rank(self, lobby, player_name, player_data, args):
-        """显示段位信息"""
-        from ..systems.ranks import get_rank_info, get_rank_order
-
-        _gk = self.game_key
-        rank_order = get_rank_order(_gk)
-        default_rank = rank_order[0]
-        gd = player_data.get(_gk, {})
-        rank_id = gd.get('rank', default_rank)
-        rank_pts = gd.get('rank_points', 0)
-        max_rank = gd.get('max_rank', default_rank)
-        info = get_rank_info(rank_id, _gk)
-        max_info = get_rank_info(max_rank, _gk)
-
-        pts_up = info.get('points_up')
-        if pts_up:
-            from ..config import RANK_BAR_WIDTH
-            pct = min(100, int(rank_pts / pts_up * 100))
-            bar = '█' * (pct // RANK_BAR_WIDTH) + '░' * (RANK_BAR_WIDTH - pct // RANK_BAR_WIDTH)
-        else:
-            bar = '████████████ MAX'
-            pct = 100
-
-        name = self.display_name or _gk
-        text = f"【{name}段位】\n\n"
-        text += f"当前段位: {info['name']}\n"
-        text += f"段位点数: {rank_pts}pt"
-        if pts_up:
-            text += f" / {pts_up}pt"
-        text += f"\n升段进度: [{bar}] {pct}%\n"
-        text += f"历史最高: {max_info['name']}\n"
-        return self._msg(player_data['name'], text)
 
     def _update_player_rank(self, player_data, outcome, has_bots=False,
                              multiplier=1):
@@ -342,29 +292,3 @@ class BaseGameEngine:
         else:
             return 0 if tier <= 1 else -5
 
-    @staticmethod
-    def _format_rank_change(rc):
-        """格式化段位变化文本片段"""
-        if not rc or rc['delta'] == 0:
-            return ''
-        sign = '+' if rc['delta'] >= 0 else ''
-        part = f'[{sign}{rc["delta"]}pt]'
-        if rc['promoted']:
-            part += f' 升段→{rc["new_rank_name"]}'
-        elif rc['demoted']:
-            part += f' 降段→{rc["new_rank_name"]}'
-        return part
-
-
-# ── 游戏事件数据结构 ──
-
-@dataclass
-class GameEvent:
-    """游戏引擎产生的事件 — 统一的输出协议
-
-    框架级类型(大厅直接处理): room_update / game / location_update / game_end
-    游戏特有类型(透传 game_event 信封): 任意自定义，由客户端处理器解读
-    """
-    type: str
-    data: dict = field(default_factory=dict)
-    target: str = ""  # 空=广播房间, 玩家名=点对点

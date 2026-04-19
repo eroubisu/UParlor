@@ -2,12 +2,8 @@
 
 每个游戏子包的 __init__.py 负责导入自身的 renderer / handler，
 此处只需导入各游戏子包即可触发注册。
+
+游戏模块已移至 _archive/client_games/，恢复时添加 import。
 """
 
-from . import world      # noqa: F401
-from . import wordle     # noqa: F401
-from . import mahjong    # noqa: F401
-from . import chess       # noqa: F401
-from . import blackjack   # noqa: F401
-from . import holdem      # noqa: F401
-from . import doudizhu    # noqa: F401
+from . import uno  # noqa: F401

@@ -7,7 +7,7 @@ from ..player.manager import PlayerManager
 from ..msg_types import (
     ACTION, CHAT, CHAT_HISTORY, FRIEND_REQUEST, GAME, GAME_EVENT, GAME_INVITE,
     LOGIN_PROMPT, LOGIN_SUCCESS, LOCATION_UPDATE, COMMANDS_UPDATE,
-    ONLINE_USERS, ROOM_UPDATE, ROOM_LEAVE, STATUS, SYSTEM,
+    ONLINE_USERS, ROOM_LIST, ROOM_UPDATE, ROOM_LEAVE, STATUS, SYSTEM,
 )
 
 
@@ -284,6 +284,21 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
     if result.get('refresh_commands'):
         if caller_name and caller_socket:
             _refresh_caller_commands(server, caller_socket, caller_name, caller_data)
+
+    # 7. refresh_room_list: 向所有大厅玩家广播最新房间列表
+    if result.get('refresh_room_list'):
+        _broadcast_room_list(server)
+
+
+def _broadcast_room_list(server):
+    """向所有在大厅的玩家广播最新房间列表"""
+    from ..config import DEFAULT_LOCATION
+    lobby = server.lobby_engine
+    rooms = lobby.get_all_rooms()
+    msg = {'type': ROOM_LIST, 'rooms': rooms}
+    for name, loc in lobby.player_locations.items():
+        if loc == DEFAULT_LOCATION:
+            server.send_to_player(name, msg)
 
 
 def handle_simple_result(server, client_socket, name, player_data, result):

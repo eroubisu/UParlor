@@ -7,9 +7,8 @@ import re
 import time
 
 from .manager import PlayerManager
-from ..storage import maintenance
 from ..config import MAX_LOGIN_ATTEMPTS, LOGIN_COOLDOWN
-from ..msg_types import CHAT, FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, AI_SYNC
+from ..msg_types import FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, GAME_LIST, ROOM_LIST
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
 
@@ -133,12 +132,6 @@ class AuthMixin:
 
             player_data = PlayerManager.load_player_data(name)
 
-            # 检查并授予时间相关头衔
-            maintenance.check_and_grant_time_titles(player_data)
-
-            # 记录登录天数
-            maintenance.track_login_day(player_data)
-
             with self.lock:
                 self.clients[client_socket]['state'] = 'playing'
                 self.clients[client_socket]['data'] = player_data
@@ -165,19 +158,10 @@ class AuthMixin:
         self.send_to(client_socket, {'type': LOGIN_SUCCESS, 'text': success_text})
         self.send_player_status(client_socket, player_data)
         self.lobby_engine.register_player(name, player_data)
+        self._send_game_list(client_socket)
+        self._send_room_list(client_socket)
         self._send_initial_location(client_socket, name)
-        # 发送世界欢迎地图
-        self._send_world_welcome(client_socket, name, player_data)
         self._send_chat_history(client_socket, 1)
-        # 下发 AI 伙伴数据和 token 统计
-        ai_data = player_data.get('ai_companions', {})
-        token_stats = player_data.get('ai_token_stats', {})
-        if ai_data or token_stats:
-            self.send_to(client_socket, {
-                'type': AI_SYNC,
-                'companions': ai_data,
-                'token_stats': token_stats,
-            })
         self.broadcast_online_users()
         self._send_friend_list(client_socket, player_data)
         self._send_all_users(client_socket)
@@ -190,3 +174,18 @@ class AuthMixin:
                 'pending': pending,
             })
         logger.info("%s %s", name, log_label)
+
+    def _send_game_list(self, client_socket):
+        """下发可用游戏列表"""
+        from ..games import get_all_games
+        _SAFE_KEYS = ('id', 'name', 'icon', 'description', 'min_players', 'max_players', 'room_settings')
+        games = [
+            {k: info[k] for k in _SAFE_KEYS if k in info}
+            for info in get_all_games()
+        ]
+        self.send_to(client_socket, {'type': GAME_LIST, 'games': games})
+
+    def _send_room_list(self, client_socket):
+        """下发当前所有活跃房间列表"""
+        rooms = self.lobby_engine.get_all_rooms()
+        self.send_to(client_socket, {'type': ROOM_LIST, 'rooms': rooms})

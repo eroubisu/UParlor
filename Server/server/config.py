@@ -21,7 +21,7 @@ def _get_server_version():
 SERVER_VERSION = _get_server_version()
 
 # 客户端最新版本号（upload.py 上传时自动更新）
-CLIENT_VERSION = "0.2.2"
+CLIENT_VERSION = "0.3.0"
 
 # 网络配置
 HOST = '0.0.0.0'
@@ -36,16 +36,13 @@ CHAT_HISTORY_DIR = os.path.join(CHAT_LOG_DIR, 'history')
 DM_LOG_DIR = os.path.join(DATA_DIR, 'dm_logs')
 DM_HISTORY_DIR = os.path.join(DM_LOG_DIR, 'history')
 
-# 外部引擎路径
-STOCKFISH_PATH = os.environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
-
 # 系统维护时间（北京时间凌晨4点）
 MAINTENANCE_HOUR = 4
 
 # 位置层级定义（基础层级 + 游戏自动注入）
 # 格式: {位置: (显示名称, 父位置)}
 LOCATION_HIERARCHY = {
-    'lobby': ('HOME', None),
+    'lobby': ('大厅', None),
 }
 
 
@@ -94,12 +91,9 @@ BOT_DELAY = 1.5         # Bot 动作延迟（秒）
 BOT_TIER_THRESHOLD = 3          # Bot 对局不涨分的段位阶梯（expert+）
 BOT_REWARD_DIVISOR = 2          # Bot 对局正收益除数
 DEMOTION_RECOVERY_DIVISOR = 2   # 降段后恢复点数除数
-RANK_BAR_WIDTH = 10             # 段位进度条宽度（字符数）
 
 # 默认头衔
 DEFAULT_TITLE_ID = 'newcomer'
 
 # 位置
-DEFAULT_LOCATION = 'world_town'         # 玩家默认/回退位置
-DEFAULT_MAP = 'starter_town'            # 默认地图 ID
-OUTDOOR_MAP_TYPES = ('world', 'road', 'site')  # 室外地图类型
+DEFAULT_LOCATION = 'lobby'              # 玩家默认/回退位置

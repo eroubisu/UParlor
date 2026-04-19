@@ -5,26 +5,53 @@ from __future__ import annotations
 from . import register
 from ..player.manager import PlayerManager
 from ..player.schema import (
-    DEFAULT_PATTERN_ID, DEFAULT_CARD_FIELDS,
+    DEFAULT_CARD_FIELDS,
     DEFAULT_NAME_COLOR, DEFAULT_MOTTO_COLOR, DEFAULT_BORDER_COLOR,
-    DEFAULT_PATTERN_FALLBACK,
 )
 from ..systems.titles import get_title_name
-from ..systems.items import get_item_info
 from ..msg_types import PROFILE_CARD
 
 
 @register('get_profile_card')
 def handle_get_profile_card(server, client_socket, name, player_data, msg):
     target = msg.get('target', '').strip()
-    if not target or not PlayerManager.player_exists(target):
+    if not target:
         return
+    if PlayerManager.player_exists(target):
+        _send_player_card(server, client_socket, target)
+    else:
+        _send_bot_card(server, client_socket, name, target)
+
+
+def _send_bot_card(server, client_socket, requester, target):
+    """尝试为游戏机器人发送简易名片"""
+    lobby = server.lobby_engine
+    loc = lobby.get_player_location(requester)
+    gid = lobby._get_game_for_location(loc) if loc else None
+    if not gid:
+        return
+    engine = lobby._get_engine(gid, requester)
+    if not engine:
+        return
+    room = engine.get_player_room(requester)
+    if not room or not room.is_bot(target):
+        return
+    card = {
+        'name': target,
+        'is_bot': True,
+        'level': 0,
+        'gold': 0,
+        'title': '游戏机器人',
+    }
+    server.send_to(client_socket, {'type': PROFILE_CARD, 'data': card})
+
+
+def _send_player_card(server, client_socket, target):
+    """发送真人玩家名片"""
     target_data = PlayerManager.load_player_data(target)
     if not target_data:
         return
     pc = target_data.get('profile_card', {})
-    pattern_id = pc.get('pattern_id', DEFAULT_PATTERN_ID)
-    pattern_info = get_item_info(pattern_id) or {}
     titles_data = target_data.get('titles', {})
     displayed = titles_data.get('displayed', [])
     title_display = ' | '.join(get_title_name(t) for t in displayed) if displayed else ''
@@ -37,11 +64,9 @@ def handle_get_profile_card(server, client_socket, name, player_data, msg):
         'name_color': pc.get('name_color', DEFAULT_NAME_COLOR),
         'motto_color': pc.get('motto_color', DEFAULT_MOTTO_COLOR),
         'border_color': pc.get('border_color', DEFAULT_BORDER_COLOR),
-        'pattern': pattern_info.get('pattern', DEFAULT_PATTERN_FALLBACK),
         'card_fields': pc.get('card_fields', list(DEFAULT_CARD_FIELDS)),
         'created_at': target_data.get('created_at', ''),
         'game_stats': target_data.get('game_stats', {}),
-        'social_stats': target_data.get('social_stats', {}),
         'friends_count': len(target_data.get('friends', [])),
     }
     server.send_to(client_socket, {'type': PROFILE_CARD, 'data': card})
@@ -51,15 +76,11 @@ def handle_get_profile_card(server, client_socket, name, player_data, msg):
 def handle_update_profile_card(server, client_socket, name, player_data, msg):
     updates = msg.get('data', {})
     pc = player_data.setdefault('profile_card', {})
-    allowed = ('motto', 'pattern_id', 'name_color', 'motto_color', 'border_color')
+    allowed = ('motto', 'name_color', 'motto_color', 'border_color')
     for k in allowed:
         if k in updates:
             val = updates[k]
             if isinstance(val, str) and len(val) <= 200:
-                if k == 'pattern_id':
-                    inv = player_data.get('inventory', {})
-                    if val not in inv or (isinstance(inv.get(val), int) and inv[val] <= 0):
-                        continue
                 pc[k] = val
     if 'card_fields' in updates:
         valid_ids = {'level', 'gold', 'friends', 'games', 'days', 'created'}

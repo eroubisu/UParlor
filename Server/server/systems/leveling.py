@@ -48,3 +48,9 @@ def check_level_up(player_data: dict) -> list[int]:
     player_data["level"] = level
     player_data["exp"] = exp
     return leveled
+
+
+def add_exp(player_data: dict, amount: int) -> list[int]:
+    """增加经验并检查升级，返回升到的新等级列表"""
+    player_data["exp"] = player_data.get("exp", 0) + amount
+    return check_level_up(player_data)

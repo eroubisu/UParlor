@@ -16,10 +16,13 @@ GAME = 'game'
 GAME_EVENT = 'game_event'
 GAME_INVITE = 'game_invite'
 GAME_INVITE_RESULT = 'game_invite_result'
+GAME_LIST = 'game_list'
 
 # ── 房间 ──
 ROOM_UPDATE = 'room_update'
 ROOM_LEAVE = 'room_leave'
+ROOM_LIST = 'room_list'
+ROOM_CHAT = 'room_chat'
 
 # ── 状态/位置 ──
 STATUS = 'status'
@@ -29,9 +32,6 @@ COMMANDS_UPDATE = 'commands_update'
 
 # ── 客户端动作 ──
 ACTION = 'action'
-
-# ── AI 同步 ──
-AI_SYNC = 'ai_sync'
 
 # ── 好友 ──
 FRIEND_LIST = 'friend_list'
