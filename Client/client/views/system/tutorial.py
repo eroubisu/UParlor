@@ -158,7 +158,7 @@ def _page_focus() -> list[tuple[str, str]]:
         (TEXT, f'{M_DIM}{M_CMD}Shift+方向键{M_END}{M_DIM} 和 {M_CMD}W/A/S/D{M_END}{M_DIM} 同效{M_END}'),
         (SEP, ''),
         # 练习区
-        (TEXT, f'{M_BOLD}按 {M_CMD}L{M_END}{M_BOLD} 切换到右侧面板{M_END}'),
+        (TEXT, f'{M_BOLD}切换到右侧面板{M_END}'),
         (SEP, ''),
         # 导航
         (BACK, _LABEL_BACK),

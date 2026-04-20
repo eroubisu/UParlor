@@ -95,6 +95,11 @@ class UParlorApp(App):
                 login = screen.get_module('login')
                 if login and hasattr(login, 'add_message'):
                     login.add_message(f"{M_DIM}连接失败: {e}{M_END}")
+            try:
+                conn = screen.query_one("#connection-status", Static)
+                conn.update(f" [{COLOR_OFFLINE}]{NF_ONLINE}[/] ---- ")
+            except Exception:
+                pass
             return
 
         self._start_receive_worker()
@@ -149,6 +154,9 @@ class UParlorApp(App):
 
     def _send_ping(self):
         if self.network.connected:
+            if self._ping_sent_at > 0:
+                # 上一次 ping 未收到 pong — 超时
+                self.call_from_thread(self._show_ping_timeout)
             self._ping_sent_at = time.monotonic()
             self.network.send({"type": "ping", "t": self._ping_sent_at})
 
@@ -169,6 +177,13 @@ class UParlorApp(App):
             else:
                 color = COLOR_OFFLINE
             conn.update(f" [{color}]{NF_ONLINE} {ms}ms[/] ")
+        except Exception:
+            pass
+
+    def _show_ping_timeout(self):
+        try:
+            conn = self.screen.query_one("#connection-status", Static)
+            conn.update(f" [{COLOR_WARNING}]{NF_ONLINE} ----[/] ")
         except Exception:
             pass
 
