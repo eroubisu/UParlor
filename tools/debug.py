@@ -41,9 +41,18 @@ def _install(target):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-tutorial', type=int, default=1, choices=[0, 1],
+                        help='0=重置教程状态（模拟新设备）')
+    args = parser.parse_args()
+
     _clear_pycache(ROOT)
     _install("s")
     _install("c")
+
+    if args.tutorial == 0:
+        os.environ['UPARLOR_TUTORIAL_RESET'] = '1'
 
     # 后台启动服务器（stdin=PIPE 保持管道开放，避免 EOF 触发退出）
     server_proc = subprocess.Popen(

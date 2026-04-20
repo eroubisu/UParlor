@@ -7,32 +7,27 @@ from ..player.manager import PlayerManager
 from ..msg_types import FRIEND_REQUEST, SYSTEM
 
 
-@register('friend_request')
-def handle_friend_request(server, client_socket, name, player_data, msg):
-    target = msg.get('name', '').strip()
-    if not target:
-        server.send_to(client_socket, {'type': SYSTEM, 'text': '请指定用户名。'})
-        return
-    if target == name:
-        server.send_to(client_socket, {'type': SYSTEM, 'text': '不能添加自己为好友。'})
-        return
+def send_friend_request(server, name: str, target: str, player_data: dict) -> str | None:
+    """发送好友申请核心逻辑（共享给 result_dispatcher）
+
+    返回 None 表示成功，否则返回失败原因字符串。
+    """
+    if not target or target == name:
+        return '无效目标'
     if not PlayerManager.player_exists(target):
-        server.send_to(client_socket, {'type': SYSTEM, 'text': f'用户 {target} 不存在。'})
-        return
+        return f'用户 {target} 不存在。'
     friends = player_data.get('friends', [])
     if target in friends:
-        server.send_to(client_socket, {'type': SYSTEM, 'text': f'{target} 已经是你的好友'})
-        return
+        return f'{target} 已经是你的好友'
     target_data = PlayerManager.load_player_data(target)
     if not target_data:
-        return
+        return '加载目标数据失败'
     pending = target_data.setdefault('pending_friend_requests', [])
     if name in pending:
-        server.send_to(client_socket, {'type': SYSTEM, 'text': f'已发送过好友申请，等待对方回应'})
-        return
+        return '已发送过好友申请，等待对方回应'
     pending.append(name)
     PlayerManager.save_player_data(target, target_data)
-    server.send_to(client_socket, {'type': SYSTEM, 'text': f'已向 {target} 发送好友申请'})
+    # 通知在线目标
     cs = server._name_to_socket.get(target)
     if cs:
         info = server.clients.get(cs)
@@ -45,6 +40,20 @@ def handle_friend_request(server, client_socket, name, player_data, msg):
                 'from': name,
                 'pending': info['data'].get('pending_friend_requests', []),
             })
+    return None
+
+
+@register('friend_request')
+def handle_friend_request(server, client_socket, name, player_data, msg):
+    target = msg.get('name', '').strip()
+    if not target:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': '请指定用户名。'})
+        return
+    err = send_friend_request(server, name, target, player_data)
+    if err:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': err})
+    else:
+        server.send_to(client_socket, {'type': SYSTEM, 'text': f'已向 {target} 发送好友申请'})
 
 
 @register('friend_accept')

@@ -5,11 +5,12 @@
         {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
     ],
     "uno:room": [
-        {"name": "start",  "label": "开始", "desc": "开始游戏（2-10人）"},
-        {"name": "bot",    "label": "机器人", "desc": "添加机器人玩家"},
-        {"name": "kick",   "label": "踢出", "desc": "踢出玩家"},
-        {"name": "invite", "label": "邀请", "desc": "邀请好友加入房间"},
-        {"name": "back",   "label": "退出", "desc": "退出房间"}
+        {"name": "start",    "label": "开始", "desc": "开始游戏（2-10人）"},
+        {"name": "bot",      "label": "机器人", "desc": "添加机器人玩家"},
+        {"name": "kick",     "label": "踢出", "desc": "踢出玩家"},
+        {"name": "dissolve", "label": "解散", "desc": "解散房间"},
+        {"name": "invite",   "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "back",     "label": "退出", "desc": "退出房间"}
     ],
     "uno:playing": [
         {"name": "play",      "label": "出牌", "desc": "选择一张牌打出"},

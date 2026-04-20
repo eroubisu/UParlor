@@ -188,26 +188,27 @@ class LobbyEngine:
 
     def get_all_rooms(self) -> list[dict]:
         """收集所有游戏引擎的活跃房间"""
-        rooms = []
-        for key, engine in self.game_engines.items():
-            if not hasattr(engine, '_rooms'):
-                continue
-            info = getattr(engine, 'GAME_INFO', {})
-            game_name = info.get('name', engine.game_key)
-            game_icon = info.get('icon', '')
-            max_players = info.get('max_players', 0)
-            for room in engine._rooms.values():
-                rooms.append({
-                    'room_id': room.room_id,
-                    'game_type': engine.game_key,
-                    'game_name': game_name,
-                    'game_icon': game_icon,
-                    'host': room.host,
-                    'state': room.state,
-                    'player_count': len(room.players),
-                    'max_players': max_players,
-                })
-        return rooms
+        with self._lock:
+            rooms = []
+            for key, engine in self.game_engines.items():
+                if not hasattr(engine, '_rooms'):
+                    continue
+                info = getattr(engine, 'GAME_INFO', {})
+                game_name = info.get('name', engine.game_key)
+                game_icon = info.get('icon', '')
+                max_players = info.get('max_players', 0)
+                for room in engine._rooms.values():
+                    rooms.append({
+                        'room_id': room.room_id,
+                        'game_type': engine.game_key,
+                        'game_name': game_name,
+                        'game_icon': game_icon,
+                        'host': room.host,
+                        'state': room.state,
+                        'player_count': len(room.players),
+                        'max_players': max_players,
+                    })
+            return rooms
 
     def _get_engine(self, game_id, player_name=None):
         """获取游戏引擎实例（per_player 用带玩家名的 key）"""

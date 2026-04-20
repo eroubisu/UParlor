@@ -164,7 +164,6 @@ class AuthMixin:
         self._send_chat_history(client_socket, 1)
         self.broadcast_online_users()
         self._send_friend_list(client_socket, player_data)
-        self._send_all_users(client_socket)
         self._send_dm_history(client_socket, name)
         # 下发待处理的好友申请
         pending = player_data.get('pending_friend_requests', [])

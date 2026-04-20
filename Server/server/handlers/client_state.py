@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from . import register
 from ..player.manager import PlayerManager
-from ..msg_types import ACTION, GAME, LOGIN_PROMPT
+from ..msg_types import ACTION, GAME, LOGIN_PROMPT, ONLINE_USERS, ROOM_LIST
 
 
 @register('viewport')
@@ -51,3 +51,15 @@ def handle_delete_account(server, client_socket, name, player_data, msg):
             'type': GAME,
             'text': result if isinstance(result, str) else '删除失败。',
         })
+
+
+@register('get_room_list')
+def handle_get_room_list(server, client_socket, name, player_data, msg):
+    rooms = server.lobby_engine.get_all_rooms()
+    server.send_to(client_socket, {'type': ROOM_LIST, 'rooms': rooms})
+
+
+@register('get_online_users')
+def handle_get_online_users(server, client_socket, name, player_data, msg):
+    users = server._collect_online_users()
+    server.send_to(client_socket, {'type': ONLINE_USERS, 'users': users})

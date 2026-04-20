@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 
 from . import register
-from ..msg_types import CHAT, PRIVATE_CHAT, SYSTEM, ROOM_CHAT
+from ..msg_types import CHAT, DM_HISTORY, PRIVATE_CHAT, SYSTEM, ROOM_CHAT
 
 logger = logging.getLogger(__name__)
 
@@ -102,3 +102,20 @@ def handle_clear_dm_history(server, client_socket, name, player_data, msg):
         'type': SYSTEM, 'text': f'已清空与 {target} 的聊天记录',
     })
     logger.info("[DM] %s 清空了与 %s 的聊天记录", name, target)
+
+
+@register('get_dm_history')
+def handle_get_dm_history(server, client_socket, name, player_data, msg):
+    """按需加载单个 peer 的私聊历史"""
+    target = msg.get('target', '').strip()
+    if not target:
+        return
+    msgs = server.dm_log_mgr.get_history(name, target, limit=50)
+    conversations = {target: [
+        {'from': m['from'], 'text': m['text'], 'time': m.get('time', '')}
+        for m in msgs
+    ]}
+    server.send_to(client_socket, {
+        'type': DM_HISTORY,
+        'conversations': conversations,
+    })

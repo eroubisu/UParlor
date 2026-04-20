@@ -1,5 +1,10 @@
 """
 GameScreen — 主屏幕（LOGIN / GAME 双模式）
+
+职责拆分：
+  screen_modes.py   — 输入模式状态机（normal/insert/which_key/focus）
+  screen_overlay.py — 浮窗栈管理（push/pop/toggle）
+  screen_nav.py     — 导航路由（打开浮窗、事件分发）
 """
 
 from __future__ import annotations
@@ -12,13 +17,21 @@ from textual.reactive import reactive
 from textual import events
 
 from .state import ModuleStateManager
-from .views import LoginWindow, LobbyWindow, ChatWindow, ProfileWindow, OnlineWindow, NotificationWindow, GameSelectWindow, WaitingWindow, GameWindow
-from .views.tutorial import TutorialWindow
-from .views.docs import DocsWindow
-from .views.settings import SettingsWindow
+from .views import (
+    LoginWindow, LobbyWindow, ChatWindow, ProfileWindow,
+    OnlineWindow, NotificationWindow, GameSelectWindow,
+    WaitingWindow, GameWindow,
+)
+from .views.system.tutorial import TutorialWindow, TutorialPanel, _TOTAL as _TUT_TOTAL
+from .views.system.docs import DocsWindow
+from .views.system.settings import SettingsWindow
 from .widgets.panel import PlayerSelected
 from .widgets.which_key import WhichKeyPanel
 from .config import NF_HOME, NF_BELL, NF_HEART, NF_ONLINE, NF_SWORD, DEFAULT_HOST
+
+from .screen_modes import InputModeMixin
+from .screen_overlay import OverlayMixin
+from .screen_nav import NavigationMixin
 
 # 模块名 → widget ID
 _MODULE_IDS = {
@@ -44,10 +57,17 @@ _KEY_ACTION = {
     'd': 'delete',
 }
 
+# Shift+hjkl / uppercase WASD / Shift+arrows → 面板聚焦切换
+_FOCUS_KEY = {
+    'H': 'h', 'J': 'j', 'K': 'k', 'L': 'l',
+    'W': 'k', 'A': 'h', 'S': 'j', 'D': 'l',
+    'shift+left': 'h', 'shift+down': 'j', 'shift+up': 'k', 'shift+right': 'l',
+}
 
-class GameScreen(Screen):
 
-    mode = reactive("login")
+class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
+
+    mode = reactive("tutorial")
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -59,7 +79,8 @@ class GameScreen(Screen):
         self._overlay_stack: list[str] = []  # 浮窗打开顺序 (widget id)
 
     def compose(self) -> ComposeResult:
-        yield LoginWindow(id="login-window", classes="visible")
+        yield TutorialWindow(id="tutorial-window")
+        yield LoginWindow(id="login-window")
         yield LobbyWindow(id="lobby-window")
         yield ChatWindow(id="chat-window")
         yield ProfileWindow(id="profile-window")
@@ -68,7 +89,6 @@ class GameScreen(Screen):
         yield GameSelectWindow(id="game-select-window")
         yield WaitingWindow(id="waiting-window")
         yield GameWindow(id="game-window")
-        yield TutorialWindow(id="tutorial-window")
         yield DocsWindow(id="docs-window")
         yield SettingsWindow(id="settings-window")
         yield WhichKeyPanel(id="which-key-overlay")
@@ -80,6 +100,13 @@ class GameScreen(Screen):
             yield Static(f" {NF_ONLINE} ---- ", id="connection-status")
 
     def on_mount(self) -> None:
+        from .storage import get_tutorial_done
+        if not get_tutorial_done():
+            self.mode = "tutorial"
+            self.query_one("#tutorial-window").add_class("visible")
+        else:
+            self.mode = "login"
+            self.query_one("#login-window").add_class("visible")
         self.app.connect_to_server(DEFAULT_HOST)
 
     # ── 模块访问（dispatch.py 接口）──
@@ -104,10 +131,11 @@ class GameScreen(Screen):
     # ── 布局切换（dispatch.py 接口）──
 
     async def _rebuild_to_game_layout(self):
-        if self.mode == "login":
+        if self.mode in ("login", "tutorial"):
             if self._mode != 'normal':
                 self._to_normal()
             self.query_one("#login-window").remove_class("visible")
+            self.query_one("#tutorial-window").hide()
             lobby = self.query_one("#lobby-window", LobbyWindow)
             lobby.add_class("visible")
             lobby.bind_state(self.state)
@@ -116,10 +144,23 @@ class GameScreen(Screen):
             self.mode = "game"
 
     async def _rebuild_to_login_layout(self):
+        if self._mode != 'normal':
+            self._to_normal()
+        self._close_all_overlays()
         self.query_one("#lobby-window").remove_class("visible")
         self.query_one("#waiting-window").remove_class("visible")
         self.query_one("#game-window").remove_class("visible")
         self.query_one("#login-window").add_class("visible")
+        # 重置所有 overlay window 的绑定状态，以便重新登录后能绑定新 State
+        for wid in ("#chat-window", "#online-window", "#notification-window",
+                    "#profile-window", "#game-select-window",
+                    "#waiting-window", "#game-window"):
+            try:
+                w = self.query_one(wid)
+                if hasattr(w, '_bound'):
+                    w._bound = False
+            except Exception:
+                pass
         self.state = ModuleStateManager()
         self.mode = "login"
 
@@ -143,18 +184,17 @@ class GameScreen(Screen):
 
     def _update_hint_bar(self):
         from .protocol.commands import get_game_tabs
-        from .views.room_controls import RoomControlsPanel
+        from .views.game.controls import RoomControlsPanel
         tabs = get_game_tabs()
         for rc in self.query(RoomControlsPanel):
             rc.update_commands(tabs)
 
     def _update_location(self, location: str, location_path: str | None = None):
         self.current_location = location
-        self.state.location = location
+        self.state.status.update_location(location)
         display = location_path or location
         icon = NF_SWORD if '#' in location else NF_HOME
         self.query_one("#location-indicator", Static).update(f" {icon} {display}")
-
 
     # ── 主窗口切换 ──
 
@@ -184,67 +224,19 @@ class GameScreen(Screen):
             rd = args[0] if args else {}
             rs = rd.get('room_state', '')
             if rs == 'lobby':
-                # 进入游戏大厅 — 切回 lobby 窗口
                 self._close_game_select_overlay()
+                self._close_all_overlays()
                 self._switch_main_window('lobby')
             elif rs == 'waiting':
                 self._close_game_select_overlay()
+                self._close_all_overlays()
+                self.state.chat.clear_room_messages()
                 self._switch_main_window('waiting')
             elif rs in ('playing', 'finished'):
+                self._close_all_overlays()
                 self._switch_main_window('game')
         elif event == 'clear':
             self._switch_main_window('lobby')
-
-    def _close_game_select_overlay(self):
-        """关闭游戏选择浮窗"""
-        try:
-            gw = self.query_one("#game-select-window")
-            if gw.has_class("visible"):
-                gw.remove_class("visible")
-                self._overlay_stack = [w for w in self._overlay_stack if w != "game-select-window"]
-        except Exception:
-            pass
-
-    # ── 模式切换 ──
-
-    def _set_mode(self, mode: str, indicator: str) -> None:
-        self._mode = mode
-        self.query_one("#mode-indicator", Static).update(f" {indicator} ")
-
-    def _to_normal(self) -> None:
-        if self._mode == 'insert':
-            self.set_focus(None)
-            from . import ime
-            ime.on_insert_leave()
-        elif self._mode in ('which_key', 'focus'):
-            self.query_one("#which-key-overlay", WhichKeyPanel).hide()
-        self._set_mode('normal', 'NORMAL')
-
-    def _enter_insert(self, sticky: bool = False):
-        w = self._get_focused_widget()
-        if not w:
-            return
-        inp = w.get_input_widget() if hasattr(w, 'get_input_widget') else None
-        if not inp:
-            return
-        self._sticky_insert = sticky
-        self._set_mode('insert', 'INSERT')
-        inp.disabled = False
-        inp.focus()
-        from . import ime
-        ime.on_insert_enter()
-
-    def _enter_which_key(self):
-        self.query_one("#which-key-overlay", WhichKeyPanel).show_root()
-        self._set_mode('which_key', 'NORMAL')
-
-    def _enter_focus(self):
-        self.query_one("#which-key-overlay", WhichKeyPanel).show_focus()
-        self._set_mode('focus', 'WINDOW')
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if not self._sticky_insert:
-            self._to_normal()
 
     # ── 键盘 ──
 
@@ -270,8 +262,6 @@ class GameScreen(Screen):
             key = event.key
             if key == 'escape':
                 self._to_normal()
-            elif key == 'w':
-                self._enter_focus()
             elif key == 'c':
                 self._to_normal()
                 self._open_chat()
@@ -289,23 +279,16 @@ class GameScreen(Screen):
                 self._open_settings()
             return
 
-        # FOCUS — hjkl 切换面板聚焦（一次性：选方向→移动→回到 normal）
-        if mode == 'focus':
-            key = event.key
-            if key == 'escape':
-                self._to_normal()
-            elif key in ('h', 'j', 'k', 'l'):
-                w = self._get_active_window()
-                if w:
-                    w.focus_move(key)
-                self._to_normal()
-            return
-
         # NORMAL
         key = _KEY_ALIAS.get(event.key, event.key)
 
         if key == 'escape':
             if self._close_overlay():
+                return
+            if self.mode == 'tutorial':
+                panel = self.query_one('#tutorial-panel')
+                if panel._page == _TUT_TOTAL - 1:
+                    panel.post_message(panel.TutorialDone())
                 return
             w = self._get_active_window()
             if w and hasattr(w, 'nav'):
@@ -313,7 +296,7 @@ class GameScreen(Screen):
             return
 
         if key == 'space':
-            if self.mode == 'login':
+            if self.mode in ('login', 'tutorial'):
                 return
             self._enter_which_key()
             return
@@ -322,199 +305,16 @@ class GameScreen(Screen):
             self._enter_insert(sticky=(key == 'I'))
             return
 
+        # Shift+hjkl / WASD大写 / Shift+方向键 → 直接切换面板聚焦
+        fk = _FOCUS_KEY.get(event.key)
+        if fk:
+            w = self._get_active_window()
+            if w:
+                w.focus_move(fk)
+            return
+
         action = _KEY_ACTION.get(key)
         if action:
             w = self._get_active_window()
             if w and hasattr(w, 'nav'):
                 w.nav(action)
-
-    # ── 辅助 ──
-
-    def _open_chat(self):
-        """打开聊天浮窗（仅大厅模式）"""
-        if self.mode == "login":
-            return
-        cw = self.query_one("#chat-window", ChatWindow)
-        cw.bind_state(self.state)
-        cw.show()
-        # 清除所有私聊未读
-        if self.state.chat.dm_unread:
-            self.state.chat.dm_unread.clear()
-            self.update_badges()
-        self._push_overlay("chat-window")
-
-    def _open_dm(self, peer: str):
-        """打开私聊浮窗并定位到指定玩家"""
-        if self.mode == "login":
-            return
-        self._close_overlay()
-        cw = self.query_one("#chat-window", ChatWindow)
-        cw.bind_state(self.state)
-        cw.show()
-        cw.open_dm(peer)
-        # 清除所有私聊未读
-        if self.state.chat.dm_unread:
-            self.state.chat.dm_unread.clear()
-            self.update_badges()
-        self._push_overlay("chat-window")
-
-    def _open_profile(self):
-        """打开档案浮窗（仅大厅模式）"""
-        if self.mode == "login":
-            return
-        pw = self.query_one("#profile-window", ProfileWindow)
-        pw.bind_state(self.state)
-        pw.show()
-        self._push_overlay("profile-window")
-
-    def _open_profile_card(self, data: dict):
-        """打开他人名片浮窗"""
-        pw = self.query_one("#profile-window", ProfileWindow)
-        pw.bind_state(self.state)
-        my_name = self.state.status.player_data.get('name', '')
-        is_self = data.get('name') == my_name
-        friends = self.state.online.friends or []
-        pw.show_player_card(data, is_self=is_self, friends=friends)
-        pw.show()
-        self._push_overlay("profile-window")
-
-    def on_player_selected(self, event: PlayerSelected) -> None:
-        """统一处理玩家选中 → 请求名片"""
-        event.stop()
-        self._pending_profile_card = True
-        self.app.network.send({"type": "get_profile_card", "target": event.name})
-
-    def _on_online_event(self, event: str, *args):
-        if event == 'viewed_card' and getattr(self, '_pending_profile_card', False):
-            self._pending_profile_card = False
-            self._open_profile_card(args[0])
-
-    def _open_online(self):
-        """打开在线玩家浮窗（仅大厅模式）"""
-        if self.mode == "login":
-            return
-        ow = self.query_one("#online-window", OnlineWindow)
-        ow.bind_state(self.state)
-        ow.show()
-        self._push_overlay("online-window")
-
-    def _open_notification(self):
-        """打开通知浮窗（仅大厅模式）"""
-        if self.mode == "login":
-            return
-        nw = self.query_one("#notification-window", NotificationWindow)
-        nw.bind_state(self.state)
-        nw.show()
-        # 标记通知已读
-        self.state.notify.badge_seen = True
-        self.update_badges()
-        self._push_overlay("notification-window")
-
-    def _open_game_select(self):
-        """打开游戏选择浮窗"""
-        if self.mode == "login":
-            return
-        gw = self.query_one("#game-select-window", GameSelectWindow)
-        gw.bind_state(self.state, self.app.send_command)
-        gw.show()
-        self._push_overlay("game-select-window")
-
-    def _open_tutorial(self):
-        """打开新手教程浮窗"""
-        tw = self.query_one("#tutorial-window", TutorialWindow)
-        tw.show()
-        self._push_overlay("tutorial-window")
-
-    def _open_docs(self):
-        """打开说明文档浮窗"""
-        dw = self.query_one("#docs-window", DocsWindow)
-        dw.show()
-        self._push_overlay("docs-window")
-
-    def _open_settings(self):
-        """打开设置浮窗"""
-        sw = self.query_one("#settings-window", SettingsWindow)
-        sw.show()
-        self._push_overlay("settings-window")
-
-    _OPEN_DISPATCH: dict[str, str] = {
-        'tutorial': '_open_tutorial',
-        'docs': '_open_docs',
-        'profile': '_open_profile',
-    }
-
-    def _dispatch_open(self, target: str) -> None:
-        method = self._OPEN_DISPATCH.get(target)
-        if method:
-            getattr(self, method)()
-
-    def on_settings_panel_selected(self, event) -> None:
-        """设置面板选中项"""
-        event.stop()
-        self._close_overlay()
-        self._dispatch_open(event.target)
-
-    def on_login_panel_open_guide(self, event) -> None:
-        """登录页面请求打开教程/文档"""
-        event.stop()
-        self._dispatch_open(event.target)
-
-    def _push_overlay(self, wid: str) -> None:
-        if wid in self._overlay_stack:
-            self._overlay_stack.remove(wid)
-        self._overlay_stack.append(wid)
-
-    def _close_overlay(self) -> bool:
-        """关闭最顶层 overlay 浮窗，返回是否有浮窗被关闭"""
-        while self._overlay_stack:
-            wid = self._overlay_stack.pop()
-            try:
-                w = self.query_one(f"#{wid}")
-            except Exception:
-                continue
-            if w.has_class("visible"):
-                w.remove_class("visible")
-                return True
-        return False
-
-    def _get_active_window(self):
-        """获取当前活动的 Window（overlay 浮窗优先，后开的在前）"""
-        for wid in reversed(self._overlay_stack):
-            try:
-                w = self.query_one(f"#{wid}")
-                if w.has_class("visible"):
-                    return w
-            except Exception:
-                continue
-        if self.mode == "login":
-            try:
-                return self.query_one("#login-window")
-            except Exception:
-                return None
-        for wid in ('#game-window', '#waiting-window', '#lobby-window'):
-            try:
-                w = self.query_one(wid)
-                if w.has_class('visible'):
-                    return w
-            except Exception:
-                continue
-        return None
-
-    def _get_focused_widget(self):
-        for wid in reversed(self._overlay_stack):
-            try:
-                w = self.query_one(f"#{wid}")
-                if w.has_class("visible"):
-                    return w.focused_panel
-            except Exception:
-                continue
-        if self.mode == "login":
-            return self.get_module('login')
-        for wid in ('#game-window', '#waiting-window', '#lobby-window'):
-            try:
-                w = self.query_one(wid)
-                if w.has_class('visible'):
-                    return w.focused_panel
-            except Exception:
-                continue
-        return None

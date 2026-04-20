@@ -183,6 +183,14 @@ class Panel(Widget):
         if at_bottom:
             vs.scroll_end(animate=False)
 
+    def replace_last(self, text: str, tab: int | None = None) -> None:
+        """替换最后一行内容"""
+        tab = self._active if tab is None else tab
+        content = self.query_one(f"#t{tab} .content", Static)
+        old = str(content.content)
+        idx = old.rfind('\n')
+        content.update(f"{old[:idx]}\n{text}" if idx >= 0 else text)
+
     def get_input_widget(self) -> Input | None:
         return self.query_one("#input", Input) if self.has_input else None
 

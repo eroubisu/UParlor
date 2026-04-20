@@ -24,8 +24,8 @@ from .core.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    ALL_USERS, CHAT_HISTORY, DM_HISTORY, FRIEND_LIST, GAME, LOGIN_PROMPT,
-    LOCATION_UPDATE, ONLINE_USERS,
+    ALL_USERS, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
+    LOGIN_PROMPT, LOCATION_UPDATE, ONLINE_USERS, PONG,
 )
 
 # 触发消息处理器注册
@@ -72,11 +72,13 @@ class ChatServer(AuthMixin):
 
     def _register_player_socket(self, player_name: str, client_socket):
         """注册玩家名→socket 映射（登录成功时调用）"""
-        self._name_to_socket[player_name] = client_socket
+        with self.lock:
+            self._name_to_socket[player_name] = client_socket
 
     def _unregister_player_socket(self, player_name: str):
         """注销玩家名→socket 映射（下线时调用）"""
-        self._name_to_socket.pop(player_name, None)
+        with self.lock:
+            self._name_to_socket.pop(player_name, None)
 
     def _get_player_data(self, player_name):
         """查找在线玩家的 player_data — O(1)"""
@@ -110,12 +112,12 @@ class ChatServer(AuthMixin):
         })
 
     def _send_dm_history(self, client_socket, player_name):
-        """发送私聊历史（登录时下发所有对话）"""
-        conversations = self.dm_log_mgr.get_conversations(player_name)
-        if conversations:
+        """发送私聊对话列表（仅 peer 名，消息按需加载）"""
+        peers = self.dm_log_mgr.get_dm_peer_names(player_name)
+        if peers:
             self.send_to(client_socket, {
                 'type': DM_HISTORY,
-                'conversations': conversations,
+                'conversations': {p: [] for p in peers},
             })
 
     def get_local_ip(self):
@@ -152,7 +154,8 @@ class ChatServer(AuthMixin):
         except OSError:
             pass
 
-    def broadcast_online_users(self):
+    def _collect_online_users(self) -> list[dict]:
+        """收集在线用户列表（已持有或自行加 lock）"""
         counts: dict[str, dict] = {}
         with self.lock:
             for info in self.clients.values():
@@ -166,18 +169,16 @@ class ChatServer(AuthMixin):
                             'channel': info.get('channel', 1),
                             'count': 1,
                         }
-        users = list(counts.values())
+        return list(counts.values())
+
+    def broadcast_online_users(self):
+        users = self._collect_online_users()
         self.broadcast({'type': ONLINE_USERS, 'users': users})
 
     def _send_friend_list(self, client_socket, player_data):
         """向指定客户端发送好友列表"""
         friend_list = player_data.get('friends', [])
         self.send_to(client_socket, {'type': FRIEND_LIST, 'friends': friend_list})
-
-    def _send_all_users(self, client_socket):
-        """向指定客户端发送所有注册用户名"""
-        names = self._get_all_user_names()
-        self.send_to(client_socket, {'type': ALL_USERS, 'users': names})
 
     def _get_all_user_names(self) -> list[str]:
         """返回所有已注册用户名"""
@@ -215,7 +216,7 @@ class ChatServer(AuthMixin):
             }
         
         # 登录提示发到指令区
-        self.send_to(client_socket, {'type': 'client_version', 'latest': self._client_version})
+        self.send_to(client_socket, {'type': CLIENT_VERSION, 'latest': self._client_version})
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
         
         while self.running:
@@ -251,7 +252,7 @@ class ChatServer(AuthMixin):
     def process_message(self, client_socket, msg):
         # ping/pong 不需要认证，立即回复
         if msg.get('type') == 'ping':
-            self.send_to(client_socket, {'type': 'pong', 't': msg.get('t', 0)})
+            self.send_to(client_socket, {'type': PONG, 't': msg.get('t', 0)})
             return
 
         with self.lock:

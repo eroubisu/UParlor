@@ -1,0 +1,4 @@
+Focused panel: _FocusTarget(id='focus-target', classes='-focused'), type: _FocusTarget
+Focus pos: (0, 1)
+FocusTarget arrived: True
+After enter: page=5

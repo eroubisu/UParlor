@@ -29,3 +29,16 @@ def save_username(name: str) -> None:
     data = _load()
     data['username'] = name
     _save(data)
+
+
+def get_tutorial_done() -> bool:
+    import os
+    if os.environ.get('UPARLOR_TUTORIAL_RESET') == '1':
+        return False
+    return _load().get('tutorial_done', False)
+
+
+def set_tutorial_done() -> None:
+    data = _load()
+    data['tutorial_done'] = True
+    _save(data)

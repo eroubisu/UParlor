@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 
 from ..config import DM_LOG_DIR, DM_HISTORY_DIR
 from .chat_log import get_beijing_now, get_today_date_str
@@ -27,6 +28,7 @@ class DMLogManager:
     """
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.current_date = get_today_date_str()
         # 内存缓存：{pair_key: [msg, ...]}
         self._cache: dict[str, list[dict]] = {}
@@ -65,18 +67,19 @@ class DMLogManager:
             'text': text,
             'time': now.strftime('%H:%M'),
         }
-        if pair not in self._cache:
-            self._cache[pair] = self._load_pair(pair)
-        self._cache[pair].append(msg)
-        # 刷盘
-        pair_dir = self._log_dir(pair)
-        os.makedirs(pair_dir, exist_ok=True)
-        path = self._log_file(pair)
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self._cache[pair], f, ensure_ascii=False)
-        except Exception:
-            logger.exception("私聊日志写入失败: %s", path)
+        with self._lock:
+            if pair not in self._cache:
+                self._cache[pair] = self._load_pair(pair)
+            self._cache[pair].append(msg)
+            # 刷盘
+            pair_dir = self._log_dir(pair)
+            os.makedirs(pair_dir, exist_ok=True)
+            path = self._log_file(pair)
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(self._cache[pair], f, ensure_ascii=False)
+            except Exception:
+                logger.exception("私聊日志写入失败: %s", path)
 
     def get_history(self, name_a: str, name_b: str, limit: int = 50) -> list[dict]:
         """获取两人之间的最近 limit 条私聊消息（跨天合并）"""
@@ -135,6 +138,25 @@ class DMLogManager:
                         peers.append(other)
         return peers
 
+    def get_dm_peer_names(self, player_name: str) -> list[str]:
+        """获取所有私聊 peer 的显示名（原始大小写）"""
+        peers = self.get_all_peers(player_name)
+        result = []
+        for peer_lower in peers:
+            msgs = self.get_history(player_name, peer_lower, limit=1)
+            if not msgs:
+                continue
+            display = peer_lower
+            for m in msgs:
+                if m.get('from', '').lower() == peer_lower:
+                    display = m['from']
+                    break
+                if m.get('to', '').lower() == peer_lower:
+                    display = m['to']
+                    break
+            result.append(display)
+        return result
+
     def get_conversations(self, player_name: str, limit_per_peer: int = 50) -> dict[str, list[dict]]:
         """获取某玩家的所有私聊对话历史（登录时下发用）
 
@@ -165,7 +187,8 @@ class DMLogManager:
         """清空两人之间的所有私聊记录（含归档）"""
         import shutil
         pair = _pair_key(name_a, name_b)
-        self._cache.pop(pair, None)
+        with self._lock:
+            self._cache.pop(pair, None)
         pair_dir = self._log_dir(pair)
         if os.path.isdir(pair_dir):
             shutil.rmtree(pair_dir, ignore_errors=True)

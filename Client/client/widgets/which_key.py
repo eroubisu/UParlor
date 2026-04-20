@@ -13,21 +13,12 @@ from ..config import COLOR_HINT_TAB_DIM, COLOR_FG_PRIMARY
 # ── 菜单定义 ──
 
 _ROOT_ITEMS = [
-    ('w', '切换聚焦'),
     ('c', '聊天'),
     ('o', '在线'),
     ('n', '通知'),
     ('g', '游戏'),
     ('s', '设置'),
 ]
-
-_FOCUS_ITEMS = [
-    ('h', '←'),
-    ('j', '↓'),
-    ('k', '↑'),
-    ('l', '→'),
-]
-
 
 def _render_items(items: list[tuple[str, str]]) -> Table:
     """渲染 key→desc 列表为 Rich Table"""
@@ -56,11 +47,6 @@ class WhichKeyPanel(Vertical):
         self.border_title = "快捷键"
         self.query_one("#wk-content", Static).update(_render_items(_ROOT_ITEMS))
         self.add_class("visible")
-
-    def show_focus(self) -> None:
-        """显示聚焦切换提示"""
-        self.border_title = "切换聚焦"
-        self.query_one("#wk-content", Static).update(_render_items(_FOCUS_ITEMS))
 
     def hide(self) -> None:
         """隐藏浮层"""

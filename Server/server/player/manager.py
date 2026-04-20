@@ -61,7 +61,7 @@ def _read_json(path):
 
 
 def _write_json(path, data):
-    """仅在内容变化时写入文件"""
+    """仅在内容变化时写入文件（原子写入）"""
     new_content = json.dumps(data, ensure_ascii=False, indent=2)
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -70,8 +70,10 @@ def _write_json(path, data):
     except (FileNotFoundError, OSError):
         pass
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
         f.write(new_content)
+    os.replace(tmp, path)
 
 
 class PlayerManager:

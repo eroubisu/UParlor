@@ -118,7 +118,7 @@ class RoomChat:
 @dataclass
 class FriendRequest:
     from_name: str = ""
-    pending: list = field(default_factory=list)
+    pending: list | None = None
 
 @dataclass
 class DMHistory:
@@ -171,7 +171,7 @@ _PARSERS = {
     'private_chat':   lambda m: PrivateChat(from_name=m.get('from', ''), from_display=m.get('from_display', ''),
                                             to_name=m.get('to', ''), text=m.get('text', ''),
                                             time=m.get('time', '')),
-    'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending', [])),
+    'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending')),
     'dm_history':     lambda m: DMHistory(conversations=m.get('conversations', {})),
     'profile_card':   lambda m: ProfileCard(data=m.get('data', {})),
     'game_list':      lambda m: GameList(games=m.get('games', [])),

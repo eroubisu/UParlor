@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 
 from ..config import CHAT_LOG_DIR, CHAT_HISTORY_DIR, MAINTENANCE_HOUR
@@ -36,6 +37,7 @@ class ChatLogManager:
     """聊天日志管理器 — 管理聊天记录的加载、保存和归档"""
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.chat_logs = {1: [], 2: []}
         self.current_date = get_today_date_str()
         self._dirty: set[int] = set()  # 有未写入磁盘的频道
@@ -99,18 +101,24 @@ class ChatLogManager:
         """保存一条聊天记录（标记脏页，延迟写盘）"""
         now = get_beijing_now()
         msg = {'name': name, 'text': text, 'time': now.strftime('%H:%M')}
-        msgs = self.chat_logs[channel]
-        msgs.append(msg)
-        # 内存截断：仅保留最近 _MAX_CHANNEL_MESSAGES 条
-        if len(msgs) > _MAX_CHANNEL_MESSAGES:
-            self.chat_logs[channel] = msgs[-_MAX_CHANNEL_MESSAGES:]
-        self._dirty.add(channel)
-        # 每 50 条消息刷盘一次（减少 IO 频率）
-        if len(msgs) % 50 == 0:
-            self.flush()
+        with self._lock:
+            msgs = self.chat_logs[channel]
+            msgs.append(msg)
+            # 内存截断：仅保留最近 _MAX_CHANNEL_MESSAGES 条
+            if len(msgs) > _MAX_CHANNEL_MESSAGES:
+                self.chat_logs[channel] = msgs[-_MAX_CHANNEL_MESSAGES:]
+            self._dirty.add(channel)
+            # 每 50 条消息刷盘一次（减少 IO 频率）
+            if len(msgs) % 50 == 0:
+                self._flush_locked()
 
     def flush(self):
         """将脏频道数据写入磁盘"""
+        with self._lock:
+            self._flush_locked()
+
+    def _flush_locked(self):
+        """内部刷盘（调用方已持锁）"""
         for channel in list(self._dirty):
             log_file = self._get_log_file(channel)
             try:
@@ -145,5 +153,6 @@ class ChatLogManager:
 
     def get_history(self, channel, limit=50):
         """获取聊天历史（最近 limit 条）"""
-        messages = self.chat_logs.get(channel, [])
-        return messages[-limit:] if len(messages) > limit else messages
+        with self._lock:
+            messages = self.chat_logs.get(channel, [])
+            return messages[-limit:] if len(messages) > limit else list(messages)

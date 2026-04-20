@@ -8,7 +8,7 @@
   5. 某玩家出完手牌即胜，按剩余手牌计分
 
 特殊规则:
-  - 2 人: Reverse = Skip, Skip 给出牌者额外回合
+  - 2 人: Skip 给出牌者额外回合
   - Draw 类牌允许叠加（房规）
   - Wild Draw Two / Wild Draw Color 可被挑战
   - 剩 1 张时必须喊 UNO，否则被抓罚摸 2 张
@@ -152,9 +152,6 @@ class UnoRoom:
             return f'首张是 {card.label}，跳过第一位玩家。'
         if v == 'reverse':
             self.direction = -1
-            if len(self.players) == 2:
-                # 2 人时 Reverse = Skip
-                self._advance_turn()
             return f'首张是 {card.label}，方向反转。'
         if v in ('draw1', 'draw5'):
             draw_n = 1 if v == 'draw1' else 5
@@ -288,9 +285,6 @@ class UnoRoom:
 
         if v == 'reverse':
             self.direction *= -1
-            if is_two_player:
-                # 2 人: Reverse = Skip
-                return '反转（跳过对方）！'
             self._advance_turn()
             return '方向反转！'
 

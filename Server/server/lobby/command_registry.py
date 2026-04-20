@@ -191,7 +191,13 @@ def _handle_help(lobby, player_name, player_data, args, location):
     return get_main_help()
 
 
-
+@register_global('tutorial_done')
+def _handle_tutorial_done(lobby, player_name, player_data, args, location):
+    """标记教程已完成"""
+    from ..player.manager import PlayerManager
+    player_data['tutorial_done'] = True
+    PlayerManager.save_player_data(player_name, player_data)
+    return ''
 
 
 

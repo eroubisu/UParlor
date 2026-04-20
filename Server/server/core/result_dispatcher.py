@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import Callable
 
 from ..player.manager import PlayerManager
+from ..handlers.friends import send_friend_request
 from ..msg_types import (
     ACTION, CHAT, CHAT_HISTORY, FRIEND_REQUEST, GAME, GAME_EVENT, GAME_INVITE,
-    LOGIN_PROMPT, LOGIN_SUCCESS, LOCATION_UPDATE, COMMANDS_UPDATE,
+    GAME_QUIT, LOGIN_PROMPT, LOGIN_SUCCESS, LOCATION_UPDATE, COMMANDS_UPDATE,
     ONLINE_USERS, ROOM_LIST, ROOM_UPDATE, ROOM_LEAVE, STATUS, SYSTEM,
 )
 
@@ -113,34 +114,15 @@ def _action_friend_request(server, client_socket, name, player_data, result):
     """游戏内发送好友申请"""
     target = result.get('target', '')
     message = result.get('message', '')
-    if target and target != name and PlayerManager.player_exists(target):
-        friends = player_data.get('friends', [])
-        if target not in friends:
-            target_data = PlayerManager.load_player_data(target)
-            if target_data:
-                pending = target_data.setdefault('pending_friend_requests', [])
-                if name not in pending:
-                    pending.append(name)
-                    PlayerManager.save_player_data(target, target_data)
-                cs = server._name_to_socket.get(target)
-                if cs:
-                    info = server.clients.get(cs)
-                    if info and info.get('state') == 'playing':
-                        info['data'].setdefault('pending_friend_requests', [])
-                        if name not in info['data']['pending_friend_requests']:
-                            info['data']['pending_friend_requests'].append(name)
-                        server.send_to(cs, {
-                            'type': FRIEND_REQUEST,
-                            'from': name,
-                            'pending': info['data'].get('pending_friend_requests', []),
-                        })
+    if target:
+        send_friend_request(server, name, target, player_data)
     if message:
         server.send_to(client_socket, {'type': GAME, 'text': message})
 
 
 # 框架级消息类型 — 客户端核心直接处理，不包装
 _FRAMEWORK_MSG_TYPES = frozenset({
-    GAME, ROOM_UPDATE, LOCATION_UPDATE, ROOM_LEAVE, 'game_quit',
+    GAME, ROOM_UPDATE, LOCATION_UPDATE, ROOM_LEAVE, GAME_QUIT,
     STATUS, ONLINE_USERS, CHAT, SYSTEM, ACTION,
     LOGIN_PROMPT, LOGIN_SUCCESS, CHAT_HISTORY,
     GAME_INVITE, GAME_EVENT, COMMANDS_UPDATE,
@@ -296,9 +278,11 @@ def _broadcast_room_list(server):
     lobby = server.lobby_engine
     rooms = lobby.get_all_rooms()
     msg = {'type': ROOM_LIST, 'rooms': rooms}
-    for name, loc in lobby.player_locations.items():
-        if loc == DEFAULT_LOCATION:
-            server.send_to_player(name, msg)
+    with lobby._lock:
+        targets = [n for n, loc in lobby.player_locations.items()
+                   if loc == DEFAULT_LOCATION]
+    for name in targets:
+        server.send_to_player(name, msg)
 
 
 def handle_simple_result(server, client_socket, name, player_data, result):

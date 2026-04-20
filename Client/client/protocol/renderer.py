@@ -52,6 +52,7 @@ def render_doc(text: str, commands: set[str] | None = None) -> RenderableType:
     """
     import re
     from rich.text import Text
+    from ..config import COLOR_FG_SECONDARY, COLOR_FG_TERTIARY
 
     result = Text()
     if commands:
@@ -64,16 +65,16 @@ def render_doc(text: str, commands: set[str] | None = None) -> RenderableType:
         if line.lstrip().startswith('◆'):
             from ..config import NF_STAR
             heading = line.lstrip().replace('◆', NF_STAR, 1)
-            result.append(heading + '\n', style='bold #e0e0e0')
+            result.append(heading + '\n', style=f'bold {COLOR_FG_SECONDARY}')
         elif pat:
             last = 0
             for m in pat.finditer(line):
-                result.append(line[last:m.start()], style='#808080')
+                result.append(line[last:m.start()], style=COLOR_FG_TERTIARY)
                 from ..config import COLOR_CMD
                 result.append(m.group(), style=f'bold {COLOR_CMD}')
                 last = m.end()
-            result.append(line[last:] + '\n', style='#808080')
+            result.append(line[last:] + '\n', style=COLOR_FG_TERTIARY)
         else:
-            result.append(line + '\n', style='#808080')
+            result.append(line + '\n', style=COLOR_FG_TERTIARY)
 
     return result

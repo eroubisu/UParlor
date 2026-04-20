@@ -73,6 +73,7 @@ class UParlorApp(App):
     def __init__(self, **kw):
         super().__init__(ansi_color=True, **kw)
         self.network = NetworkManager(PORT)
+        self.network.on_send_failure = self._on_send_failure
         self.player_data: dict = {}
         self._pending_messages: list[dict] = []
         self._current_channel = 1
@@ -139,6 +140,10 @@ class UParlorApp(App):
                 conn.update(f" [{COLOR_OFFLINE}]{NF_ONLINE}[/] ---- ")
             except Exception:
                 pass
+
+    def _on_send_failure(self):
+        """发送失败回调 — 通知用户"""
+        self.post_message(Disconnected())
 
     # ── Ping ──
 

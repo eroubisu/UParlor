@@ -9,7 +9,13 @@ from ..player.schema import (
     DEFAULT_NAME_COLOR, DEFAULT_MOTTO_COLOR, DEFAULT_BORDER_COLOR,
 )
 from ..systems.titles import get_title_name
-from ..msg_types import PROFILE_CARD
+from ..msg_types import ALL_USERS, PROFILE_CARD
+
+
+@register('get_all_users')
+def handle_get_all_users(server, client_socket, name, player_data, msg):
+    names = server._get_all_user_names()
+    server.send_to(client_socket, {'type': ALL_USERS, 'users': names})
 
 
 @register('get_profile_card')

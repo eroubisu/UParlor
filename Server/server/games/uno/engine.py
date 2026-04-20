@@ -57,6 +57,7 @@ class UnoEngine(BaseGameEngine):
             'invite': '_cmd_invite',
             'kick': '_cmd_kick',
             'bot': '_cmd_bot',
+            'dissolve': '_cmd_dissolve',
         },
         'playing': {
             'play': '_cmd_play',
@@ -85,7 +86,7 @@ class UnoEngine(BaseGameEngine):
         """返回游戏内位置: uno#room_id"""
         return f'{self.game_key}#{room.room_id}'
 
-    _HOST_ONLY_COMMANDS = {'start', 'kick', 'bot'}
+    _HOST_ONLY_COMMANDS = {'start', 'kick', 'bot', 'dissolve'}
 
     def get_commands(self, lobby, location, player_name, player_data):
         """根据房间状态返回指令列表，非房主过滤房主专属指令。"""
@@ -109,7 +110,7 @@ class UnoEngine(BaseGameEngine):
         if room and room.state == 'playing':
             room.state = 'finished'
             room.winner = ''
-            notify = []
+            send_to_players = {}
             for p in room.players:
                 if p == player_name or room.is_bot(p):
                     continue
@@ -119,17 +120,19 @@ class UnoEngine(BaseGameEngine):
                 loc = self._loc(room)
                 board = room.get_game_data(viewer=p)
                 board['message'] = f'{player_name} 断线了，游戏结束。'
-                notify.append({
-                    'target': p,
-                    'messages': [
-                        {'type': GAME, 'text': f'{player_name} 断线了。'},
-                        {'type': ROOM_UPDATE, 'room_data': board},
-                        {'type': LOCATION_UPDATE, 'location': loc},
-                    ],
-                })
+                send_to_players[p] = [
+                    {'type': GAME, 'text': f'{player_name} 断线了。'},
+                    {'type': ROOM_UPDATE, 'room_data': board},
+                    {'type': LOCATION_UPDATE, 'location': loc},
+                ]
             self._cleanup_room(room)
-            return notify
+            return [{'send_to_players': send_to_players, 'refresh_room_list': True}]
         self._remove_player(player_name)
+        # 非 playing 状态下通知房间其他玩家
+        if room and room.room_id in self._rooms:
+            notify = self._notify_room_with_commands(
+                lobby, room, f'{player_name} 断线了。')
+            return [{'send_to_players': notify, 'refresh_room_list': True}]
         return []
 
     def handle_back(self, lobby, player_name, player_data):
@@ -168,13 +171,17 @@ class UnoEngine(BaseGameEngine):
             ])
         self._remove_player(player_name)
         lobby.set_player_location(player_name, DEFAULT_LOCATION)
-        return {
+        result = {
             'action': 'location_update',
             'location': DEFAULT_LOCATION,
             'send_to_caller': [{'type': GAME, 'text': '离开了 UNO Flip。'}],
             'refresh_commands': True,
             'refresh_room_list': True,
         }
+        if room and room.room_id in self._rooms:
+            result['send_to_players'] = self._notify_room_with_commands(
+                lobby, room, f'{player_name} 离开了房间')
+        return result
 
     def leave_room(self, player_name: str) -> None:
         """离开房间"""
@@ -214,6 +221,17 @@ class UnoEngine(BaseGameEngine):
             if location:
                 msgs.append({'type': LOCATION_UPDATE, 'location': location})
             players[p] = msgs
+        return players
+
+    def _notify_room_with_commands(self, lobby, room, message, exclude=None):
+        """通知房间其他玩家（含 COMMANDS_UPDATE），用于房主变更等场景"""
+        players = self._notify_room(room, message, exclude=exclude)
+        for p, msgs in players.items():
+            pd = lobby.online_players.get(p)
+            if pd:
+                loc = lobby.get_player_location(p)
+                cmds = lobby.get_commands_for_location(loc, pd)
+                msgs.append({'type': COMMANDS_UPDATE, 'commands': cmds})
         return players
 
     # ── 大厅 ──
@@ -442,6 +460,10 @@ class UnoEngine(BaseGameEngine):
             {'type': ROOM_UPDATE, 'room_data': lobby_board},
             {'type': LOCATION_UPDATE, 'location': DEFAULT_LOCATION},
         ]
+        target_pd = lobby.online_players.get(target)
+        if target_pd:
+            cmds = lobby.get_commands_for_location(DEFAULT_LOCATION, target_pd)
+            notify[target].append({'type': COMMANDS_UPDATE, 'commands': cmds})
         return {
             'action': 'uno_kicked',
             'send_to_caller': [
@@ -484,6 +506,43 @@ class UnoEngine(BaseGameEngine):
             'send_to_players': notify,
         }
 
+    def _cmd_dissolve(self, lobby, player_name, player_data, args):
+        room = self.get_player_room(player_name)
+        if not room or room.host != player_name:
+            return self._msg(player_name, '只有房主才能解散房间。')
+        if room.state == 'playing':
+            return self._msg(player_name, '游戏进行中，不能解散。')
+
+        lobby_board = self._lobby_board()
+        notify = {}
+        for p in room.players:
+            if p == player_name or room.is_bot(p):
+                continue
+            lobby.set_player_location(p, DEFAULT_LOCATION)
+            pd = lobby.online_players.get(p)
+            msgs = [
+                {'type': GAME, 'text': '房主解散了房间。'},
+                {'type': ROOM_UPDATE, 'room_data': lobby_board},
+                {'type': LOCATION_UPDATE, 'location': DEFAULT_LOCATION},
+            ]
+            if pd:
+                cmds = lobby.get_commands_for_location(DEFAULT_LOCATION, pd)
+                msgs.append({'type': COMMANDS_UPDATE, 'commands': cmds})
+            notify[p] = msgs
+        self._cleanup_room(room)
+        lobby.set_player_location(player_name, DEFAULT_LOCATION)
+        return {
+            'action': 'uno_dissolve',
+            'send_to_caller': [
+                {'type': GAME, 'text': '已解散房间。'},
+                {'type': ROOM_UPDATE, 'room_data': lobby_board},
+                {'type': LOCATION_UPDATE, 'location': DEFAULT_LOCATION},
+            ],
+            'send_to_players': notify,
+            'refresh_commands': True,
+            'refresh_room_list': True,
+        }
+
     def _cmd_leave(self, lobby, player_name, player_data, args):
         room = self.get_player_room(player_name)
         if room and room.state == 'playing':
@@ -502,9 +561,9 @@ class UnoEngine(BaseGameEngine):
             'refresh_commands': True,
             'refresh_room_list': True,
         }
-        if room and room.players:
-            result['send_to_players'] = self._notify_room(
-                room, f'{player_name} 离开了房间')
+        if room and room.room_id in self._rooms:
+            result['send_to_players'] = self._notify_room_with_commands(
+                lobby, room, f'{player_name} 离开了房间')
         return result
 
     # ── 游戏中: 出牌 ──
@@ -855,18 +914,19 @@ class UnoBotScheduler:
     def _run_bot_turn(self, room_id):
         server = self._server
         lobby = server.lobby_engine
-        engine = lobby.game_engines.get('uno')
-        if not engine:
-            return
-        room = engine._rooms.get(room_id)
-        if not room or room.state != 'playing':
-            return
+        with lobby._lock:
+            engine = lobby.game_engines.get('uno')
+            if not engine:
+                return
+            room = engine._rooms.get(room_id)
+            if not room or room.state != 'playing':
+                return
 
-        bot_name = room.current_player()
-        if not bot_name or not room.is_bot(bot_name):
-            return
+            bot_name = room.current_player()
+            if not bot_name or not room.is_bot(bot_name):
+                return
 
-        self._do_play(engine, lobby, room, bot_name)
+            self._do_play(engine, lobby, room, bot_name)
 
     def _do_play(self, engine, lobby, room, bot_name):
         """Bot 出牌策略: 简单 AI"""

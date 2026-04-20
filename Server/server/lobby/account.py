@@ -18,16 +18,17 @@ def do_delete_account(lobby, player_name, password):
     if not PlayerManager.verify_password(player_name, password):
         return '密码错误。账号删除已取消。'
 
-    for game_id, engine in lobby.game_engines.items():
-        if engine.get_player_room(player_name):
-            engine.leave_room(player_name)
+    with lobby._lock:
+        for game_id, engine in lobby.game_engines.items():
+            if engine.get_player_room(player_name):
+                engine.leave_room(player_name)
 
-    success = PlayerManager.delete_player(player_name)
-    if success:
-        lobby.online_players.pop(player_name, None)
-        lobby.player_locations.pop(player_name, None)
-        return {'action': 'account_deleted', 'message': '账号已删除。再见！'}
-    return '删除账号失败，请稍后重试。'
+        success = PlayerManager.delete_player(player_name)
+        if success:
+            lobby.online_players.pop(player_name, None)
+            lobby.player_locations.pop(player_name, None)
+            return {'action': 'account_deleted', 'message': '账号已删除。再见！'}
+        return '删除账号失败，请稍后重试。'
 
 
 # ── pending-type handler registry ──────────────────────────────
@@ -68,6 +69,5 @@ def handle_lobby_pending(lobby, player_name, player_data, cmd, command, pending)
     lobby.pending_confirms.pop(player_name, None)
 
     raw_input = command.strip()
-    raw_input = raw_input.removeprefix('/')
 
     return handler(lobby, player_name, player_data, cmd, raw_input, pending_data)

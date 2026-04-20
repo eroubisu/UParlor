@@ -31,6 +31,7 @@ class NetworkManager:
         self.socket = None
         self.port = port
         self.connected = False
+        self.on_send_failure = None  # callback()
 
     def connect(self, host):
         """连接服务器"""
@@ -60,4 +61,6 @@ class NetworkManager:
             self.socket.send(msg.encode('utf-8'))
             return True
         except OSError:
+            if self.on_send_failure:
+                self.on_send_failure()
             return False

@@ -15,7 +15,7 @@ from ..config import (
     COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
     DEFAULT_HOST,
 )
-from .settings import _OPTIONS as _ALL_SETTINGS
+from .system.settings import _OPTIONS as _ALL_SETTINGS
 
 # 登录页设置只显示教程（排除 profile 和 docs）
 _LOGIN_SETTINGS = [(k, n) for k, n in _ALL_SETTINGS if k not in ('profile', 'docs')]
@@ -59,7 +59,7 @@ class LoginPanel(Panel):
             self.target = target
 
     has_input = True
-    placeholder = "请输入用户名："
+    placeholder = "请输入用户名"
     hide_scrollbar = True
 
     def __init__(self, **kw):
@@ -115,17 +115,17 @@ class LoginPanel(Panel):
         if any(text.startswith(p) for p in _PASSWORD_PROMPTS):
             self._step = _STEP_PASSWORD
             self._submitted = False
-            inp.placeholder = "请输入密码："
+            inp.placeholder = "请输入密码"
             inp.password = True
         elif self._step == _STEP_WAITING:
             self._submitted = False
             if inp.password:
                 # 密码错误 — 服务端仍在 password 状态，保持密码模式
                 self._step = _STEP_PASSWORD
-                inp.placeholder = "请输入密码："
+                inp.placeholder = "请输入密码"
             else:
                 self._step = _STEP_USERNAME
-                inp.placeholder = "请输入用户名："
+                inp.placeholder = "请输入用户名"
                 inp.password = False
 
     # ── 导航 ──
@@ -168,7 +168,7 @@ class LoginPanel(Panel):
             row.display = True
             self._step = _STEP_USERNAME
             inp.disabled = False
-            inp.placeholder = "请输入用户名："
+            inp.placeholder = "请输入用户名"
             inp.password = False
             inp.value = ""
 

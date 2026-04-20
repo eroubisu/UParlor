@@ -37,11 +37,6 @@ _DIR_LABEL = {
     -1: ('↑↑↑ 逆序 ↑↑↑', 'bold #e06060')
 }
 
-_COLOR_NAME = {
-    'red': '红', 'yellow': '黄', 'green': '绿', 'blue': '蓝',
-    'pink': '粉', 'teal': '青', 'purple': '紫', 'orange': '橙',
-}
-
 _DOC_COMMANDS = {
     'create', 'rooms', 'start', 'invite', 'kick', 'bot',
     'play', 'draw', 'uno', 'pass', 'challenge', 'back', 'help',
@@ -116,8 +111,9 @@ def _render_top_card(text: Text, top: dict, chosen_color: str | None) -> None:
     text.append('  要求跟牌: ', style=_DIM)
     text.append('╭' + '─' * _CARD_W + '╮', style=_BORDER_PLAYABLE)
     if chosen_color:
-        cn = _COLOR_NAME.get(chosen_color, '?')
-        text.append(f'  指定{cn}色', style=f'bold {hex_c}')
+        text.append('  指定 ', style=_DIM)
+        hex_cc = _COLOR_MAP.get(chosen_color, '#c0c0c0')
+        text.append('██', style=f'bold on {hex_cc}')
     text.append('\n')
     # 内容行
     text.append(pad)
@@ -320,8 +316,9 @@ class UnoRenderer:
                 info.append('（可叠加同类 Draw 牌）', style='#e06060')
             info.append('\n')
         if draw_until_color:
-            c = _COLOR_NAME.get(draw_until_color, '?')
-            info.append(f'  ⚠ 持续摸牌直到摸到{c}色', style='bold #e06060')
+            duc_hex = _COLOR_MAP.get(draw_until_color, '#808080')
+            info.append('  ⚠ 持续摸牌直到摸到 ', style='bold #e06060')
+            info.append('██', style=f'bold on {duc_hex}')
             info.append('\n')
         if challengeable:
             info.append('  ⚠ 上家打出 Wild，可以挑战！', style='bold #e0c040')

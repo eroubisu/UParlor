@@ -46,3 +46,8 @@ FRIEND_REQUEST = 'friend_request'
 
 # ── 名片 ──
 PROFILE_CARD = 'profile_card'
+
+# ── 框架 ──
+GAME_QUIT = 'game_quit'
+CLIENT_VERSION = 'client_version'
+PONG = 'pong'
