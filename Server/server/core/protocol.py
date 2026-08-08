@@ -14,7 +14,7 @@ import random
 import string
 from typing import Protocol, runtime_checkable, Any
 
-from ..msg_types import ROOM_UPDATE
+from ..msg_types import GAME, ROOM_UPDATE
 
 
 # ── 共享构建器 ──
@@ -26,6 +26,9 @@ def build_select_menu(title, items, empty_msg=''):
     由 result_dispatcher.wrap_game_event 自动包装为 game_event 信封
     （自动注入正确的 game_type）。
     """
+    return_count = sum(item.get('type') == 'return' for item in items)
+    if return_count > 1:
+        raise ValueError('select_menu 只能包含一个返回动作')
     return {
         'action': 'select_menu',
         'send_to_caller': [{
@@ -77,12 +80,16 @@ class BaseGameEngine:
 
     game_key: str = ''
     display_name: str = ''
+    underfilled_start: str = 'forbid'
 
     # ── 指令路由表 ──
     # 子类覆盖这两个类属性即可，无需重写 handle_command。
     # 路由键由房间状态决定: 无房间→'lobby', waiting→'room', playing→'playing'
     _GLOBAL_COMMANDS: dict[str, str] = {}   # cmd_name → method_name
     _COMMAND_MAP: dict[str, dict[str, str]] = {}  # state_key → {cmd → method}
+    _SETTLEMENT_RETRY_BASE_DELAY = 1.0
+    _SETTLEMENT_RETRY_MAX_DELAY = 30.0
+    _SETTLEMENT_RETRY_MAX_EXPONENT = 5
 
     def _get_command_key(self, player_name) -> str:
         """根据玩家房间状态返回指令路由键。"""
@@ -91,7 +98,9 @@ class BaseGameEngine:
             return 'lobby'
         if room.state == 'playing':
             return 'playing'
-        return 'room'
+        if room.state == 'waiting':
+            return 'room'
+        return room.state
 
     def handle_command(self, lobby, player_name, player_data, cmd, args):
         """通用指令路由 — 子类通过 _COMMAND_MAP / _GLOBAL_COMMANDS 声明即可。"""
@@ -123,6 +132,64 @@ class BaseGameEngine:
         """构建 select_menu 响应"""
         return build_select_menu(title, items, empty_msg)
 
+    def _check_start_players(
+            self, player_name: str, player_count: int, minimum_players: int,
+            room_capacity: int, args: str):
+        """Separate the hard minimum from the configured room capacity."""
+        if args.strip() == 'cancel':
+            return self._msg(player_name, '已取消开始游戏。')
+        if player_count < minimum_players:
+            message = (
+                f'人数不足：当前 {player_count} 人，'
+                f'至少需要 {minimum_players} 人才能开始。'
+            )
+            items = [
+                {'label': message, 'type': 'text'},
+                {'type': 'separator'},
+                {
+                    'type': 'return', 'label': '返回',
+                    'desc': '', 'command': '/start cancel',
+                },
+            ]
+        elif player_count >= room_capacity:
+            return None
+        elif self.underfilled_start == 'forbid':
+            message = (
+                f'房间未满：当前 {player_count}/{room_capacity} 人，'
+                '该游戏需要满员才能开始。'
+            )
+            items = [
+                {'label': message, 'type': 'text'},
+                {'type': 'separator'},
+                {
+                    'type': 'return', 'label': '返回',
+                    'desc': '', 'command': '/start cancel',
+                },
+            ]
+        elif args.strip() != 'confirm_underfilled':
+            message = (
+                f'房间未满：当前 {player_count}/{room_capacity} 人，'
+                '是否仍然开始？'
+            )
+            items = [
+                {'label': message, 'type': 'text'},
+                {'type': 'separator'},
+                {
+                    'label': '仍然开始',
+                    'desc': '',
+                    'command': '/start confirm_underfilled',
+                },
+                {
+                    'type': 'return', 'label': '返回',
+                    'desc': '', 'command': '/start cancel',
+                },
+            ]
+        else:
+            return None
+        result = self._select_menu('开始游戏', items)
+        result['send_to_caller'].insert(0, {'type': GAME, 'text': message})
+        return result
+
     def _msg(self, player_name, text):
         """构建带有当前棋盘状态和消息的响应"""
         room = self.get_player_room(player_name)
@@ -133,8 +200,48 @@ class BaseGameEngine:
             board['doc'] = get_help_welcome(self.game_key) or self._HELP_TEXT
         return {
             'action': f'{self.game_key}_message',
-            'send_to_caller': [{'type': ROOM_UPDATE, 'room_data': board}],
+            'send_to_caller': [
+                {'type': GAME, 'text': text},
+                {'type': ROOM_UPDATE, 'room_data': board},
+            ],
         }
+
+    def _settlement_retry_result(self, room, caller):
+        """返回延迟结算结果，并确保同一局最多只有一个待执行任务。"""
+        result = self._msg(caller, '结算保存暂时失败，服务器将自动重试。')
+        if room._settlement_retry_scheduled:
+            result['schedule'] = []
+            return result
+        room._settlement_retry_scheduled = True
+        room._settlement_retry_attempt += 1
+        exponent = min(
+            room._settlement_retry_attempt - 1,
+            self._SETTLEMENT_RETRY_MAX_EXPONENT,
+        )
+        delay = min(
+            self._SETTLEMENT_RETRY_BASE_DELAY * (2 ** exponent),
+            self._SETTLEMENT_RETRY_MAX_DELAY,
+        )
+        result['schedule'] = [{
+            'game_id': self.game_key,
+            'action': 'settlement_retry',
+            'room_id': room.room_id,
+            'generation': room._settlement_generation,
+            'delay': delay,
+        }]
+        return result
+
+    def _retry_settlement(self, lobby, room_id, generation):
+        """在调度器持有 lobby._lock 时重试仍属于当前对局的结算。"""
+        room = self._rooms.get(room_id)
+        if (
+                room is None
+                or room.state != 'finished'
+                or room._settlement_generation != generation
+                or not room._settlement_retry_scheduled):
+            return None
+        room._settlement_retry_scheduled = False
+        return self._handle_game_over(lobby, room, '', {})
 
     def get_welcome_message(self, player_data):
         from ..lobby.help import get_help_welcome
@@ -178,7 +285,13 @@ class BaseGameEngine:
         """
         from ..player.manager import PlayerManager
 
-        # 更新全局 game_stats
+        self._apply_game_result(player_data, result, game_specific)
+        PlayerManager.save_player_data(player_data['name'], player_data)
+
+    def _apply_game_result(
+            self, player_data: dict, result: str,
+            game_specific: dict | None = None) -> None:
+        """只更新结果数据；由需要事务式结算的调用方统一持久化。"""
         gs = player_data.setdefault('game_stats', {
             'total_games': 0, 'total_wins': 0,
             'total_losses': 0, 'total_draws': 0,
@@ -197,8 +310,6 @@ class BaseGameEngine:
             stats = gd.setdefault('stats', {})
             for key, delta in game_specific.items():
                 stats[key] = stats.get(key, 0) + delta
-
-        PlayerManager.save_player_data(player_data['name'], player_data)
 
     def leave_room(self, player_name: str) -> None:
         """离开房间"""
@@ -291,4 +402,3 @@ class BaseGameEngine:
             return 2
         else:
             return 0 if tier <= 1 else -5
-

@@ -20,6 +20,7 @@ import logging
 import os
 import shutil
 import threading
+from contextlib import contextmanager
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from ..config import USERS_DIR
@@ -32,7 +33,10 @@ logger = logging.getLogger(__name__)
 
 _MODULE_MAP = {
     'auth':       ('name', 'password_hash', 'created_at'),
-    'profile':    ('level', 'exp', 'gold', 'accessory', 'profile_card', 'social_stats', 'friends'),
+    'profile':    (
+        'level', 'exp', 'gold', 'accessory', 'profile_card', 'social_stats',
+        'friends', 'pending_friend_requests', 'chat_style',
+    ),
     'game_stats': ('game_stats',),
     'inventory':  ('inventory',),
     'titles':     ('titles',),
@@ -80,17 +84,33 @@ class PlayerManager:
     """玩家数据管理 - 注册、登录、存档"""
 
     # 每玩家写锁 — 防止并发写入数据损坏
-    _player_locks: dict[str, threading.Lock] = {}
+    _player_locks: dict[str, threading.RLock] = {}
     _locks_guard = threading.Lock()
 
     @staticmethod
-    def _get_lock(name: str) -> threading.Lock:
+    def _get_lock(name: str) -> threading.RLock:
         with PlayerManager._locks_guard:
             lock = PlayerManager._player_locks.get(name)
             if lock is None:
-                lock = threading.Lock()
+                lock = threading.RLock()
                 PlayerManager._player_locks[name] = lock
             return lock
+
+    @staticmethod
+    @contextmanager
+    def lock_players(*names: str):
+        """按稳定顺序锁定多个玩家，供跨账号事务使用。"""
+        locks = [
+            PlayerManager._get_lock(name)
+            for name in sorted(set(names))
+        ]
+        for lock in locks:
+            lock.acquire()
+        try:
+            yield
+        finally:
+            for lock in reversed(locks):
+                lock.release()
 
     @staticmethod
     def hash_password(password):
@@ -190,14 +210,15 @@ class PlayerManager:
 
     @staticmethod
     def register_player(name, password):
-        if PlayerManager.player_exists(name):
-            return False
-        data = get_default_user_template(
-            name=name,
-            password_hash=PlayerManager.hash_password(password),
-        )
-        PlayerManager._save_user_file(name, data)
-        return True
+        with PlayerManager._get_lock(name):
+            if PlayerManager.player_exists(name):
+                return False
+            data = get_default_user_template(
+                name=name,
+                password_hash=PlayerManager.hash_password(password),
+            )
+            PlayerManager._save_user_file(name, data)
+            return True
 
     @staticmethod
     def verify_password(name, password):

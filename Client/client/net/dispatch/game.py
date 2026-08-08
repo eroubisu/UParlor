@@ -26,6 +26,9 @@ def _on_game_invite(parsed, app, screen, st):
     room_id = inv.get('room_id', '')
     expires_in = inv.get('expires_in', 300)
     st.notify.add_game_invite(from_name, game, room_id, expires_in)
+    from ...companion import CompanionController
+    CompanionController.instance(st).observe_event(
+        f"{from_name} 发来 {game} 游戏邀请")
     screen.update_badges()
 
 
@@ -92,10 +95,21 @@ def _on_room_update(parsed, app, screen, st):
             pass
         # 先通知 handler 构建交互态，再更新 State 触发渲染
         game_type = rd.get('game_type', '')
+        if game_type:
+            st.game_interaction.activate(game_type)
         handler = get_handler(game_type) if game_type else None
+        previous_room = st.game_board.room_data
         if handler and hasattr(handler, 'on_room_update'):
             ctx = make_handler_ctx(st, app, screen)
             handler.on_room_update(rd, ctx)
+        if handler and hasattr(handler, 'companion_events'):
+            events = handler.companion_events(
+                previous_room, rd, st.chat.player_name)
+            if events:
+                from ...companion import CompanionController
+                controller = CompanionController.instance(st)
+                for event in events:
+                    controller.observe_event(event)
         st.game_board.update_room(rd)
         tile_name = rd.get('tile_name', '')
         try:
@@ -108,12 +122,13 @@ def _on_room_update(parsed, app, screen, st):
 
 
 def _on_room_leave(parsed, app, screen, st):
+    st.game_interaction.reset()
     st.game_board.clear()
     if parsed.location:
         if hasattr(parsed, 'commands') and parsed.commands:
             from ...protocol.commands import set_commands
             set_commands(parsed.commands)
-            screen._update_hint_bar()
+            screen._update_room_controls()
         path = getattr(parsed, 'location_path', None)
         screen._update_location(parsed.location, path)
 

@@ -6,6 +6,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import bind_state
 from .log import LogPanel
 from .room_search import RoomSearchPanel
 from .room_detail import RoomDetailPanel
@@ -39,6 +41,13 @@ class LobbyWindow(Window):
 
     focus_grid = [["cmd-panel"], ["room-search", "game-detail"]]
 
+    # WindowEngine 主窗口 (大厅/默认)
+    spec = WindowSpec(
+        id="lobby-window", title="大厅",
+        group="primary", mode="primary", order=20,
+        bind=bind_state,
+    )
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._focus_pos = (1, 0)  # 默认聚焦搜索房间
@@ -59,6 +68,5 @@ class LobbyWindow(Window):
         self.query_one("#room-search", RoomSearchPanel).bind_state(st)
         self.query_one("#game-detail", RoomDetailPanel).bind_state(st)
 
-    def show(self) -> None:
-        self.query_one("#game-detail", RoomDetailPanel).show_room(None)
-        super().show()
+
+register_window(LobbyWindow)

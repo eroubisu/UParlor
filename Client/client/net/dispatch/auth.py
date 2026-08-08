@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from ..messages import LoginPrompt, LoginSuccess
+from ..messages import AuthConflict, LoginPrompt, LoginSuccess
 
 
 def _on_login_prompt(parsed, app, screen, st):
+    st.auth.clear()
     login = screen.get_module('login')
     if login and hasattr(login, 'add_message'):
         login.add_message(parsed.text)
@@ -14,12 +15,16 @@ def _on_login_prompt(parsed, app, screen, st):
 
 
 def _on_login_success(parsed, app, screen, st):
+    st.auth.clear()
     screen.logged_in = True
     st.cmd.add_line(parsed.text)
-    login = screen.get_module('login')
-    if login:
-        login.display = False
     screen.call_later(screen._rebuild_to_game_layout)
+
+
+def _on_auth_conflict(parsed, _app, screen, st):
+    if screen._mode != 'normal':
+        screen._to_normal()
+    st.auth.show_conflict(parsed.text, parsed.choices)
 
 
 def handle_version_check(app, screen, latest: str):
@@ -48,4 +53,5 @@ def handle_version_check(app, screen, latest: str):
 HANDLERS = {
     LoginPrompt: _on_login_prompt,
     LoginSuccess: _on_login_success,
+    AuthConflict: _on_auth_conflict,
 }

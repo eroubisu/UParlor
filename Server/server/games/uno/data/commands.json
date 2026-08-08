@@ -6,6 +6,7 @@
     ],
     "uno:room": [
         {"name": "start",    "label": "开始", "desc": "开始游戏（2-10人）"},
+        {"name": "ready",    "label": "准备", "desc": "切换准备状态"},
         {"name": "bot",      "label": "机器人", "desc": "添加机器人玩家"},
         {"name": "kick",     "label": "踢出", "desc": "踢出玩家"},
         {"name": "dissolve", "label": "解散", "desc": "解散房间"},

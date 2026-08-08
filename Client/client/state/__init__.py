@@ -19,7 +19,9 @@ from .cmd import CmdState
 from .status import StatusState
 from .online import OnlineState
 from .game_board import GameBoardState
+from .game_interaction import GameInteractionState
 from .notification import NotificationState
+from .auth import AuthState
 
 
 class ModuleStateManager:
@@ -31,13 +33,23 @@ class ModuleStateManager:
         self.status = StatusState()
         self.online = OnlineState()
         self.game_board = GameBoardState()
+        self.game_interaction = GameInteractionState()
         self.notify = NotificationState()
+        self.auth = AuthState()
         self.location = "lobby"
+
+    def unbind_all(self) -> None:
+        """解绑当前 State 生命周期内的全部界面监听器。"""
+        for state_part in (
+                self.chat, self.cmd, self.status, self.online,
+                self.game_board, self.game_interaction, self.notify, self.auth):
+            state_part.clear_listeners()
 
 
 __all__ = [
     'BaseState',
     'ChatState', 'CmdState', 'StatusState',
-    'OnlineState', 'GameBoardState', 'NotificationState',
+    'OnlineState', 'GameBoardState', 'GameInteractionState', 'NotificationState',
+    'AuthState',
     'ModuleStateManager',
 ]

@@ -1,4 +1,4 @@
-"""UNO Flip — 游戏模块注册"""
+"""UNO — 游戏模块注册"""
 
 from __future__ import annotations
 
@@ -6,11 +6,15 @@ from .engine import UnoEngine, create_bot_scheduler
 
 GAME_INFO = {
     'id': 'uno',
-    'name': 'UNO Flip',
+    'name': 'UNO',
     'icon': '\uf24d',
     'description': '双面牌翻转游戏，匹配颜色或数字出牌，先出完者获胜',
     'min_players': 2,
     'max_players': 10,
+    'start_policy': {
+        'minimum_players': 2,
+        'underfilled': UnoEngine.underfilled_start,
+    },
     'per_player': False,
     'create_engine': UnoEngine,
     'create_bot_scheduler': create_bot_scheduler,

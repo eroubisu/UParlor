@@ -6,9 +6,11 @@ import json
 import logging
 import os
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from ..config import CHAT_LOG_DIR, CHAT_HISTORY_DIR, MAINTENANCE_HOUR
+from ..msg_types import CHAT
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,8 @@ BEIJING_TZ = timezone(timedelta(hours=8))
 
 # 内存中每频道最大消息数（防止长期运行内存增长）
 _MAX_CHANNEL_MESSAGES = 2000
+INITIAL_HISTORY_LIMIT = 16
+HISTORY_PAGE_SIZE = 8
 
 
 def get_beijing_now():
@@ -97,11 +101,25 @@ class ChatLogManager:
                 self.chat_logs[channel] = []
         logger.info("聊天记录已加载: %s", self.current_date)
 
-    def save(self, channel, name, text):
-        """保存一条聊天记录（标记脏页，延迟写盘）"""
-        now = get_beijing_now()
-        msg = {'name': name, 'text': text, 'time': now.strftime('%H:%M')}
+    def save(self, channel, name, text) -> dict | None:
+        """保存并返回供广播使用的唯一规范记录。"""
         with self._lock:
+            now = get_beijing_now()
+            today = get_today_date_str()
+            if today != self.current_date:
+                if not self._archive_locked(today):
+                    logger.error(
+                        "聊天日界轮转失败，拒绝保存新日期消息: %s",
+                        today)
+                    return None
+            msg = {
+                'type': CHAT,
+                'id': uuid.uuid4().hex,
+                'name': name,
+                'text': text,
+                'channel': channel,
+                'time': now.strftime('%H:%M:%S'),
+            }
             msgs = self.chat_logs[channel]
             msgs.append(msg)
             # 内存截断：仅保留最近 _MAX_CHANNEL_MESSAGES 条
@@ -111,6 +129,7 @@ class ChatLogManager:
             # 每 50 条消息刷盘一次（减少 IO 频率）
             if len(msgs) % 50 == 0:
                 self._flush_locked()
+        return msg
 
     def flush(self):
         """将脏频道数据写入磁盘"""
@@ -124,18 +143,24 @@ class ChatLogManager:
             try:
                 with open(log_file, 'w', encoding='utf-8') as f:
                     json.dump(self.chat_logs[channel], f, ensure_ascii=False)
+                self._dirty.discard(channel)
             except Exception:
                 logger.exception("刷盘频道 %d 失败", channel)
-        self._dirty.clear()
 
-    def archive(self):
+    def archive(self) -> bool:
         """归档聊天记录到历史文件夹（每日维护时调用）"""
-        self.flush()
+        with self._lock:
+            return self._archive_locked(get_today_date_str())
+
+    def _archive_locked(self, new_date: str) -> bool:
+        """归档当前日志；调用方必须持有管理器锁。"""
+        self._flush_locked()
         yesterday = self.current_date
         logger.info("正在归档 %s 的聊天记录...", yesterday)
+        failed_channels = []
         for channel in [1, 2]:
             log_file = self._get_log_file(channel)
-            if os.path.exists(log_file) and self.chat_logs[channel]:
+            if self.chat_logs[channel]:
                 archive_file = os.path.join(CHAT_HISTORY_DIR, f'{yesterday}_channel_{channel}.json')
                 try:
                     with open(archive_file, 'w', encoding='utf-8') as f:
@@ -143,16 +168,69 @@ class ChatLogManager:
                     logger.info("频道%d归档完成: %s", channel, archive_file)
                 except Exception:
                     logger.exception("频道%d归档失败", channel)
-                try:
-                    os.remove(log_file)
-                except Exception:
-                    logger.warning("旧日志文件删除失败: %s", log_file)
-        self.chat_logs = {1: [], 2: []}
-        self.current_date = get_today_date_str()
+                    failed_channels.append(channel)
+                    continue
+                if os.path.exists(log_file):
+                    try:
+                        os.remove(log_file)
+                    except Exception:
+                        logger.warning("旧日志文件删除失败: %s", log_file)
+                self.chat_logs[channel] = []
+                self._dirty.discard(channel)
+        if failed_channels:
+            logger.error(
+                "归档未完成，保留频道数据等待重试: %s", failed_channels)
+            return False
+        self.current_date = new_date
         logger.info("归档完成，新的一天开始: %s", self.current_date)
+        return True
 
-    def get_history(self, channel, limit=50):
+    def get_history(self, channel, limit=INITIAL_HISTORY_LIMIT):
         """获取聊天历史（最近 limit 条）"""
+        page, _ = self.get_history_page(channel, limit=limit)
+        return page
+
+    def get_history_page(
+            self, channel: int, *, limit: int,
+            before_id: str = '', after_id: str = '') -> tuple[list[dict], bool]:
+        """Return a reverse-chronological page bounded by message identities."""
         with self._lock:
-            messages = self.chat_logs.get(channel, [])
-            return messages[-limit:] if len(messages) > limit else list(messages)
+            messages = self._history_snapshot_locked(channel)
+        start = 0
+        if after_id:
+            start = next((
+                index + 1
+                for index, message in enumerate(messages)
+                if message.get('id') == after_id
+            ), 0)
+        end = len(messages)
+        if before_id:
+            end = next((
+                index
+                for index, message in enumerate(messages)
+                if message.get('id') == before_id
+            ), end)
+        available = messages[start:end]
+        page = available[-limit:]
+        return list(page), len(available) > len(page)
+
+    def _history_snapshot_locked(self, channel: int) -> list[dict]:
+        """Merge archived days with the active in-memory day."""
+        messages = []
+        suffix = f'_channel_{channel}.json'
+        if os.path.isdir(CHAT_HISTORY_DIR):
+            for filename in sorted(os.listdir(CHAT_HISTORY_DIR)):
+                if not filename.endswith(suffix):
+                    continue
+                path = os.path.join(CHAT_HISTORY_DIR, filename)
+                try:
+                    with open(path, 'r', encoding='utf-8') as file:
+                        archived = json.load(file)
+                    if isinstance(archived, list):
+                        messages.extend(archived)
+                    else:
+                        logger.error("聊天归档格式错误: %s", path)
+                except (OSError, json.JSONDecodeError):
+                    logger.exception("聊天归档读取失败: %s", path)
+        messages.extend(self.chat_logs.get(channel, []))
+        return messages

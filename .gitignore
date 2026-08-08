@@ -1,5 +1,4 @@
-# copilot
-.github/
+# Repository automation and Copilot workspace instructions are tracked.
 
 # Python
 __pycache__/
@@ -31,7 +30,10 @@ Server/scripts/deploy.py
 .env.*
 
 # 编辑器
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 *~
 

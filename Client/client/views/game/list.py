@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from textual.message import Message
+from rich.markup import escape
 
 from ...config import (
     COLOR_FG_PRIMARY, COLOR_HINT_TAB_DIM, ICON_INDENT,
     M_DIM, M_END,
 )
 from ...widgets.panel import Panel
+from ...protocol.renderer import get_renderer
+from ...window_engine import Option, SurfaceState
 
 
 class GameSelected(Message):
@@ -26,6 +29,7 @@ class GameListPanel(Panel):
     """游戏列表面板：光标导航选择游戏"""
 
     icon_align = True
+    follow_focus = True
     title = "游戏"
 
     def __init__(self, **kw):
@@ -50,33 +54,46 @@ class GameListPanel(Panel):
         items = self._get_items()
         lines: list[str] = []
         if not items:
-            lines.append(f"{ICON_INDENT}{M_DIM}暂无可用游戏{M_END}")
+            self.show_surface(SurfaceState.empty("暂无可用游戏"))
+            return
         else:
-            self._cursor = min(self._cursor, len(items) - 1)
-            for i, g in enumerate(items):
-                icon = g.get('icon', '>')
-                name = g.get('name', g.get('id', '???'))
-                if i == self._cursor:
-                    lines.append(f"{icon} [bold {COLOR_FG_PRIMARY}]{name}[/]")
-                else:
-                    lines.append(f"[{COLOR_HINT_TAB_DIM}]{icon} {name}[/]")
-        self._focus_line = self._cursor
+            options = []
+            for g in items:
+                game_id = g.get('id', '')
+                renderer = get_renderer(game_id)
+                icon = renderer.icon if renderer else ''
+                name = g.get('name', game_id or '???')
+                options.append(Option(
+                    game_id,
+                    f"{icon} {escape(name)}".strip(),
+                    data=g,
+                    markup=True,
+                ))
+            self.set_options(options, "game-list")
+            lines.append(self.render_options())
+        self._focus_line = self.selected_line()
         self.update("\n".join(lines))
         self._emit_selected()
 
     def _emit_selected(self) -> None:
-        items = self._get_items()
-        if items and 0 <= self._cursor < len(items):
-            self.post_message(GameSelected(items[self._cursor]))
+        selected = self.selected_option
+        if selected is not None:
+            self.post_message(GameSelected(selected.data))
 
     def reset_cursor(self) -> None:
         super().reset_cursor()
         self._refresh_list()
 
+    def reflow_content(self) -> None:
+        items = self._get_items()
+        if items:
+            self.update(self.render_options())
+
     def nav(self, action: str) -> None:
-        if not self._cursor_nav(
-            action, len(self._get_items()),
-            on_enter=lambda: self.post_message(FocusRight()),
-            redraw=self._refresh_list,
-        ):
+        selected = self.selection.handle(action)
+        if action in ("up", "down"):
+            self._refresh_list()
+        elif selected is not None:
+            self.post_message(FocusRight())
+        else:
             super().nav(action)

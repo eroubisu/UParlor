@@ -3,7 +3,8 @@
 每个游戏子包的 __init__.py 负责导入自身的 renderer / handler，
 此处只需导入各游戏子包即可触发注册。
 
-游戏模块已移至 _archive/client_games/，恢复时添加 import。
+添加游戏时在此导入其子包。
 """
 
 from . import uno  # noqa: F401
+from . import ludo  # noqa: F401

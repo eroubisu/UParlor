@@ -1,7 +1,7 @@
 """指令注册表 — 服务端下发，客户端纯缓存（含标签页分组）
 
 SSOT：服务端 commands.json + 游戏引擎 get_commands() → 客户端此模块唯一缓存。
-指令菜单、补全、hint bar 全部从此模块读取。
+操作面板和补全全部从此模块读取。
 """
 
 from __future__ import annotations
@@ -75,6 +75,5 @@ def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
         if filtered:
             result.append((tab_name, filtered))
     return result
-
 
 

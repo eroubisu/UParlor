@@ -8,11 +8,19 @@ import time
 
 from .manager import PlayerManager
 from ..config import MAX_LOGIN_ATTEMPTS, LOGIN_COOLDOWN
-from ..msg_types import FRIEND_REQUEST, LOGIN_PROMPT, LOGIN_SUCCESS, GAME_LIST, ROOM_LIST
+from ..msg_types import (
+    ACTION, AUTH_CONFLICT, FRIEND_REQUEST, GAME_LIST, LOGIN_PROMPT,
+    LOGIN_SUCCESS, ROOM_LIST,
+)
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9]+$')
 
 logger = logging.getLogger(__name__)
+
+_AUTH_CONFLICT_CHOICES = [
+    {'id': 'takeover', 'label': '结束其他会话并登录'},
+    {'id': 'cancel', 'label': '取消登录'},
+]
 
 
 def validate_username(name: str) -> str | None:
@@ -40,16 +48,9 @@ class AuthMixin:
             self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该用户名不存在。'})
             return
 
-        # 防止多端登录：用户名阶段即拒绝
-        existing = self._name_to_socket.get(name)
-        if existing and existing != client_socket:
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该账号已在线，无法重复登录。'})
-            return
-
         with self.lock:
             self.clients[client_socket]['name'] = name
-
-        self.clients[client_socket]['state'] = 'password'
+            self.clients[client_socket]['state'] = 'password'
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入密码：'})
 
     def _handle_register_name(self, client_socket, text):
@@ -70,8 +71,7 @@ class AuthMixin:
 
         with self.lock:
             self.clients[client_socket]['name'] = name
-
-        self.clients[client_socket]['state'] = 'register_password'
+            self.clients[client_socket]['state'] = 'register_password'
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请设置密码（至少3个字符）：'})
 
     def _handle_register(self, client_socket):
@@ -81,21 +81,23 @@ class AuthMixin:
             temp_password = self.clients[client_socket].get('temp_password')
 
         try:
-            PlayerManager.register_player(name, temp_password)
+            registered = PlayerManager.register_player(name, temp_password)
+            if not registered:
+                self._reset_login(
+                    client_socket, '该用户名已被占用。\n请输入用户名：')
+                return
             player_data = PlayerManager.load_player_data(name)
-        except Exception:
+            if not player_data:
+                raise OSError(f'无法加载新注册账号 {name}')
+        except (OSError, ValueError):
             logger.exception("注册失败 %s", name)
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '注册失败，请重试。\n请输入用户名：'})
-            with self.lock:
-                self.clients[client_socket]['state'] = 'login'
-                self.clients[client_socket]['name'] = None
+            self._reset_login(
+                client_socket, '注册失败，请重试。\n请输入用户名：')
             return
 
-        with self.lock:
-            self.clients[client_socket]['state'] = 'playing'
-            self.clients[client_socket]['data'] = player_data
-            if 'temp_password' in self.clients[client_socket]:
-                del self.clients[client_socket]['temp_password']
+        if not self._activate_player(client_socket, name, player_data):
+            self._send_auth_conflict(client_socket)
+            return
 
         self._on_login_success(client_socket, name, player_data, '注册成功！', '注册并加入')
 
@@ -131,12 +133,16 @@ class AuthMixin:
             self._login_attempts.pop(name, None)
 
             player_data = PlayerManager.load_player_data(name)
+            if not player_data:
+                self._reset_login(
+                    client_socket, '账号数据加载失败，请重新登录。\n请输入用户名：')
+                return
 
-            with self.lock:
-                self.clients[client_socket]['state'] = 'playing'
-                self.clients[client_socket]['data'] = player_data
-
-            self._on_login_success(client_socket, name, player_data, '登录成功！', '登录')
+            if self._activate_player(client_socket, name, player_data):
+                self._on_login_success(
+                    client_socket, name, player_data, '登录成功！', '登录')
+            else:
+                self._send_auth_conflict(client_socket)
         else:
             # 记录失败次数
             if now - last_time >= LOGIN_COOLDOWN:
@@ -152,12 +158,99 @@ class AuthMixin:
             else:
                 self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '密码错误，请重试：'})
 
+    def _activate_player(self, client_socket, name, player_data) -> bool:
+        """原子认领账号；大厅锁始终先于 server.lock。"""
+        with self.lobby_engine._lock:
+            with self.lock:
+                info = self.clients.get(client_socket)
+                if not info:
+                    return False
+                existing = self._name_to_socket.get(name)
+                if existing is not None and existing is not client_socket:
+                    info['state'] = 'login_conflict'
+                    info['data'] = player_data
+                    return False
+                self._name_to_socket[name] = client_socket
+                info['name'] = name
+                info['state'] = 'playing'
+                info['data'] = player_data
+                info.pop('temp_password', None)
+            self.lobby_engine.register_player(name, player_data)
+        return True
+
+    def _send_auth_conflict(self, client_socket) -> None:
+        self.send_to(client_socket, {
+            'type': AUTH_CONFLICT,
+            'text': '该账号已有活动会话，请选择处理方式：',
+            'choices': [dict(choice) for choice in _AUTH_CONFLICT_CHOICES],
+        })
+
+    def _reset_login(self, client_socket, prompt: str = '请输入用户名：') -> None:
+        with self.lock:
+            info = self.clients.get(client_socket)
+            if not info:
+                return
+            info['state'] = 'login'
+            info['name'] = None
+            info['data'] = None
+            info.pop('temp_password', None)
+        self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': prompt})
+
+    def _handle_login_conflict(self, client_socket, choice: str) -> None:
+        if choice == 'cancel':
+            self._reset_login(client_socket)
+            return
+        if choice != 'takeover':
+            self._send_auth_conflict(client_socket)
+            return
+
+        old_socket = None
+        old_data = None
+        notifications = []
+        with self.lobby_engine._lock:
+            with self.lock:
+                info = self.clients.get(client_socket)
+                if not info or info.get('state') != 'login_conflict':
+                    return
+                name = info.get('name')
+                pending_data = info.get('data')
+                if not name or not pending_data:
+                    return
+
+                old_socket = self._name_to_socket.get(name)
+                old_info = self.clients.get(old_socket) if old_socket else None
+                if old_socket is not None and old_socket is not client_socket:
+                    if old_info and old_info.get('name') == name:
+                        old_data = old_info.get('data')
+                        old_info['state'] = 'login'
+                        old_info['name'] = None
+                        old_info['data'] = None
+                    self._cmd_cooldowns.pop(name, None)
+
+                player_data = old_data or pending_data
+                self._name_to_socket[name] = client_socket
+                info['state'] = 'playing'
+                info['data'] = player_data
+
+            if old_socket is not None and old_socket is not client_socket:
+                notifications = self.lobby_engine.unregister_player(name)
+            self.lobby_engine.register_player(name, player_data)
+
+        if old_data:
+            PlayerManager.save_player_data(name, old_data)
+        if old_socket is not None and old_socket is not client_socket:
+            self.send_to(old_socket, {
+                'type': ACTION, 'action': 'session_offline',
+            })
+        for notification in notifications:
+            self.dispatch_game_result(notification)
+        self._on_login_success(
+            client_socket, name, player_data, '登录成功！', '接管登录')
+
     def _on_login_success(self, client_socket, name, player_data, success_text, log_label):
         """登录/注册后的共用流程"""
-        self._register_player_socket(name, client_socket)
         self.send_to(client_socket, {'type': LOGIN_SUCCESS, 'text': success_text})
         self.send_player_status(client_socket, player_data)
-        self.lobby_engine.register_player(name, player_data)
         self._send_game_list(client_socket)
         self._send_room_list(client_socket)
         self._send_initial_location(client_socket, name)
@@ -177,7 +270,10 @@ class AuthMixin:
     def _send_game_list(self, client_socket):
         """下发可用游戏列表"""
         from ..games import get_all_games
-        _SAFE_KEYS = ('id', 'name', 'icon', 'description', 'min_players', 'max_players', 'room_settings')
+        _SAFE_KEYS = (
+            'id', 'name', 'icon', 'description', 'min_players',
+            'max_players', 'start_policy', 'room_settings',
+        )
         games = [
             {k: info[k] for k in _SAFE_KEYS if k in info}
             for info in get_all_games()

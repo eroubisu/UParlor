@@ -173,7 +173,11 @@ def _handle_help(lobby, player_name, player_data, args, location):
                     {'label': title, 'command': f'/help {sid}'}
                     for sid, title in non_welcome
                 ]
-                items.append({'label': '返回', 'command': '/back'})
+                items.append({
+                    'type': 'return',
+                    'label': '返回',
+                    'command': '/back',
+                })
                 return build_select_menu('帮助', items)
 
         # 无分节或 world 等 → 整段显示
@@ -198,6 +202,5 @@ def _handle_tutorial_done(lobby, player_name, player_data, args, location):
     player_data['tutorial_done'] = True
     PlayerManager.save_player_data(player_name, player_data)
     return ''
-
 
 

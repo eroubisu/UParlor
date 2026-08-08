@@ -10,6 +10,7 @@ import os
 import socket
 import threading
 import time
+from contextlib import nullcontext
 
 from .config import HOST, PORT, USERS_DIR
 from .config import MAX_BUFFER_SIZE
@@ -42,15 +43,16 @@ class ChatServer(AuthMixin):
         self._name_to_socket: dict[str, socket.socket] = {}  # O(1) 玩家查找索引
         self._cmd_cooldowns: dict[str, float] = {}  # 玩家名→上次指令时间戳（限流）
         self.lock = threading.Lock()
-        
+        self._send_locks: dict[socket.socket, threading.Lock] = {}
+
         from .config import CLIENT_VERSION
         self._client_version = CLIENT_VERSION
-        
+
         # 游戏大厅引擎
         self.lobby_engine = LobbyEngine()
         # 设置邀请通知回调
         self.lobby_engine.set_invite_callback(self._send_invite_notification)
-        
+
         # Bot 调度器泛化注册：从 GAME_INFO 自动创建
         from .games import GAMES
         self.bot_schedulers = {}
@@ -59,11 +61,11 @@ class ChatServer(AuthMixin):
             _create = _info.get('create_bot_scheduler')
             if _create:
                 self.bot_schedulers[_gid] = _create(self)
-        
+
         self.running = False
         self.log_mgr = ChatLogManager()
         self.dm_log_mgr = DMLogManager()
-    
+
     # ── Rich Result 通用分发器 → result_dispatcher.py ──
 
     def dispatch_game_result(self, result, caller_socket=None, caller_name=None, caller_data=None):
@@ -82,33 +84,50 @@ class ChatServer(AuthMixin):
 
     def _get_player_data(self, player_name):
         """查找在线玩家的 player_data — O(1)"""
-        cs = self._name_to_socket.get(player_name)
-        if cs:
-            info = self.clients.get(cs)
-            if info:
-                return info.get('data')
-        return None
+        with self.lock:
+            cs = self._name_to_socket.get(player_name)
+            info = self.clients.get(cs) if cs else None
+            return info.get('data') if info else None
 
     def send_to_player(self, player_name, data):
         """发送消息给指定玩家 — O(1)"""
-        cs = self._name_to_socket.get(player_name)
+        with self.lock:
+            cs = self._name_to_socket.get(player_name)
         if cs:
             self.send_to(cs, data)
 
     def _send_invite_notification(self, target_name, invite_data):
         """发送邀请通知给指定玩家 — O(1)"""
-        cs = self._name_to_socket.get(target_name)
+        with self.lock:
+            cs = self._name_to_socket.get(target_name)
+            info = self.clients.get(cs) if cs else None
         if cs:
-            info = self.clients.get(cs)
             if info and info.get('state') == 'playing':
                 self.send_to(cs, invite_data)
 
-    def _send_chat_history(self, client_socket, channel):
+    def _send_chat_history(
+            self, client_socket, channel, *, before_id: str = '',
+            after_id: str = '', prepend: bool = False):
         """发送聊天历史"""
+        from .player.chat_style import enrich_chat_messages
+        from .storage.chat_log import (
+            HISTORY_PAGE_SIZE,
+            INITIAL_HISTORY_LIMIT,
+        )
+        limit = HISTORY_PAGE_SIZE if prepend else INITIAL_HISTORY_LIMIT
+        page, has_more = self.log_mgr.get_history_page(
+            channel,
+            limit=limit,
+            before_id=before_id,
+            after_id=after_id,
+        )
+        messages = enrich_chat_messages(page, sender_field='name')
         self.send_to(client_socket, {
             'type': CHAT_HISTORY,
             'channel': channel,
-            'messages': self.log_mgr.get_history(channel)
+            'messages': messages,
+            'prepend': prepend,
+            'has_more': has_more,
         })
 
     def _send_dm_history(self, client_socket, player_name):
@@ -134,23 +153,24 @@ class ChatServer(AuthMixin):
         with self.lock:
             if channel:
                 clients_to_send = [
-                    c for c, info in self.clients.items() 
+                    c for c, info in self.clients.items()
                     if c != exclude and info.get('channel') == channel
                 ]
             else:
                 clients_to_send = [c for c in self.clients.keys() if c != exclude]
-        
-        data = json.dumps(message) + '\n'
+
         for client in clients_to_send:
-            try:
-                client.send(data.encode('utf-8'))
-            except OSError:
-                pass
+            self.send_to(client, message)
 
     def send_to(self, client_socket, message):
+        with self.lock:
+            send_lock = getattr(self, '_send_locks', {}).get(client_socket)
+        if send_lock is None:
+            return
         try:
             data = json.dumps(message) + '\n'
-            client_socket.sendall(data.encode('utf-8'))
+            with send_lock:
+                client_socket.sendall(data.encode('utf-8'))
         except OSError:
             pass
 
@@ -211,20 +231,21 @@ class ChatServer(AuthMixin):
             pass
 
         with self.lock:
+            self._send_locks[client_socket] = threading.Lock()
             self.clients[client_socket] = {
                 'name': None, 'state': 'login', 'data': None, 'channel': 1
             }
-        
+
         # 登录提示发到指令区
         self.send_to(client_socket, {'type': CLIENT_VERSION, 'latest': self._client_version})
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
-        
+
         while self.running:
             try:
                 data = client_socket.recv(1024).decode('utf-8')
                 if not data:
                     break
-                
+
                 buffer += data
                 # 缓冲区溢出保护
                 if len(buffer) > MAX_BUFFER_SIZE:
@@ -246,7 +267,7 @@ class ChatServer(AuthMixin):
             except Exception:
                 logger.exception("handle_client 意外异常")
                 break
-        
+
         self.remove_client(client_socket)
 
     def process_message(self, client_socket, msg):
@@ -257,14 +278,14 @@ class ChatServer(AuthMixin):
 
         with self.lock:
             client_info = self.clients.get(client_socket)
-        
+
         if not client_info:
             return
-        
+
         state = client_info['state']
         msg_type = msg.get('type', 'command')
         text = msg.get('text', '').strip()
-        
+
         if msg_type == 'switch_channel':
             channel = msg.get('channel', 1)
             with self.lock:
@@ -273,7 +294,7 @@ class ChatServer(AuthMixin):
             self._send_chat_history(client_socket, channel)
             self.broadcast_online_users()
             return
-        
+
         if state == 'login':
             if msg_type == 'register':
                 self._handle_register_name(client_socket, text)
@@ -297,6 +318,9 @@ class ChatServer(AuthMixin):
                 self._handle_register_name(client_socket, text)
             else:
                 self._handle_password(client_socket, text)
+        elif state == 'login_conflict':
+            if msg_type == 'auth_conflict_response':
+                self._handle_login_conflict(client_socket, msg.get('choice', ''))
         elif state == 'playing':
             self._handle_playing(client_socket, msg)
 
@@ -319,7 +343,7 @@ class ChatServer(AuthMixin):
         with self.lock:
             name = self.clients[client_socket]['name']
             player_data = self.clients[client_socket]['data']
-        
+
         msg_type = msg.get('type', 'command')
         text = msg.get('text', '').strip()
 
@@ -329,7 +353,7 @@ class ChatServer(AuthMixin):
         if now - last < 0.15:
             return
         self._cmd_cooldowns[name] = now
-        
+
         # command 由 lobby_engine 处理
         if msg_type == 'command':
             try:
@@ -346,7 +370,7 @@ class ChatServer(AuthMixin):
                     self.send_to(client_socket, {'type': GAME, 'text': '[服务器错误]'})
             elif result is None:
                 self.send_to(client_socket, {'type': GAME, 'text': '未知指令。'})
-        
+
         else:
             from .handlers import dispatch_playing
             try:
@@ -367,36 +391,53 @@ class ChatServer(AuthMixin):
 
     def remove_client(self, client_socket):
         name = None
+        info = None
         should_broadcast = False
         room_notifications = None
-        
-        with self.lock:
-            if client_socket in self.clients:
-                info = self.clients[client_socket]
-                name = info.get('name')
-                
-                if info.get('data'):
-                    PlayerManager.save_player_data(name, info['data'])
-                
-                del self.clients[client_socket]
-                
+        send_lock = None
+
+        lobby_lock = getattr(self.lobby_engine, '_lock', None)
+        with lobby_lock if lobby_lock is not None else nullcontext():
+            with self.lock:
+                info = self.clients.pop(client_socket, None)
+                if info:
+                    name = info.get('name')
+                    if name and info.get('state') == 'playing':
+                        self._cmd_cooldowns.pop(name, None)
+                        if self._name_to_socket.get(name) is client_socket:
+                            self._name_to_socket.pop(name, None)
+                            should_broadcast = True
+                    send_lock = getattr(
+                        self, '_send_locks', {}).get(client_socket)
+            if should_broadcast:
+                room_notifications = self.lobby_engine.unregister_player(name)
+
+        if not info:
+            return
+
+        if info.get('data'):
+            PlayerManager.save_player_data(name, info['data'])
+
+        if send_lock:
+            with send_lock:
                 try:
                     client_socket.close()
                 except OSError:
                     pass
-                
-                if name and info.get('state') == 'playing':
-                    logger.info("%s 离开", name)
-                    self._unregister_player_socket(name)
-                    self._cmd_cooldowns.pop(name, None)
-                    should_broadcast = True
-                    
-                    # 从游戏引擎中注销玩家（处理判负、段位）并获取通知列表
-                    room_notifications = self.lobby_engine.unregister_player(name)
-        
+        else:
+            try:
+                client_socket.close()
+            except OSError:
+                pass
+        with self.lock:
+            send_locks = getattr(self, '_send_locks', {})
+            if send_locks.get(client_socket) is send_lock:
+                send_locks.pop(client_socket, None)
+
         if should_broadcast:
+            logger.info("%s 离开", name)
             self.broadcast_online_users()
-            
+
             # 通知房间内其他玩家
             for notif in (room_notifications or []):
                 self.dispatch_game_result(notif)
@@ -405,16 +446,16 @@ class ChatServer(AuthMixin):
         self.running = True
         self.server.bind((HOST, PORT))
         self.server.listen(10)
-        
+
         # 启动时升级所有用户数据到最新模板
         from .player.manager import PlayerManager
         total, updated = PlayerManager.upgrade_all_users()
         if total > 0:
             logger.info("用户数据检查: 共 %d 个用户，已更新 %d 个", total, updated)
-        
+
         ip = self.get_local_ip()
         logger.info("游戏大厅服务器已启动 — %s:%d", ip, PORT)
-        
+
         while self.running:
             try:
                 client, addr = self.server.accept()
@@ -427,22 +468,38 @@ class ChatServer(AuthMixin):
     def graceful_stop(self):
         """优雅关闭：保存所有在线玩家数据，刷盘日志，关闭连接"""
         self.running = False
-        # 保存所有在线玩家数据
         with self.lock:
-            for cs, info in list(self.clients.items()):
-                name = info.get('name')
-                data = info.get('data')
-                if name and data:
+            snapshot = [
+                (cs, info, self._send_locks.get(cs))
+                for cs, info in self.clients.items()
+            ]
+            self.clients.clear()
+            self._name_to_socket.clear()
+            self._cmd_cooldowns.clear()
+
+        for cs, info, send_lock in snapshot:
+            name = info.get('name')
+            data = info.get('data')
+            if name and data:
+                try:
+                    PlayerManager.save_player_data(name, data)
+                except Exception:
+                    logger.exception("关闭时保存 %s 数据失败", name)
+            if send_lock:
+                with send_lock:
                     try:
-                        PlayerManager.save_player_data(name, data)
-                    except Exception:
-                        logger.exception("关闭时保存 %s 数据失败", name)
+                        cs.close()
+                    except OSError:
+                        pass
+            else:
                 try:
                     cs.close()
                 except OSError:
                     pass
-            self.clients.clear()
-            self._name_to_socket.clear()
+        with self.lock:
+            for cs, _info, send_lock in snapshot:
+                if self._send_locks.get(cs) is send_lock:
+                    self._send_locks.pop(cs, None)
         # 刷盘聊天日志
         try:
             self.log_mgr.flush()

@@ -5,6 +5,7 @@
 import socket
 import json
 import platform
+import threading
 
 
 def _enable_keepalive(sock: socket.socket, idle: int = 60, interval: int = 10, count: int = 5):
@@ -26,41 +27,53 @@ def _enable_keepalive(sock: socket.socket, idle: int = 60, interval: int = 10, c
 
 class NetworkManager:
     """网络管理"""
-    
+
     def __init__(self, port):
         self.socket = None
         self.port = port
         self.connected = False
         self.on_send_failure = None  # callback()
+        self._send_lock = threading.Lock()
 
     def connect(self, host):
         """连接服务器"""
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(5)
-        self.socket.connect((host, self.port))
-        self.socket.settimeout(None)
-        _enable_keepalive(self.socket)
-        self.connected = True
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((host, self.port))
+        sock.settimeout(None)
+        _enable_keepalive(sock)
+        with self._send_lock:
+            self.socket = sock
+            self.connected = True
         return True
-    
+
     def disconnect(self):
         """断开连接"""
-        self.connected = False
-        if self.socket:
+        with self._send_lock:
+            self.connected = False
+            sock = self.socket
+            self.socket = None
+            if not sock:
+                return
             try:
-                self.socket.close()
+                sock.close()
             except OSError:
                 pass
-    
+
     def send(self, data):
         """发送数据"""
-        if not self.connected:
-            return False
+        failed = False
         try:
-            msg = json.dumps(data) + '\n'
-            self.socket.send(msg.encode('utf-8'))
-            return True
+            with self._send_lock:
+                if not self.connected or not self.socket:
+                    return False
+                msg = json.dumps(data) + '\n'
+                self.socket.sendall(msg.encode('utf-8'))
         except OSError:
-            if self.on_send_failure:
-                self.on_send_failure()
+            failed = True
+        if failed:
+            callback = self.on_send_failure
+            if callback:
+                callback()
             return False
+        return True

@@ -1,14 +1,16 @@
-"""UNO Flip 渲染器 — ASCII art 彩色牌面"""
+"""UNO 渲染器 — ASCII art 彩色牌面"""
 
 from __future__ import annotations
-
-import unicodedata
-_east_asian_width = unicodedata.east_asian_width
 
 from rich.text import Text
 from rich.console import RenderableType
 
 from ...protocol.renderer import register_renderer
+from ...config import (
+    NF_ARROW_D, NF_ARROW_U, NF_BAN, NF_EXCHANGE, NF_MOON, NF_OFFLINE,
+    NF_ONLINE, NF_REPEAT, NF_CARDS, NF_STAR, NF_SUN, NF_WARNING,
+)
+from ...window_engine.text import cell_width, fit_cells
 
 # ── 样式常量 ──
 
@@ -16,7 +18,6 @@ _HEAD = 'bold #e0e0e0'
 _DIM = '#808080'
 _SCORE = '#b0b0b0'
 _ACTIVE = 'bold #d0d0d0'
-_IDX = '#606060'
 
 # 牌面颜色（游戏内容可使用彩色）
 _COLOR_MAP = {
@@ -31,10 +32,10 @@ _COLOR_MAP = {
     'wild': '#c0c0c0',
 }
 
-_SIDE_LABEL = {'light': 'Light ☀', 'dark': 'Dark ☾'}
+_SIDE_LABEL = {'light': f'Light {NF_SUN}', 'dark': f'Dark {NF_MOON}'}
 _DIR_LABEL = {
-    1: ('↓↓↓ 顺序 ↓↓↓', 'bold #50b070'),
-    -1: ('↑↑↑ 逆序 ↑↑↑', 'bold #e06060')
+    1: (f'{NF_ARROW_D * 3} 顺序 {NF_ARROW_D * 3}', 'bold #50b070'),
+    -1: (f'{NF_ARROW_U * 3} 逆序 {NF_ARROW_U * 3}', 'bold #e06060')
 }
 
 _DOC_COMMANDS = {
@@ -48,8 +49,8 @@ _VALUE_LABELS = {
     '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
     '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
     'draw1': '+1', 'draw5': '+5',
-    'skip': '⊘', 'skip_all': '⊘⊘',
-    'reverse': '⇄', 'flip': '⟳',
+    'skip': NF_BAN, 'skip_all': NF_BAN * 2,
+    'reverse': NF_EXCHANGE, 'flip': NF_REPEAT,
     'wild': 'W', 'wild_draw2': 'W2', 'wild_draw_color': 'WC',
 }
 
@@ -65,38 +66,10 @@ def _card_text(card: dict) -> str:
 _CARD_W = 3  # 所有卡牌统一内宽（显示列数），含边框共 5 列
 
 
-def _cell_len(s: str) -> int:
-    """计算字符串显示宽度（CJK 字符占 2 列）"""
-    return sum(2 if unicodedata.east_asian_width(c) in ('F', 'W') else 1 for c in s)
-
-
-def _pad_center(s: str, target: int) -> str:
-    """将字符串居中填充到 target 显示宽度"""
-    w = _cell_len(s)
-    if w >= target:
-        return s
-    left = (target - w) // 2
-    right = target - w - left
-    return ' ' * left + s + ' ' * right
-
-
-def _pad_left(s: str, target: int) -> str:
-    """将字符串左对齐填充到 target 显示宽度"""
-    w = _cell_len(s)
-    return s + ' ' * max(0, target - w)
-
-
 # 边框颜色（不可打→可打→聚焦/选中，灰度递增更明显）
 _BORDER_UNPLAYABLE = '#383838'
 _BORDER_PLAYABLE = '#a0a0a0'
 _BORDER_CURSOR = '#ffffff'
-
-
-def _dim_color(hex_c: str) -> str:
-    """将颜色变暗（乘以 0.35）用于不可出的牌背景"""
-    c = hex_c.lstrip('#')
-    r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
-    return f'#{int(r*0.35):02x}{int(g*0.35):02x}{int(b*0.35):02x}'
 
 
 def _render_top_card(text: Text, top: dict, chosen_color: str | None) -> None:
@@ -104,7 +77,7 @@ def _render_top_card(text: Text, top: dict, chosen_color: str | None) -> None:
     display_color = chosen_color or top.get('color', 'wild')
     hex_c = _COLOR_MAP.get(display_color, '#c0c0c0')
     label = _card_text(top)
-    padded = _pad_left(label, _CARD_W)
+    padded = fit_cells(label, _CARD_W)
     pad = '            '  # 12 列对齐 '  要求跟牌: '
     bg = f'bold #000000 on {hex_c}'
     # 顶边
@@ -113,7 +86,7 @@ def _render_top_card(text: Text, top: dict, chosen_color: str | None) -> None:
     if chosen_color:
         text.append('  指定 ', style=_DIM)
         hex_cc = _COLOR_MAP.get(chosen_color, '#c0c0c0')
-        text.append('██', style=f'bold on {hex_cc}')
+        text.append('██', style=f'bold {hex_cc}')
     text.append('\n')
     # 内容行
     text.append(pad)
@@ -163,7 +136,7 @@ def _render_card_row(text: Text, line: str) -> None:
             text.append(gap)
         bg = f'bold #000000 on {hex_c}'
         text.append('│', style=border)
-        text.append(_pad_center(label, _CARD_W), style=bg)
+        text.append(fit_cells(label, _CARD_W, "center"), style=bg)
         text.append('│', style=border)
     text.append('\n')
     # 空行
@@ -213,9 +186,14 @@ def _render_doc_with_cards(doc: str, commands: set[str]) -> RenderableType:
 
 
 class UnoRenderer:
-    """UNO Flip 渲染器"""
+    """UNO 渲染器"""
 
     game_type = 'uno'
+    icon = NF_CARDS
+    glyphs = frozenset({
+        NF_ARROW_D, NF_ARROW_U, NF_BAN, NF_EXCHANGE, NF_MOON, NF_OFFLINE,
+        NF_ONLINE, NF_REPEAT, NF_CARDS, NF_STAR, NF_SUN, NF_WARNING,
+    })
     scroll_hint: int = -1  # 渲染后建议滚动到的行号（-1=不滚动）
     doc_commands = _DOC_COMMANDS
 
@@ -249,13 +227,23 @@ class UnoRenderer:
         host = data.get('host', '???')
         players = data.get('players', [])
         max_p = data.get('max_players', 10)
+        ready = set(data.get('ready') or [])
+        bots = set(data.get('bots') or [])
 
         text.append('  等待中\n\n', style=_HEAD)
         text.append(f'  房间 #{room_id}  房主: {host}\n', style=_SCORE)
         text.append(f'  等待中 ({len(players)}/{max_p})\n\n', style=_DIM)
 
         for p in players:
-            text.append(f'  · {p}\n', style='#c0c0c0')
+            if p == host:
+                text.append(f'  {NF_ONLINE} ', style='#d4a017')
+                text.append(f'{p}\n', style='#c0c0c0')
+            elif p in ready or p in bots:
+                text.append(f'  {NF_ONLINE} ', style='#81c784')
+                text.append(f'{p}\n', style='#c0c0c0')
+            else:
+                text.append(f'  {NF_OFFLINE} ', style='#ffffff')
+                text.append(f'{p}\n', style='#c0c0c0')
         msg = data.get('message')
         if msg:
             text.append(f'\n  {msg}\n', style=_SCORE)
@@ -283,13 +271,13 @@ class UnoRenderer:
         _GAP = '  '
         side_label = _SIDE_LABEL.get(side, side)
         dir_text, dir_style = _DIR_LABEL.get(direction, ('?', _DIM))
-        _sl_w = sum(2 if _east_asian_width(c) in ('F', 'W') else 1 for c in side_label)
+        _sl_w = cell_width(side_label)
         info.append(f'  {side_label}' + ' ' * max(0, 8 - _sl_w), style=_HEAD)
         info.append(f'{_GAP}{dir_text}', style=dir_style)
         info.append(f'{_GAP}牌堆:{deck_remaining:<3d}', style=_DIM)
         my_turn = interaction.get('my_turn', False) if interaction else False
         if my_turn:
-            turn_text = '★ 你的回合'
+            turn_text = f'{NF_STAR} 你的回合'
             turn_style = 'bold #e0c040'
         elif current:
             turn_text = f'等待 {current}'
@@ -297,7 +285,7 @@ class UnoRenderer:
         else:
             turn_text = ''
             turn_style = _DIM
-        _tw = sum(2 if _east_asian_width(c) in ('F', 'W') else 1 for c in turn_text)
+        _tw = cell_width(turn_text)
         turn_text += ' ' * max(0, 14 - _tw)
         info.append(f'{_GAP}{turn_text}', style=turn_style)
         all_colors = ('red', 'yellow', 'green', 'blue') if side == 'light' else ('pink', 'teal', 'purple', 'orange')
@@ -311,23 +299,23 @@ class UnoRenderer:
                 info.append('░░', style=f'dim {c_hex}')
         info.append('\n')
         if pending_draw > 0:
-            info.append(f'  ⚠ 累积摸牌 {pending_draw} 张', style='bold #e06060')
+            info.append(f'  {NF_WARNING} 累积摸牌 {pending_draw} 张', style='bold #e06060')
             if data.get('draw_stacking'):
                 info.append('（可叠加同类 Draw 牌）', style='#e06060')
             info.append('\n')
         if draw_until_color:
             duc_hex = _COLOR_MAP.get(draw_until_color, '#808080')
-            info.append('  ⚠ 持续摸牌直到摸到 ', style='bold #e06060')
-            info.append('██', style=f'bold on {duc_hex}')
+            info.append(f'  {NF_WARNING} 持续摸牌直到摸到 ', style='bold #e06060')
+            info.append('██', style=f'bold {duc_hex}')
             info.append('\n')
         if challengeable:
-            info.append('  ⚠ 上家打出 Wild，可以挑战！', style='bold #e0c040')
+            info.append(f'  {NF_WARNING} 上家打出 Wild，可以挑战！', style='bold #e0c040')
             info.append('\n')
         if top_card and chosen_color is None and top_card.get('value') == 'wild':
-            info.append('  ⚠ 首张为 Wild，请选择颜色', style='bold #e0c040')
+            info.append(f'  {NF_WARNING} 首张为 Wild，请选择颜色', style='bold #e0c040')
             info.append('\n')
         if data.get('draw_play'):
-            info.append('  ⚠ 摸到的牌可以打出，选择出牌或跳过', style='bold #e0c040')
+            info.append(f'  {NF_WARNING} 摸到的牌可以打出，选择出牌或跳过', style='bold #e0c040')
             info.append('\n')
 
         # ── board 区：弃牌堆 + 玩家列表 + 结算 ──
@@ -336,13 +324,13 @@ class UnoRenderer:
             _render_top_card(board, top_card, chosen_color)
             board.append('\n')
 
-        max_name_len = max([_cell_len(p) for p in players] + [0])
+        max_name_len = max([cell_width(p) for p in players] + [0])
         for p in players:
             count = hand_counts.get(p, 0)
             prefix = '> ' if p == current else '  '
             board.append(prefix, style=_DIM)
             style = _ACTIVE if p == current else _SCORE
-            board.append(_pad_left(p, max_name_len), style=style)
+            board.append(fit_cells(p, max_name_len), style=style)
             count = hand_counts.get(p, 0)
             board.append(f'  [{count}张]', style=_DIM)
             if count == 1:
@@ -354,7 +342,7 @@ class UnoRenderer:
             scores = data.get('scores', {})
             board.append('\n')
             if winner:
-                board.append(f'  ★ {winner} 获胜！\n', style=_HEAD)
+                board.append(f'  {NF_STAR} {winner} 获胜！\n', style=_HEAD)
             for p, pts in scores.items():
                 if p == winner:
                     continue
@@ -448,7 +436,7 @@ def _render_hand_row(text: Text, cards: list[dict],
     for i, card in enumerate(cards):
         b_style, c_style = _styles(card, start_idx + i)
         l, r = '│', '│'
-        padded = _pad_left(_card_text(card), W)
+        padded = fit_cells(_card_text(card), W)
         text.append(l, style=b_style)
         text.append(padded, style=c_style)
         text.append(r, style=b_style)
@@ -509,15 +497,15 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
     text.append('  ')
     # 顶边
     for label, style, b_style in btn_styles:
-        w = max(8, _cell_len(label) + 2)
+        w = max(8, cell_width(label) + 2)
         text.append('╭' + '─' * w + '╮', style=b_style)
         text.append(' ')
     text.append('\n  ')
 
     # 内容行
     for label, style, b_style in btn_styles:
-        w = max(8, _cell_len(label) + 2)
-        padded = _pad_center(label, w)
+        w = max(8, cell_width(label) + 2)
+        padded = fit_cells(label, w, "center")
         text.append('│', style=b_style)
         text.append(padded, style=style)
         text.append('│', style=b_style)
@@ -526,7 +514,7 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
 
     # 底边
     for label, style, b_style in btn_styles:
-        w = max(8, _cell_len(label) + 2)
+        w = max(8, cell_width(label) + 2)
         text.append('╰' + '─' * w + '╯', style=b_style)
         text.append(' ')
     text.append('\n')

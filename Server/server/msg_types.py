@@ -5,6 +5,7 @@ from __future__ import annotations
 # ── 登录 ──
 LOGIN_PROMPT = 'login_prompt'
 LOGIN_SUCCESS = 'login_success'
+AUTH_CONFLICT = 'auth_conflict'
 
 # ── 聊天 ──
 CHAT = 'chat'

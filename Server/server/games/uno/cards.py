@@ -1,4 +1,4 @@
-"""UNO Flip 双面牌 — 牌组定义
+"""UNO 双面牌 — 牌组定义
 
 每张牌有 Light 和 Dark 两面。游戏从 Light Side 开始。
 翻转(Flip)时所有牌切换到另一面。
@@ -62,7 +62,7 @@ COLOR_NAMES = {
 
 @dataclass(slots=True)
 class UnoCard:
-    """一张 UNO Flip 双面牌
+    """一张 UNO 双面牌
 
     light_color/light_value: Light 面属性
     dark_color/dark_value:   Dark 面属性
@@ -162,7 +162,7 @@ def _build_side_cards(colors: tuple[str, ...], is_light: bool) -> list[tuple[str
 # ── 牌组 ──
 
 class UnoDeck:
-    """UNO Flip 牌组 — 112 张双面牌"""
+    """UNO 牌组 — 112 张双面牌"""
 
     def __init__(self):
         light_cards = _build_side_cards(LIGHT_COLORS, is_light=True)

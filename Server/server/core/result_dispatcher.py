@@ -51,20 +51,6 @@ def _action_exit(server, client_socket, name, player_data, result):
     PlayerManager.save_player_data(name, player_data)
 
 
-@register_action('rename_success')
-def _action_rename_success(server, client_socket, name, player_data, result):
-    old_name = result.get('old_name')
-    new_name = result.get('new_name')
-    server.clients[client_socket]['name'] = new_name
-    server._unregister_player_socket(old_name)
-    server._register_player_socket(new_name, client_socket)
-    server.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})
-    PlayerManager.save_player_data(new_name, player_data)
-    server.send_player_status(client_socket, player_data)
-    server.broadcast({'type': CHAT, 'name': '[SYS]',
-                      'text': f'{old_name} 改名为 {new_name}', 'channel': 1})
-
-
 @register_action('account_deleted')
 def _action_account_deleted(server, client_socket, name, player_data, result):
     server.send_to(client_socket, {'type': GAME, 'text': result.get('message', '')})

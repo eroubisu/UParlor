@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from . import register
-from ..msg_types import CHAT, DM_HISTORY, PRIVATE_CHAT, SYSTEM, ROOM_CHAT
+from ..msg_types import DM_HISTORY, SYSTEM, ROOM_CHAT
+from ..player.chat_style import build_chat_sender, enrich_chat_messages
+from ..storage.chat_log import get_beijing_now
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +21,16 @@ def handle_chat(server, client_socket, name, player_data, msg):
     if not text:
         return
     channel = msg.get('channel', 1)
-    display_name = f"[{player_data['level']}]{name}"
-    server.log_mgr.save(channel, display_name, text)
-    current_time = datetime.now().strftime('%H:%M')
-    chat_msg = {
-        'type': CHAT,
-        'name': display_name,
-        'text': text,
-        'channel': channel,
-        'time': current_time,
-    }
+    saved = server.log_mgr.save(channel, name, text)
+    if saved is None:
+        server.send_to(client_socket, {
+            'type': SYSTEM,
+            'text': '聊天记录保存失败，请稍后重试。',
+        })
+        logger.error("[CH%d][%s] 消息保存失败，未广播", channel, name)
+        return
+    chat_msg = dict(saved)
+    chat_msg['sender'] = build_chat_sender(player_data, name)
     server.broadcast(chat_msg, channel=channel)
     logger.info("[CH%d][%s] %s", channel, name, text)
 
@@ -47,17 +48,9 @@ def handle_private_chat(server, client_socket, name, player_data, msg):
             'text': '只能向好友发送私聊消息。',
         })
         return
-    display_name = f"[{player_data['level']}]{name}"
-    current_time = datetime.now().strftime('%H:%M')
-    dm_msg = {
-        'type': PRIVATE_CHAT,
-        'from': name,
-        'from_display': display_name,
-        'to': target,
-        'text': text,
-        'time': current_time,
-    }
-    server.dm_log_mgr.save(name, target, text)
+    saved = server.dm_log_mgr.save(name, target, text)
+    dm_msg = dict(saved)
+    dm_msg['sender'] = build_chat_sender(player_data, name)
     # 发给双方（发送者 + 接收者）
     server.send_to(client_socket, dm_msg)
     if target != name:
@@ -77,45 +70,50 @@ def handle_room_chat(server, client_socket, name, player_data, msg):
         })
         return
     players = room.get('players', [])
-    display_name = f"[{player_data['level']}]{name}"
-    current_time = datetime.now().strftime('%H:%M')
+    current_time = get_beijing_now().strftime('%H:%M:%S')
     chat_msg = {
         'type': ROOM_CHAT,
-        'name': display_name,
+        'name': name,
         'from': name,
         'text': text,
         'time': current_time,
+        'sender': build_chat_sender(player_data, name),
     }
     for p in players:
         server.send_to_player(p, chat_msg)
     logger.info("[ROOM][%s] %s", name, text)
 
 
-@register('clear_dm_history')
-def handle_clear_dm_history(server, client_socket, name, player_data, msg):
-    """清空与指定玩家的私聊记录"""
-    target = msg.get('target', '').strip()
-    if not target:
-        return
-    server.dm_log_mgr.clear_history(name, target)
-    server.send_to(client_socket, {
-        'type': SYSTEM, 'text': f'已清空与 {target} 的聊天记录',
-    })
-    logger.info("[DM] %s 清空了与 %s 的聊天记录", name, target)
-
-
 @register('get_dm_history')
 def handle_get_dm_history(server, client_socket, name, player_data, msg):
     """按需加载单个 peer 的私聊历史"""
+    del player_data
     target = msg.get('target', '').strip()
     if not target:
         return
     msgs = server.dm_log_mgr.get_history(name, target, limit=50)
-    conversations = {target: [
-        {'from': m['from'], 'text': m['text'], 'time': m.get('time', '')}
-        for m in msgs
-    ]}
+    conversations = {target: enrich_chat_messages(
+        [
+            {'from': m['from'], 'to': m.get('to', ''),
+             'text': m['text'], 'time': m.get('time', '')}
+            for m in msgs
+        ],
+        sender_field='from',
+    )}
     server.send_to(client_socket, {
         'type': DM_HISTORY,
         'conversations': conversations,
     })
+
+
+@register('get_chat_history')
+def handle_get_chat_history(server, client_socket, name, player_data, msg):
+    """Load the preceding world-chat page requested by the player."""
+    del name, player_data
+    server._send_chat_history(
+        client_socket,
+        1,
+        before_id=str(msg.get('before_id', '')),
+        after_id=str(msg.get('after_id', '')),
+        prepend=True,
+    )

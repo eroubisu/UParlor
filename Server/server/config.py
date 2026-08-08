@@ -5,23 +5,20 @@
 from __future__ import annotations
 
 import os
+from importlib.metadata import PackageNotFoundError, version
 
-# 版本号（从 version.txt 读取，由 build_server.py 打包时生成）
+
 def _get_server_version():
-    """从 version.txt 读取版本号"""
+    """读取已安装服务端包的版本号。"""
     try:
-        version_file = os.path.join(os.path.dirname(__file__), 'version.txt')
-        if os.path.exists(version_file):
-            with open(version_file, 'r', encoding='utf-8') as f:
-                return f.read().strip()
-    except Exception:
-        pass
-    return "dev"
+        return version("uparlor-server")
+    except PackageNotFoundError:
+        return "dev"
 
 SERVER_VERSION = _get_server_version()
 
 # 客户端最新版本号（upload.py 上传时自动更新）
-CLIENT_VERSION = "0.3.3"
+CLIENT_VERSION = "0.4.0"
 
 # 网络配置
 HOST = '0.0.0.0'

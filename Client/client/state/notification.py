@@ -22,6 +22,7 @@ class NotificationState(BaseState):
         self.tab: str = "system"
         self.cursor: int = 0
         self.badge_seen: bool = False  # 打开通知面板后标记为已读
+        self.companion_unread_count: int = 0
 
     def set_friend_requests(self, names: list[str]):
         """设置完整的好友申请列表（服务端推送的待处理列表）"""
@@ -111,3 +112,13 @@ class NotificationState(BaseState):
         """标记通知已读"""
         self.badge_seen = True
         self._notify('badge_seen')
+
+    def add_companion_unread(self) -> None:
+        self.companion_unread_count += 1
+        self._notify('companion_unread_changed')
+
+    def clear_companion_unread(self) -> None:
+        if not self.companion_unread_count:
+            return
+        self.companion_unread_count = 0
+        self._notify('companion_unread_changed')

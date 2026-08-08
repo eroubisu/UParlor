@@ -19,6 +19,9 @@ class BaseState:
         except ValueError:
             pass
 
+    def clear_listeners(self) -> None:
+        self._listeners.clear()
+
     def _notify(self, event: str, *args):
         for cb in self._listeners:
             cb(event, *args)

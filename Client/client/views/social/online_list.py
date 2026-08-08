@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from textual.widgets import Input
+from rich.markup import escape
 
 from ...config import (
-    COLOR_FG_PRIMARY, COLOR_HINT_TAB_DIM, ICON_INDENT,
+    ICON_INDENT,
     NF_ONLINE, NF_OFFLINE, COLOR_ONLINE, COLOR_OFFLINE,
-    M_DIM, M_END,
 )
 from ...widgets.panel import Panel, PlayerSelected
+from ...window_engine import Option, SurfaceState
 
 _TABS = ["好友", "在线", "全部"]
 
@@ -42,7 +43,6 @@ class OnlineListPanel(Panel):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._search = event.value.strip().lower()
-        self._cursor = 0
         self._render_list()
         self._emit_selected()
         event.stop()
@@ -67,41 +67,36 @@ class OnlineListPanel(Panel):
         items = self._get_items()
         lines: list[str] = []
         if not items:
-            lines.append(f"{ICON_INDENT}{M_DIM}"
-                         f"{'无匹配玩家' if self._search else '暂无玩家'}{M_END}")
+            self.show_surface(SurfaceState.empty(
+                "无匹配玩家" if self._search else "暂无玩家"))
+            return
         else:
-            self._cursor = min(self._cursor, len(items) - 1)
             is_friend_tab = _TABS[self._active] == "好友"
-            for i, name in enumerate(items):
+            options = []
+            for name in items:
                 # 好友标签下显示在线/离线状态图标
                 if is_friend_tab:
                     online = name in self._online_names
                     dot = (f"[{COLOR_ONLINE}]{NF_ONLINE}[/]" if online
                            else f"[{COLOR_OFFLINE}]{NF_OFFLINE}[/]")
-                    if i == self._cursor:
-                        lines.append(
-                            f"{dot} [bold {COLOR_FG_PRIMARY}]{name}[/]")
-                    else:
-                        lines.append(
-                            f"{dot} [{COLOR_HINT_TAB_DIM}]{name}[/]")
+                    label = f"{dot} {escape(name)}"
                 else:
-                    if i == self._cursor:
-                        lines.append(
-                            f"[bold {COLOR_FG_PRIMARY}]> {name}[/]")
-                    else:
-                        lines.append(
-                            f"[{COLOR_HINT_TAB_DIM}]{ICON_INDENT}{name}[/]")
-        self._focus_line = self._cursor
+                    label = escape(name)
+                options.append(Option(name, label, markup=True))
+            self.set_options(
+                options, f"online-players:{_TABS[self._active]}",
+            )
+            lines.append(self.render_options())
+        self._focus_line = self.selected_line()
         self.update("\n".join(lines))
 
     def _emit_selected(self) -> None:
-        items = self._get_items()
-        if items and 0 <= self._cursor < len(items):
-            self.post_message(PlayerSelected(items[self._cursor]))
+        selected = self.selected_option
+        if selected is not None:
+            self.post_message(PlayerSelected(selected.id))
 
     def switch_tab(self, index: int) -> None:
         super().switch_tab(index)
-        self._cursor = 0
         self._render_list()
         self._emit_selected()
         if _TABS[self._active] == "全部":
@@ -110,6 +105,11 @@ class OnlineListPanel(Panel):
     def reset_cursor(self) -> None:
         super().reset_cursor()
         self._search = ""
+        self.input_session.clear()
+        self._render_list()
+        self._emit_selected()
+
+    def reflow_content(self) -> None:
         self._render_list()
 
     # ── 导航 ──
@@ -118,13 +118,13 @@ class OnlineListPanel(Panel):
         if action in ("tab_prev", "tab_next"):
             super().nav(action)
             return
-        items = self._get_items()
         def _after():
             self._render_list()
             self._emit_selected()
-        if not self._cursor_nav(
-            action, len(items),
-            on_enter=self._emit_selected,
-            redraw=_after,
-        ):
+        selected = self.selection.handle(action)
+        if action in ("up", "down"):
+            _after()
+        elif selected is not None:
+            self._emit_selected()
+        else:
             super().nav(action)

@@ -6,9 +6,11 @@ from textual.app import ComposeResult
 from textual.message import Message
 from textual.widgets import Static, Input
 from textual.containers import VerticalScroll
+from rich.markup import escape
 
 from ...widgets.panel import Panel
 from ...config import M_DIM, M_END, COLOR_FG_SECONDARY, ICON_INDENT
+from ...window_engine import Option, SurfaceState
 
 
 class RoomSearchPanel(Panel):
@@ -53,16 +55,15 @@ class RoomSearchPanel(Panel):
             ]
         else:
             self._filtered = list(self._rooms)
-        self._cursor = min(self._cursor, max(0, len(self._filtered) - 1))
         self._render_list()
         self._notify_selection()
 
     def _render_list(self) -> None:
         if not self._filtered:
-            self.update(f"{ICON_INDENT}{M_DIM}暂无房间{M_END}")
+            self.show_surface(SurfaceState.empty("暂无房间"))
             return
-        lines = []
-        for i, r in enumerate(self._filtered):
+        options = []
+        for r in self._filtered:
             rid = r.get('room_id', '????')
             game = r.get('game_name', '???')
             icon = r.get('game_icon', '')
@@ -70,21 +71,26 @@ class RoomSearchPanel(Panel):
             mx = r.get('max_players', 0)
             state = r.get('state', '')
             state_label = {'waiting': '等待', 'playing': '进行中'}.get(state, state)
-            prefix = "> " if i == self._cursor else ICON_INDENT
             label = f"{icon} " if icon else ''
-            lines.append(f"{prefix}#{rid} {label}{game} {cur}/{mx} {state_label}")
-        self._focus_line = self._cursor
-        self.update("\n".join(lines))
+            options.append(Option(
+                str(rid),
+                f"#{escape(str(rid))} {label}{escape(str(game))} "
+                f"{cur}/{mx} {escape(str(state_label))}",
+                data=r,
+                markup=True,
+            ))
+        self.set_options(options, "room-search-results")
+        self._focus_line = self.selected_line()
+        self.update(self.render_options())
 
     def get_selected_room(self) -> dict | None:
-        if self._filtered and 0 <= self._cursor < len(self._filtered):
-            return self._filtered[self._cursor]
-        return None
+        selected = self.selected_option
+        return selected.data if selected is not None else None
 
     # ── 输入 ──
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
+        self.submit_input(event)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._query = event.value.strip()
@@ -94,6 +100,10 @@ class RoomSearchPanel(Panel):
     def reset_cursor(self) -> None:
         super().reset_cursor()
         self._query = ""
+        self.input_session.clear()
+        self._render_list()
+
+    def reflow_content(self) -> None:
         self._render_list()
 
     # ── 导航 ──
@@ -101,8 +111,8 @@ class RoomSearchPanel(Panel):
     def nav(self, action: str) -> None:
         match action:
             case "up" | "down":
-                if self._filtered and self._move_cursor(
-                    -1 if action == 'up' else 1, len(self._filtered)
+                if self._filtered and self.selection.move(
+                    -1 if action == 'up' else 1
                 ):
                     self._render_list()
                     self._notify_selection()
@@ -122,6 +132,6 @@ class RoomSearchPanel(Panel):
     def bind_state(self, st) -> None:
         st.game_board.add_listener(self._on_board_event)
 
-    def _on_board_event(self, event: str, data) -> None:
-        if event == 'set_rooms':
-            self.set_rooms(data)
+    def _on_board_event(self, event: str, *args) -> None:
+        if event == 'set_rooms' and args:
+            self.set_rooms(args[0])

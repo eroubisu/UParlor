@@ -1,0 +1,71 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "UParlor: Check repository",
+            "type": "shell",
+            "command": "pwsh",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}\\tools\\check.ps1"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "UParlor: Start local server",
+            "type": "process",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": [
+                "-m",
+                "server"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}\\Server",
+                "env": {
+                    "PYTHONPATH": "${workspaceFolder}\\Server"
+                }
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "UParlor: Start local client",
+            "type": "process",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": [
+                "-c",
+                "from client.app import main; main()"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}\\Client",
+                "env": {
+                    "PYTHONPATH": "${workspaceFolder}\\Client",
+                    "UPARLOR_DEBUG": "1",
+                    "UPARLOR_HOST": "127.0.0.1"
+                }
+            },
+            "runOptions": {
+                "instanceLimit": 10
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        }
+    ]
+}

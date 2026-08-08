@@ -37,6 +37,10 @@ def _on_friend_request(parsed, app, screen, st):
         st.notify.set_friend_requests(parsed.pending)
     elif parsed.from_name:
         st.notify.add_friend_request(parsed.from_name)
+    if parsed.from_name:
+        from ...companion import CompanionController
+        CompanionController.instance(st).observe_event(
+            f"{parsed.from_name} 发来好友申请")
     screen.update_badges()
 
 

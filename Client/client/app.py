@@ -55,7 +55,10 @@ class UParlorApp(App):
     CSS_PATH = "theme.tcss"
 
     BINDINGS = [
-        Binding("ctrl+c", "quit", "退出", show=True, priority=True),
+        Binding(
+            "ctrl+c", "controlled_quit", "退出",
+            show=False, priority=True,
+        ),
     ]
 
     def get_css_variables(self) -> dict[str, str]:
@@ -81,6 +84,8 @@ class UParlorApp(App):
         self._ping_sent_at: float = 0.0
 
     def on_mount(self) -> None:
+        from . import ime
+        ime.on_app_focus()
         self.push_screen(GameScreen())
         self.set_interval(4, self._send_ping)
 
@@ -99,7 +104,10 @@ class UParlorApp(App):
                 conn = screen.query_one("#connection-status", Static)
                 conn.update(f" [{COLOR_OFFLINE}]{NF_ONLINE}[/] ---- ")
             except Exception:
-                pass
+                log.debug(
+                    "Failed to update connection status",
+                    exc_info=True,
+                )
             return
 
         self._start_receive_worker()
@@ -144,7 +152,7 @@ class UParlorApp(App):
                 conn = screen.query_one("#connection-status", Static)
                 conn.update(f" [{COLOR_OFFLINE}]{NF_ONLINE}[/] ---- ")
             except Exception:
-                pass
+                log.exception("Failed to shut down companion")
 
     def _on_send_failure(self):
         """发送失败回调 — 通知用户"""
@@ -156,7 +164,7 @@ class UParlorApp(App):
         if self.network.connected:
             if self._ping_sent_at > 0:
                 # 上一次 ping 未收到 pong — 超时
-                self.call_from_thread(self._show_ping_timeout)
+                self._show_ping_timeout()
             self._ping_sent_at = time.monotonic()
             self.network.send({"type": "ping", "t": self._ping_sent_at})
 
@@ -210,9 +218,22 @@ class UParlorApp(App):
 
     # ── 退出 ──
 
+    def action_controlled_quit(self) -> None:
+        from .storage import get_block_ctrl_c
+
+        if get_block_ctrl_c():
+            return
+        self.action_quit()
+
     def action_quit(self) -> None:
         from . import ime
         ime.on_app_blur()
+        # 关闭旅伴后台 (若启用)
+        try:
+            from .companion import CompanionController
+            CompanionController._instance and CompanionController._instance.shutdown()
+        except Exception:
+            pass
         self.network.disconnect()
         self.exit()
 
@@ -272,11 +293,11 @@ def _check_update(current: str | None):
         latest = data['info']['version']
         lat = _ver_tuple(latest)
         if lat > cur:
-            print(f"  ★ 发现新版本 v{latest}（当前 v{current or 'dev'}）")
-            print(f"  ★ 更新命令: pip install -U uparlor\n")
+            print(f"  * 发现新版本 v{latest}（当前 v{current or 'dev'}）")
+            print(f"  * 更新命令: pip install -U uparlor\n")
             sys.exit(0)
     except Exception:
-        print("  ✗ 版本检查失败，无法启动。请检查网络连接。\n")
+        print("  x 版本检查失败，无法启动。请检查网络连接。\n")
         sys.exit(1)
 
 

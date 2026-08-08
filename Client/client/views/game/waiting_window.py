@@ -6,6 +6,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import bind_state_with_send
 from ..lobby.log import LogPanel
 from .info import RoomInfoPanel
 from .player_list import PlayerListPanel
@@ -57,6 +59,13 @@ class WaitingWindow(Window):
         ["room-controls", "wait-chat"],
     ]
 
+    # WindowEngine 主窗口 (等候室)
+    spec = WindowSpec(
+        id="waiting-window", title="等候室",
+        group="primary", mode="primary", order=30,
+        bind=bind_state_with_send,
+    )
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._focus_pos = (3, 0)  # 默认聚焦操作面板
@@ -91,19 +100,5 @@ class WaitingWindow(Window):
         """刷新房间操作列表"""
         self.query_one("#room-controls", RoomControlsPanel).update_commands(tabs)
 
-    def nav(self, action: str) -> None:
-        if action == "escape" and self._send_fn:
-            rc = self.query_one("#room-controls", RoomControlsPanel)
-            if rc._confirming:
-                rc.nav("escape")
-                return
-            rc._confirming = '/back'
-            rc._confirm_cursor = 0
-            rc._redraw()
-            self._focus_pos = (3, 0)
-            self._update_focus()
-            return
-        super().nav(action)
 
-    def show(self) -> None:
-        super().show()
+register_window(WaitingWindow)

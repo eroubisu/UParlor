@@ -9,17 +9,20 @@ from ..player.schema import (
     DEFAULT_NAME_COLOR, DEFAULT_MOTTO_COLOR, DEFAULT_BORDER_COLOR,
 )
 from ..systems.titles import get_title_name
+from ..player.chat_style import validate_chat_style
 from ..msg_types import ALL_USERS, PROFILE_CARD
 
 
 @register('get_all_users')
 def handle_get_all_users(server, client_socket, name, player_data, msg):
+    del name, player_data, msg
     names = server._get_all_user_names()
     server.send_to(client_socket, {'type': ALL_USERS, 'users': names})
 
 
 @register('get_profile_card')
 def handle_get_profile_card(server, client_socket, name, player_data, msg):
+    del player_data
     target = msg.get('target', '').strip()
     if not target:
         return
@@ -81,18 +84,37 @@ def _send_player_card(server, client_socket, target):
 @register('update_profile_card')
 def handle_update_profile_card(server, client_socket, name, player_data, msg):
     updates = msg.get('data', {})
-    pc = player_data.setdefault('profile_card', {})
-    allowed = ('motto', 'name_color', 'motto_color', 'border_color')
-    for k in allowed:
-        if k in updates:
-            val = updates[k]
-            if isinstance(val, str) and len(val) <= 200:
-                pc[k] = val
-    if 'card_fields' in updates:
-        valid_ids = {'level', 'gold', 'friends', 'games', 'days', 'created'}
-        raw = updates['card_fields']
-        if isinstance(raw, list) and len(raw) <= 4:
-            filtered = [f for f in raw if isinstance(f, str) and f in valid_ids]
-            pc['card_fields'] = filtered
-    PlayerManager.save_player_data(name, player_data)
+    with server.lobby_engine._lock:
+        with PlayerManager.lock_players(name):
+            pc = player_data.setdefault('profile_card', {})
+            allowed = ('motto', 'name_color', 'motto_color', 'border_color')
+            for k in allowed:
+                if k in updates:
+                    val = updates[k]
+                    if isinstance(val, str) and len(val) <= 200:
+                        pc[k] = val
+            if 'card_fields' in updates:
+                valid_ids = {
+                    'level', 'gold', 'friends', 'games', 'days', 'created'}
+                raw = updates['card_fields']
+                if isinstance(raw, list) and len(raw) <= 4:
+                    filtered = [
+                        f for f in raw
+                        if isinstance(f, str) and f in valid_ids
+                    ]
+                    pc['card_fields'] = filtered
+            PlayerManager.save_player_data(name, player_data)
+    server.send_player_status(client_socket, player_data)
+
+
+@register('update_chat_style')
+def handle_update_chat_style(server, client_socket, name, player_data, msg):
+    updates = msg.get('data')
+    titles = player_data.get('titles', {})
+    owned = titles.get('owned', [])
+    validated = validate_chat_style(updates, owned)
+    with server.lobby_engine._lock:
+        with PlayerManager.lock_players(name):
+            player_data['chat_style'] = validated
+            PlayerManager.save_player_data(name, player_data)
     server.send_player_status(client_socket, player_data)

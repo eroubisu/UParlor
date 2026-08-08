@@ -1,5 +1,5 @@
-## welcome UNO Flip
-◆ UNO Flip (双面牌)
+## welcome UNO
+◆ UNO (双面牌)
 
   2-10 人游戏，112 张双面牌。
   匹配颜色或数字出牌，先出完所有牌者获胜。

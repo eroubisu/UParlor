@@ -11,6 +11,10 @@ class RoomDetailPanel(Panel):
 
     title = "房间详情"
 
+    def reset_cursor(self) -> None:
+        super().reset_cursor()
+        self.show_room(None)
+
     def show_room(self, room: dict | None) -> None:
         """显示指定房间的详情"""
         if not room:

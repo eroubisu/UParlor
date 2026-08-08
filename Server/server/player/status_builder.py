@@ -7,6 +7,7 @@ from .schema import (
     DEFAULT_CARD_FIELDS,
     DEFAULT_NAME_COLOR, DEFAULT_MOTTO_COLOR, DEFAULT_BORDER_COLOR,
 )
+from .chat_style import chat_style_status
 from ..msg_types import STATUS
 
 
@@ -25,6 +26,7 @@ def build_status_message(server, player_data: dict) -> dict:
         'title': title_display,
         'accessory': player_data.get('accessory'),
         'window_layout': player_data.get('window_layout'),
+        'chat_style': chat_style_status(player_data),
     }
 
     # 名片

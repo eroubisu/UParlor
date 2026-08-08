@@ -1,4 +1,4 @@
-"""输入模式状态机 — normal / insert / which_key / focus"""
+"""Input mode state machine for normal and text-entry operation."""
 
 from __future__ import annotations
 
@@ -14,33 +14,20 @@ class InputModeMixin:
 
     def _to_normal(self) -> None:
         if self._mode == 'insert':
+            self.engine.leave_insert(preserve=True)
             self.set_focus(None)
             from . import ime
             ime.on_insert_leave()
-        elif self._mode == 'which_key':
-            from .widgets.which_key import WhichKeyPanel
-            self.query_one("#which-key-overlay", WhichKeyPanel).hide()
         self._set_mode('normal', 'NORMAL')
 
     def _enter_insert(self, sticky: bool = False):
-        w = self._get_focused_widget()
-        if not w:
-            return
-        inp = w.get_input_widget() if hasattr(w, 'get_input_widget') else None
-        if not inp:
+        if not self.engine.enter_insert(sticky=sticky):
             return
         self._sticky_insert = sticky
         self._set_mode('insert', 'INSERT')
-        inp.disabled = False
-        inp.focus()
         from . import ime
         ime.on_insert_enter()
 
-    def _enter_which_key(self):
-        from .widgets.which_key import WhichKeyPanel
-        self.query_one("#which-key-overlay", WhichKeyPanel).show_root()
-        self._set_mode('which_key', 'NORMAL')
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
         if not self._sticky_insert:
             self._to_normal()

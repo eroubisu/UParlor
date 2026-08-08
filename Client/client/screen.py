@@ -1,10 +1,10 @@
 """
-GameScreen — 主屏幕（LOGIN / GAME 双模式）
+GameScreen — 主屏幕
 
 职责拆分：
-  screen_modes.py   — 输入模式状态机（normal/insert/which_key/focus）
-  screen_overlay.py — 浮窗栈管理（push/pop/toggle）
-  screen_nav.py     — 导航路由（打开浮窗、事件分发）
+  screen_modes.py   — 文本输入模式状态机
+  screen_nav.py     — 业务事件路由 (玩家选中 / DM / 教程 / 设置菜单)
+  window_engine/    — 已注册窗口的统一生命周期管理
 """
 
 from __future__ import annotations
@@ -17,20 +17,21 @@ from textual.reactive import reactive
 from textual import events
 
 from .state import ModuleStateManager
-from .views import (
-    LoginWindow, LobbyWindow, ChatWindow, ProfileWindow,
-    OnlineWindow, NotificationWindow, GameSelectWindow,
-    WaitingWindow, GameWindow,
-)
-from .views.system.tutorial import TutorialWindow, TutorialPanel, _TOTAL as _TUT_TOTAL
-from .views.system.docs import DocsWindow
-from .views.system.settings import SettingsWindow
+# 触发所有窗口模块导入 → register_window() 自动注册窗口。
+# screen.py 不再直接引用任何 Window 类。
+from . import views as _views  # noqa: F401  (import-as-side-effect)
+from .views.system.tutorial import TutorialPanel, _TOTAL as _TUT_TOTAL
 from .widgets.panel import PlayerSelected
-from .widgets.which_key import WhichKeyPanel
-from .config import NF_HOME, NF_BELL, NF_HEART, NF_ONLINE, NF_SWORD, DEFAULT_HOST
+from .input_actions import (
+    focus_direction, is_exit_key, is_popup_key, navigation_action,
+    text_input_mode,
+)
+from .config import (
+    NF_HOME, NF_BELL, NF_HEART, NF_COMPANION, NF_ONLINE, NF_SWORD,
+    DEFAULT_HOST,
+)
 
 from .screen_modes import InputModeMixin
-from .screen_overlay import OverlayMixin
 from .screen_nav import NavigationMixin
 
 # 模块名 → widget ID
@@ -42,30 +43,7 @@ _MODULE_IDS = {
     'room_controls': 'room-controls',
 }
 
-# key → nav action
-_KEY_ALIAS = {
-    'left': 'h', 'down': 'j', 'up': 'k', 'right': 'l',
-    'a': 'h', 's': 'j', 'w': 'k', 'd': 'l',
-    'c': 'space', 'x': 'escape', 'z': 'enter', 'q': 'escape',
-    'ctrl+left_square_bracket': 'escape',
-}
-
-_KEY_ACTION = {
-    'j': 'down', 'k': 'up',
-    'h': 'tab_prev', 'l': 'tab_next',
-    'enter': 'enter',
-    'd': 'delete',
-}
-
-# Shift+hjkl / uppercase WASD / Shift+arrows → 面板聚焦切换
-_FOCUS_KEY = {
-    'H': 'h', 'J': 'j', 'K': 'k', 'L': 'l',
-    'W': 'k', 'A': 'h', 'S': 'j', 'D': 'l',
-    'shift+left': 'h', 'shift+down': 'j', 'shift+up': 'k', 'shift+right': 'l',
-}
-
-
-class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
+class GameScreen(NavigationMixin, InputModeMixin, Screen):
 
     mode = reactive("tutorial")
 
@@ -74,24 +52,19 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
         self.logged_in = False
         self.current_location = "lobby"
         self.state = ModuleStateManager()
-        self._mode = 'normal'  # normal / insert / which_key / focus
+        from .companion import CompanionController
+        if CompanionController._instance is not None:
+            CompanionController.instance(self.state)
+        self._mode = 'normal'
         self._sticky_insert = False  # True = 大写 I，提交后不退出
-        self._overlay_stack: list[str] = []  # 浮窗打开顺序 (widget id)
+        # 通用窗口引擎（所有已注册窗口均由引擎管理）
+        from .window_engine import WindowEngine
+        self.engine = WindowEngine()
+        self.engine.attach(self, lambda: self)
 
     def compose(self) -> ComposeResult:
-        yield TutorialWindow(id="tutorial-window")
-        yield LoginWindow(id="login-window")
-        yield LobbyWindow(id="lobby-window")
-        yield ChatWindow(id="chat-window")
-        yield ProfileWindow(id="profile-window")
-        yield OnlineWindow(id="online-window")
-        yield NotificationWindow(id="notification-window")
-        yield GameSelectWindow(id="game-select-window")
-        yield WaitingWindow(id="waiting-window")
-        yield GameWindow(id="game-window")
-        yield DocsWindow(id="docs-window")
-        yield SettingsWindow(id="settings-window")
-        yield WhichKeyPanel(id="which-key-overlay")
+        # 全部窗口由引擎统一 compose
+        yield from self.engine.compose_all()
         with Horizontal(id="footer-bar"):
             yield Static(" NORMAL ", id="mode-indicator")
             yield Static(f" {NF_HOME} HOME", id="location-indicator")
@@ -103,13 +76,13 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
         from .storage import get_tutorial_done
         if not get_tutorial_done():
             self.mode = "tutorial"
-            self.query_one("#tutorial-window").add_class("visible")
+            self.engine.set_primary("tutorial-window")
         else:
             self.mode = "login"
-            self.query_one("#login-window").add_class("visible")
+            self.engine.set_primary("login-window")
         self.app.connect_to_server(DEFAULT_HOST)
 
-    # ── 模块访问（dispatch.py 接口）──
+    # ── 模块访问（net/dispatch 调用）──
 
     def get_module(self, module_name: str):
         wid = _MODULE_IDS.get(module_name)
@@ -117,7 +90,7 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
             return None
         # room_controls 存在于多个窗口，优先从当前活跃窗口查找
         if module_name == 'room_controls':
-            w = self._get_active_window()
+            w = self.engine.active_window()
             if w:
                 try:
                     return w.query_one(f"#{wid}")
@@ -128,17 +101,13 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
         except Exception:
             return None
 
-    # ── 布局切换（dispatch.py 接口）──
+    # ── 布局切换（net/dispatch 调用）──
 
     async def _rebuild_to_game_layout(self):
         if self.mode in ("login", "tutorial"):
             if self._mode != 'normal':
                 self._to_normal()
-            self.query_one("#login-window").remove_class("visible")
-            self.query_one("#tutorial-window").hide()
-            lobby = self.query_one("#lobby-window", LobbyWindow)
-            lobby.add_class("visible")
-            lobby.bind_state(self.state)
+            self.engine.set_primary("lobby-window")
             self.state.game_board.add_listener(self._on_room_state_change)
             self.state.online.add_listener(self._on_online_event)
             self.mode = "game"
@@ -146,25 +115,29 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
     async def _rebuild_to_login_layout(self):
         if self._mode != 'normal':
             self._to_normal()
-        self._close_all_overlays()
-        self.query_one("#lobby-window").remove_class("visible")
-        self.query_one("#waiting-window").remove_class("visible")
-        self.query_one("#game-window").remove_class("visible")
-        self.query_one("#login-window").add_class("visible")
-        # 重置所有 overlay window 的绑定状态，以便重新登录后能绑定新 State
-        for wid in ("#chat-window", "#online-window", "#notification-window",
-                    "#profile-window", "#game-select-window",
-                    "#waiting-window", "#game-window"):
-            try:
-                w = self.query_one(wid)
-                if hasattr(w, '_bound'):
-                    w._bound = False
-            except Exception:
-                pass
+        self.engine.close_all()           # 关掉所有浮窗
+        # 重置浮窗 + 主窗口的 _bound 标记, 以便重新登录后能绑定新 State
+        for wid in ("chat-window", "online-window", "notification-window",
+                    "profile-window", "chat-style-window", "game-select-window",
+                    "waiting-window", "game-window", "lobby-window",
+                    ):
+            w = self.engine.get_window(wid)
+            if w and hasattr(w, '_bound'):
+                w._bound = False
+        old_state = self.state
+        old_state.unbind_all()
+        old_state.game_interaction.reset()
         self.state = ModuleStateManager()
+        from .companion import CompanionController
+        if CompanionController._instance is not None:
+            CompanionController.instance(self.state)
+        self.engine.set_primary("login-window")
+        login_window = self.engine.get_window("login-window")
+        if login_window is not None:
+            login_window.reset_session()
         self.mode = "login"
 
-    # ── 徽章（dispatch.py 接口）──
+    # ── 徽章（net/dispatch 调用）──
 
     def update_badges(self):
         badge = self.query_one("#badge-indicator", Static)
@@ -176,13 +149,26 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
         dm_unread = sum(self.state.chat.dm_unread.values())
         if dm_unread:
             parts.append(f"{NF_HEART} {dm_unread}")
+        companion_unread = self.state.notify.companion_unread_count
+        if companion_unread:
+            parts.append(f"{NF_COMPANION} {companion_unread}")
         text = f" {' '.join(parts)} " if parts else ""
         badge.update(text)
         badge.refresh()
 
-    # ── 位置/命令（dispatch.py 接口）──
+    def receive_companion_message(self, text: str) -> None:
+        """Deliver a proactive companion reply on the Textual main thread."""
+        window = self.engine.get_window("companion-window")
+        active = self.engine.active_window()
+        if window is not None:
+            window.receive_proactive(text)
+        if active is not window:
+            self.state.notify.add_companion_unread()
+        self.update_badges()
 
-    def _update_hint_bar(self):
+    # ── 位置/命令（net/dispatch 调用）──
+
+    def _update_room_controls(self):
         from .protocol.commands import get_game_tabs
         from .views.game.controls import RoomControlsPanel
         tabs = get_game_tabs()
@@ -199,41 +185,23 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
     # ── 主窗口切换 ──
 
     def _switch_main_window(self, target: str) -> None:
-        """切换主窗口：'lobby' / 'waiting' / 'game'"""
-        mapping = {
-            'lobby': '#lobby-window',
-            'waiting': '#waiting-window',
-            'game': '#game-window',
-        }
-        for key, wid in mapping.items():
-            w = self.query_one(wid)
-            if key == target:
-                if not w.has_class('visible'):
-                    if hasattr(w, 'bind_state'):
-                        if key in ('waiting', 'game'):
-                            w.bind_state(self.state, self.app.send_command)
-                        else:
-                            w.bind_state(self.state)
-                    w.show()
-            else:
-                w.remove_class('visible')
+        """切换主窗口: 'lobby' / 'waiting' / 'game' — 转交给引擎"""
+        self.engine.set_primary(f"{target}-window")
 
     def _on_room_state_change(self, event: str, *args) -> None:
-        """监听 game_board state 变化，自动切换主窗口"""
+        """监听 game_board state 变化, 自动切换主窗口"""
         if event == 'update_room':
             rd = args[0] if args else {}
             rs = rd.get('room_state', '')
             if rs == 'lobby':
-                self._close_game_select_overlay()
-                self._close_all_overlays()
+                self.engine.close_all()
                 self._switch_main_window('lobby')
             elif rs == 'waiting':
-                self._close_game_select_overlay()
-                self._close_all_overlays()
+                self.engine.close_all()
                 self.state.chat.clear_room_messages()
                 self._switch_main_window('waiting')
             elif rs in ('playing', 'finished'):
-                self._close_all_overlays()
+                self.engine.close_all()
                 self._switch_main_window('game')
         elif event == 'clear':
             self._switch_main_window('lobby')
@@ -248,7 +216,7 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
 
         # INSERT — 只拦截 Escape
         if mode == 'insert':
-            if event.key == 'escape':
+            if is_exit_key(event.key):
                 event.prevent_default()
                 event.stop()
                 self._to_normal()
@@ -257,64 +225,40 @@ class GameScreen(NavigationMixin, InputModeMixin, OverlayMixin, Screen):
         event.prevent_default()
         event.stop()
 
-        # WHICH_KEY — 按键匹配菜单项
-        if mode == 'which_key':
-            key = event.key
-            if key == 'escape':
-                self._to_normal()
-            elif key == 'c':
-                self._to_normal()
-                self._open_chat()
-            elif key == 'o':
-                self._to_normal()
-                self._open_online()
-            elif key == 'n':
-                self._to_normal()
-                self._open_notification()
-            elif key == 'g':
-                self._to_normal()
-                self._open_game_select()
-            elif key == 's':
-                self._to_normal()
-                self._open_settings()
-            return
-
         # NORMAL
-        key = _KEY_ALIAS.get(event.key, event.key)
-
-        if key == 'escape':
-            if self._close_overlay():
+        if is_exit_key(event.key):
+            if self.engine.close_top():
                 return
             if self.mode == 'tutorial':
                 panel = self.query_one('#tutorial-panel')
                 if panel._page == _TUT_TOTAL - 1:
                     panel.post_message(panel.TutorialDone())
                 return
-            w = self._get_active_window()
-            if w and hasattr(w, 'nav'):
-                w.nav('escape')
             return
 
-        if key == 'space':
+        if is_popup_key(event.key):
             if self.mode in ('login', 'tutorial'):
                 return
-            self._enter_which_key()
+            if self.engine.active_id() == "root-menu-window":
+                self.engine.close_top()
+            else:
+                self.engine.open("root-menu-window")
             return
 
-        if key in ('i', 'I'):
-            self._enter_insert(sticky=(key == 'I'))
+        sticky_input = text_input_mode(event.key)
+        if sticky_input is not None:
+            self._enter_insert(sticky=sticky_input)
             return
 
-        # Shift+hjkl / WASD大写 / Shift+方向键 → 直接切换面板聚焦
-        fk = _FOCUS_KEY.get(event.key)
+        fk = focus_direction(event.key)
         if fk:
-            w = self._get_active_window()
+            w = self.engine.active_window()
             if w:
                 w.focus_move(fk)
             return
 
-        action = _KEY_ACTION.get(key)
+        action = navigation_action(event.key)
         if action:
-            w = self._get_active_window()
+            w = self.engine.active_window()
             if w and hasattr(w, 'nav'):
                 w.nav(action)

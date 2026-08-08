@@ -5,6 +5,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from ...widgets.window import Window
+from ...window_engine import Option, WindowSpec, register_window
+from ...window_specs import logged_in, bind_chat, chat_on_close, chat_on_open
 from .list import ChatListPanel, ConversationSelected, DMAction
 from .content import ChatContentPanel
 
@@ -31,6 +33,14 @@ class ChatWindow(Window):
     focus_grid = [["chat-list", "chat-content"]]
     primary_panel = "chat-list"
 
+    spec = WindowSpec(
+        id="chat-window", title="聊天", menu=True, group="root", order=10,
+        preconditions=(logged_in,),
+        bind=bind_chat,
+        on_open=chat_on_open,
+        on_close=chat_on_close,
+    )
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._bound = False
@@ -48,9 +58,6 @@ class ChatWindow(Window):
         cp.bind_state(st)
         cp.show_conversation("world")
 
-    def show(self) -> None:
-        super().show()
-
     def open_dm(self, peer: str) -> None:
         """打开与指定玩家的私聊"""
         cs = self.query_one("#chat-content", ChatContentPanel)
@@ -61,7 +68,12 @@ class ChatWindow(Window):
             cl._refresh_list()
         # 同步左侧光标
         if peer in cl._items:
-            cl._cursor = cl._items.index(peer)
+            cl.set_options(
+                (Option(tab, "世界" if tab == "world" else tab)
+                 for tab in cl._items),
+                "chat-conversations",
+            )
+            cl.selection.select(peer)
             cl._update_display()
         # 右侧显示对话
         cs.show_conversation(peer)
@@ -69,12 +81,6 @@ class ChatWindow(Window):
         self._clear_dm_unread(peer)
         # 聚焦右侧
         self.focus_move('l')
-
-    def hide(self) -> None:
-        cp = self.query_one("#chat-content", ChatContentPanel)
-        if cp._chat_state:
-            cp._chat_state.set_viewing_dm('')
-        super().hide()
 
     def nav(self, action: str) -> None:
         super().nav(action)
@@ -101,7 +107,6 @@ class ChatWindow(Window):
         cp = self.query_one("#chat-content", ChatContentPanel)
         if event.action == "clear":
             cs.clear_dm_entries(peer)
-            self.app.network.send({"type": "clear_dm_history", "target": peer})
             if cp._current_tab == peer:
                 cp._render_current()
         elif event.action == "close":
@@ -115,8 +120,9 @@ class ChatWindow(Window):
     def _current_dm_tab(self) -> str:
         """当前左侧光标指向的私聊 tab（world 返回空串）"""
         cl = self.query_one("#chat-list", ChatListPanel)
-        if cl._items and 0 <= cl._cursor < len(cl._items):
-            tab = cl._items[cl._cursor]
+        selected = cl.selected_option
+        if selected is not None:
+            tab = selected.id
             return tab if tab != "world" else ""
         return ""
 
@@ -130,3 +136,6 @@ class ChatWindow(Window):
             cs.clear_dm_unread(tab)
             cl._update_display()
             self.screen.update_badges()
+
+
+register_window(ChatWindow)

@@ -13,6 +13,7 @@ from datetime import datetime
 import copy
 
 from ..systems.titles import TITLE_LIBRARY
+from .chat_style import default_chat_style, validate_chat_style
 
 
 # ── 名片默认值 ──
@@ -58,8 +59,10 @@ def get_default_user_template(name="", password_hash=""):
             'border_color': DEFAULT_BORDER_COLOR,
             'card_fields': list(DEFAULT_CARD_FIELDS),
         },
+        'chat_style': default_chat_style(),
 
         'friends': [],
+        'pending_friend_requests': [],
 
         'game_stats': {
             'total_games': 0,
@@ -173,4 +176,12 @@ def ensure_user_schema(user_data):
                 merge_dict(target[key], default_value, current_path)
 
     merge_dict(user_data, template)
+    titles = user_data.get('titles', {})
+    validated_style = validate_chat_style(
+        user_data.get('chat_style'),
+        titles.get('owned', []) if isinstance(titles, dict) else [],
+    )
+    if user_data.get('chat_style') != validated_style:
+        user_data['chat_style'] = validated_style
+        changes.append("规范化: chat_style")
     return user_data, changes

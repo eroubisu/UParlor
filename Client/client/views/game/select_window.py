@@ -5,6 +5,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import logged_in, bind_game_select
 from .list import GameListPanel, GameSelected, FocusRight
 from .detail import GameDetailPanel
 
@@ -30,6 +32,13 @@ class GameSelectWindow(Window):
 
     focus_grid = [["game-list", "game-detail"]]
 
+    spec = WindowSpec(
+        id="game-select-window", title="游戏", menu=True,
+        group="root", order=40,
+        preconditions=(logged_in,),
+        bind=bind_game_select,
+    )
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._bound = False
@@ -45,10 +54,6 @@ class GameSelectWindow(Window):
         self.query_one("#game-list", GameListPanel).bind_state(st)
         self.query_one("#game-detail", GameDetailPanel).bind_send(send_fn)
 
-    def show(self) -> None:
-        super().show()
-        self.reset_focus()
-
     def on_game_selected(self, event: GameSelected) -> None:
         """左侧选中游戏 → 右侧显示详情"""
         event.stop()
@@ -58,3 +63,6 @@ class GameSelectWindow(Window):
         """左侧 Enter → 聚焦右侧详情面板"""
         event.stop()
         self.focus_move('l')
+
+
+register_window(GameSelectWindow)

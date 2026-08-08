@@ -8,13 +8,27 @@ from __future__ import annotations
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static, Input
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.app import ComposeResult
 from ..config import (
     COLOR_BORDER, COLOR_FG_SECONDARY, COLOR_FG_PRIMARY,
     COLOR_FG_TERTIARY, COLOR_HINT_TAB_DIM,
     ICON_INDENT,
 )
+from ..window_engine import (
+    ConfirmMenu,
+    Divider,
+    EngineInput,
+    InputSession,
+    InputSpec,
+    Option,
+    ScrollPolicy,
+    SelectList,
+    SurfaceState,
+)
+from ..window_engine.text import cell_width
+
+PanelSeparator = Divider
 
 
 class PlayerSelected(Message):
@@ -25,9 +39,8 @@ class PlayerSelected(Message):
 
 
 def text_width(s: str) -> int:
-    """纯文本显示宽度 — 使用 Rich 的 cell_len 保证与渲染一致"""
-    from rich.cells import cell_len
-    return cell_len(s)
+    """兼容旧调用；新代码使用 window_engine.text.cell_width。"""
+    return cell_width(s)
 
 
 class Panel(Widget):
@@ -40,14 +53,22 @@ class Panel(Widget):
         background: transparent;
         padding: 0;
     }}
-    Panel > #input-row {{
-        dock: top; height: 2;
-        border-bottom: solid {COLOR_BORDER}; padding: 0; background: transparent;
+    Panel > #input-region {{
+        dock: top;
+        width: 1fr;
+        height: 2;
     }}
-    Panel > #input-row > #prompt {{ width: 2; height: 1; color: {COLOR_FG_TERTIARY}; padding: 0; }}
-    Panel > #input-row > #input  {{ width: 1fr; height: 1; border: none; padding: 0; color: {COLOR_FG_PRIMARY}; background: transparent; }}
-    Panel > #input-row > #input:focus {{ border: none; background: transparent; }}
-    Panel > #input-row > #input:disabled {{ background: transparent; color: {COLOR_FG_TERTIARY}; }}
+    Panel > #input-region > #input-row {{
+        height: 1;
+        padding: 0; background: transparent;
+    }}
+    Panel > #input-region > #input-divider {{
+        height: 1;
+    }}
+    Panel > #input-region > #input-row > #prompt {{ width: 2; height: 1; color: {COLOR_FG_TERTIARY}; padding: 0; }}
+    Panel > #input-region > #input-row > #input  {{ width: 1fr; height: 1; border: none; padding: 0; color: {COLOR_FG_PRIMARY}; background: transparent; }}
+    Panel > #input-region > #input-row > #input:focus {{ border: none; background: transparent; }}
+    Panel > #input-region > #input-row > #input:disabled {{ background: transparent; color: {COLOR_FG_TERTIARY}; }}
     Panel > .tab {{
         height: 1fr;
         scrollbar-size-vertical: 1;
@@ -79,15 +100,29 @@ class Panel(Widget):
                 setattr(self, attr, kw.pop(attr))
         super().__init__(**kw)
         self._active = 0
-        self._cursor: int = 0
-        self._confirm_cursor: int = 0
+        self.selection = SelectList()
+        self.confirmation = ConfirmMenu()
+        self.surface_state = SurfaceState()
+        self.input_session = InputSession(
+            InputSpec(
+                context_id="default",
+                placeholder=self.placeholder,
+                visible=self.has_input,
+                enabled=self.has_input,
+                focus=True,
+            )
+        )
         self._unread: set[int] = set()
 
     def compose(self) -> ComposeResult:
         if self.has_input:
-            with Horizontal(id="input-row"):
-                yield Static("❯ ", id="prompt")
-                yield Input(placeholder=self.placeholder, id="input", disabled=True)
+            with Vertical(id="input-region"):
+                with Horizontal(id="input-row"):
+                    yield Static("> ", id="prompt")
+                    yield EngineInput(
+                        placeholder=self.placeholder, id="input", disabled=True,
+                    )
+                yield Divider(style=COLOR_BORDER, id="input-divider")
         yield from self.compose_content()
 
     def compose_content(self) -> ComposeResult:
@@ -101,6 +136,14 @@ class Panel(Widget):
         self.border_subtitle = self.subtitle
         for inp in self.query(Input):
             inp.select_on_focus = False
+        if self.has_input:
+            self.input_session.mount(
+                self.query_one("#input", Input),
+                self.query_one("#input-row"),
+                self.query_one("#input-divider", Divider),
+                self.query_one("#input-region"),
+            )
+            self.activate_input_context()
         for i, t in enumerate(self.query(".tab")):
             t.display = i == self._active
         if self.icon_align:
@@ -137,6 +180,7 @@ class Panel(Widget):
         self._unread.discard(index)
         self.query_one(f"#t{index}").display = True
         self.border_title = self._render_tabs()
+        self.activate_input_context()
 
     def mark_unread(self, tab: int) -> None:
         if tab != self._active:
@@ -150,7 +194,8 @@ class Panel(Widget):
         tab = self._active if tab is None else tab
         try:
             content = self.query_one(f"#t{tab} .content", Static)
-            w = content.content_region.width
+            scroll = self.query_one(f"#t{tab}", VerticalScroll)
+            w = ScrollPolicy.content_width(content, scroll)
             if w > 0:
                 return w
         except Exception:
@@ -159,29 +204,47 @@ class Panel(Widget):
         pw = self.content_region.width
         return max(pw - 2, 1) if pw > 0 else 1
 
-    def _separator_line(self, style: str = '') -> str:
-        """生成全宽分割线 markup"""
-        w = self._content_width()
-        line = '─' * w
-        return f'[{style}]{line}[/]' if style else line
+    def set_scrollbar_visible(
+        self, visible: bool, tab: int | None = None,
+    ) -> None:
+        """Apply the shared scrollbar reservation to one or every tab."""
+        tabs = self.query(".tab") if tab is None else [
+            self.query_one(f"#t{tab}", VerticalScroll),
+        ]
+        for scroll in tabs:
+            ScrollPolicy.set_vertical_visible(scroll, visible)
 
     def update(self, text: str, tab: int | None = None, focus_line: int = -1) -> None:
         tab = self._active if tab is None else tab
-        self.query_one(f"#t{tab} .content", Static).update(text)
-        if focus_line >= 0:
-            self.scroll_to_line(focus_line, tab)
-        elif self.follow_focus and hasattr(self, '_focus_line') and self._focus_line >= 0:
-            self.scroll_to_line(self._focus_line, tab)
+        scroll = self.query_one(f"#t{tab}", VerticalScroll)
+        content = self.query_one(f"#t{tab} .content", Static)
+        target_line = focus_line
+        if (
+                target_line < 0
+                and self.follow_focus
+                and hasattr(self, '_focus_line')):
+            target_line = self._focus_line
+        if target_line >= 0:
+            content.update(text)
+            self.scroll_to_line(target_line, tab)
+            self.call_after_refresh(self.scroll_to_line, target_line, tab)
+            return
+        ScrollPolicy.update(
+            scroll,
+            lambda: content.update(text),
+            self.call_after_refresh,
+        )
 
     def append(self, text: str, tab: int | None = None) -> None:
         tab = self._active if tab is None else tab
         vs = self.query_one(f"#t{tab}", VerticalScroll)
-        at_bottom = vs.scroll_offset.y >= vs.max_scroll_y - 1
         content = self.query_one(f"#t{tab} .content", Static)
         old = content.content
-        content.update(f"{old}\n{text}" if old else text)
-        if at_bottom:
-            vs.scroll_end(animate=False)
+        ScrollPolicy.update(
+            vs,
+            lambda: content.update(f"{old}\n{text}" if old else text),
+            self.call_after_refresh,
+        )
 
     def replace_last(self, text: str, tab: int | None = None) -> None:
         """替换最后一行内容"""
@@ -194,6 +257,110 @@ class Panel(Widget):
     def get_input_widget(self) -> Input | None:
         return self.query_one("#input", Input) if self.has_input else None
 
+    def configure_input(self, **changes) -> None:
+        """Declare the current tab's input intent without manipulating widgets."""
+        self.input_session.configure(**changes)
+
+    def replace_input_spec(self, spec: InputSpec) -> None:
+        self.input_session.replace(spec)
+
+    def input_spec(self) -> InputSpec:
+        """Declare input behavior for the active tab or panel context."""
+        return InputSpec(
+            context_id=f"{self.id or type(self).__name__}:{self._active}",
+            placeholder=self.placeholder,
+            visible=self.has_input,
+            enabled=self.has_input,
+            focus=True,
+        )
+
+    def activate_input_context(self) -> None:
+        """Synchronize input intent after tab/window/context changes."""
+        if self.has_input:
+            self.input_session.replace(self.input_spec())
+
+    def set_options(self, options, context_id: str) -> None:
+        """Replace the focused list through its shared selection state."""
+        self.surface_state = SurfaceState()
+        self.selection.set_options(options, context_id)
+
+    @property
+    def selected_option(self) -> Option | None:
+        """The selected option in this panel's current interaction context."""
+        return self.selection.selected
+
+    def render_options(self, *, width: int | None = None, **styles: str) -> str:
+        """Render the panel selection with the common cursor and text wrapping."""
+        return self.selection.render(
+            self._content_width() if width is None else width,
+            idle_prefix=ICON_INDENT,
+            selected_style=f"bold {COLOR_FG_PRIMARY}",
+            idle_style=COLOR_FG_TERTIARY,
+            **styles,
+        )
+
+    def selected_line(self, *, width: int | None = None) -> int:
+        """Return the selected option's rendered line after cell wrapping."""
+        return self.selection.selected_line(
+            self._content_width() if width is None else width,
+            idle_prefix=ICON_INDENT,
+        )
+
+    def _render_confirm(
+        self, message: str, color: str = COLOR_FG_TERTIARY,
+    ) -> str:
+        if not self.confirmation.is_open:
+            self.confirmation.open(
+                message, context_id=f"panel-confirmation:{message}",
+            )
+        self.confirmation.message = message
+        return self.confirmation.render(
+            self._content_width(),
+            idle_prefix=ICON_INDENT,
+            selected_style=f"bold {COLOR_FG_PRIMARY}",
+            idle_style=color,
+        )
+
+    def _nav_confirm(self, action: str, on_yes, on_dismiss=None) -> bool:
+        if not self.confirmation.is_open:
+            self.confirmation.open("", context_id="panel-confirmation")
+        if action not in ("up", "down", "enter"):
+            return False
+        result = self.confirmation.handle(action)
+        if result == ConfirmMenu.YES_ID:
+            on_yes()
+        elif result == ConfirmMenu.NO_ID and on_dismiss:
+            on_dismiss()
+        return True
+
+    def enter_insert(self, *, sticky: bool = False) -> bool:
+        """Activate this panel's declared input session."""
+        can_enter = getattr(self, "can_enter_insert", None)
+        if can_enter is not None and not can_enter():
+            return False
+        prepare = getattr(self, "prepare_insert", None)
+        if prepare is not None:
+            prepare()
+        return self.input_session.enter(sticky=sticky)
+
+    def leave_insert(self, *, preserve: bool = True) -> None:
+        """Leave INSERT while preserving drafts unless explicitly discarded."""
+        self.input_session.leave(preserve=preserve)
+
+    def submit_input(self, event: Input.Submitted, *, clear: bool = False) -> str:
+        """Read through the shared session so views never mutate ``Input``."""
+        return self.input_session.submit(event.value, clear=clear)
+
+    def sync_primitives(self, *, active: bool = True) -> None:
+        self.input_session.set_active(active)
+
+    def show_surface(self, state: SurfaceState, tab: int | None = None) -> None:
+        self.surface_state = state
+        surface_tab = self._active if tab is None else tab
+        self.selection.set_options((), f"surface:{surface_tab}")
+        self._focus_line = -1
+        self.update(state.render(ICON_INDENT), tab=tab)
+
     def scroll_to_line(self, line: int, tab: int | None = None, margin: int = 3) -> None:
         """滚动使指定行可见（0-indexed），下方保留 margin 行裕度"""
         tab = self._active if tab is None else tab
@@ -201,116 +368,29 @@ class Panel(Widget):
         top = vs.scroll_offset.y
         height = vs.size.height
         if line < top:
-            vs.scroll_to(y=line, animate=False)
+            vs.scroll_to(
+                y=line, animate=False, force=True, immediate=True,
+            )
         elif line + margin >= top + height:
-            vs.scroll_to(y=line + margin - height + 1, animate=False)
-
-    # ── 光标列表 ──
-
-    def _move_cursor(self, delta: int, total: int) -> bool:
-        """移动光标，clamp 到 [0, total-1]。返回是否实际移动。"""
-        if total <= 0:
-            return False
-        new = max(0, min(total - 1, self._cursor + delta))
-        if new == self._cursor:
-            return False
-        self._cursor = new
-        return True
-
-    def _render_cursor_items(
-        self,
-        items: list[str],
-        formatter=None,
-    ) -> str:
-        """渲染光标列表。
-
-        items: 显示标签列表。
-        formatter: 可选 (index, label, selected) -> str 覆盖默认格式。
-        返回 '\\n'.join 的 markup 字符串。
-        """
-        lines: list[str] = []
-        for i, label in enumerate(items):
-            selected = i == self._cursor
-            if formatter:
-                lines.append(formatter(i, label, selected))
-            elif selected:
-                lines.append(f"[bold {COLOR_FG_PRIMARY}]> {label}[/]")
-            else:
-                lines.append(f"[{COLOR_FG_TERTIARY}]{ICON_INDENT}{label}[/]")
-        return '\n'.join(lines)
-
-    def _cursor_nav(self, action: str, total: int, on_enter=None, redraw=None) -> bool:
-        """通用光标导航。处理 up/down/enter，返回 True 表示已处理。
-
-        on_enter: 可选回调，enter 时调用。
-        redraw: 可选回调，光标移动后调用（默认无）。
-        """
-        match action:
-            case 'up':
-                if self._move_cursor(-1, total):
-                    if redraw:
-                        redraw()
-                return True
-            case 'down':
-                if self._move_cursor(1, total):
-                    if redraw:
-                        redraw()
-                return True
-            case 'enter':
-                if on_enter:
-                    on_enter()
-                return True
-        return False
-
-    # ── 确认对话框 ──
-
-    def _render_confirm(self, msg: str, color: str = COLOR_FG_TERTIARY) -> str:
-        """渲染「是/否」确认对话框，返回 markup 字符串。"""
-        lines = [
-            f"[{color}]{ICON_INDENT}{msg}[/]",
-            self._separator_line(color),
-        ]
-        for i, label in enumerate(('是', '否')):
-            if i == self._confirm_cursor:
-                lines.append(f"[bold {COLOR_FG_PRIMARY}]> {label}[/]")
-            else:
-                lines.append(f"[{color}]{ICON_INDENT}{label}[/]")
-        return '\n'.join(lines)
-
-    def _nav_confirm(self, action: str, on_yes, on_dismiss=None) -> bool:
-        """处理确认对话框导航。返回 True 表示已消费事件。
-
-        on_yes: Enter+是 时调用。
-        on_dismiss: Enter+否 或 Escape 时调用。默认只重置 _confirm_cursor。
-        """
-        if action == 'up':
-            if self._confirm_cursor > 0:
-                self._confirm_cursor = 0
-            return True
-        if action == 'down':
-            if self._confirm_cursor < 1:
-                self._confirm_cursor = 1
-            return True
-        if action == 'enter':
-            if self._confirm_cursor == 0:
-                on_yes()
-            elif on_dismiss:
-                on_dismiss()
-            self._confirm_cursor = 0
-            return True
-        if action == 'escape':
-            if on_dismiss:
-                on_dismiss()
-            self._confirm_cursor = 0
-            return True
-        return False
+            vs.scroll_to(
+                y=line + margin - height + 1,
+                animate=False,
+                force=True,
+                immediate=True,
+            )
 
     # ── 导航 ──
 
     def reset_cursor(self) -> None:
         """重置光标（窗口重新打开时调用）。子类可 super() 后追加逻辑。"""
-        self._cursor = 0
-        self._confirm_cursor = 0
+        self.selection.reset()
+        self.confirmation.close()
+
+    def reflow_content(self) -> None:
+        """Re-render width-sensitive content without resetting panel state."""
+
+    def on_resize(self, _event) -> None:
+        self.call_after_refresh(self.reflow_content)
 
     def nav(self, action: str) -> None:
         match action:

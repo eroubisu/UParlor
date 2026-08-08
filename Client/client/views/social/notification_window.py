@@ -5,6 +5,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import logged_in, bind_state, notification_on_open
 from .notification_panel import NotificationPanel
 
 
@@ -25,6 +27,14 @@ class NotificationWindow(Window):
 
     focus_grid = [["notification-panel"]]
 
+    spec = WindowSpec(
+        id="notification-window", title="通知", menu=True,
+        group="root", order=30,
+        preconditions=(logged_in,),
+        bind=bind_state,
+        on_open=notification_on_open,
+    )
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._bound = False
@@ -38,5 +48,5 @@ class NotificationWindow(Window):
         self._bound = True
         self.query_one("#notification-panel", NotificationPanel).bind_state(st)
 
-    def show(self) -> None:
-        super().show()
+
+register_window(NotificationWindow)

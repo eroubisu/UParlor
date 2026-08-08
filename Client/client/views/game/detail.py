@@ -8,10 +8,10 @@ from ...config import (
     COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_HINT_TAB_ACTIVE,
     M_DIM, M_BOLD, M_END, M_MUTED, ICON_INDENT,
 )
-from ...widgets.panel import Panel, _widget_width, text_width
-
-# 始终预留 scrollbar 宽度，避免出现/消失时内容宽度抖动
-_SCROLLBAR_W = 1
+from ...widgets.panel import Panel, text_width
+from ...window_engine.text import wrap_cells
+from ...window_engine import Option
+from ...protocol.renderer import get_renderer
 
 def _pad_left(s: str, target: int) -> str:
     w = text_width(s)
@@ -21,21 +21,7 @@ def _wrap_text(text: str, width: int, indent: str) -> list[str]:
     """按显示宽度手动折行，每行添加前缀 indent"""
     if width <= 0:
         return [f"{indent}{text}"]
-    lines: list[str] = []
-    current = ""
-    current_w = 0
-    for ch in text:
-        cw = text_width(ch)
-        if current_w + cw > width:
-            lines.append(f"{indent}{current}")
-            current = ch
-            current_w = cw
-        else:
-            current += ch
-            current_w += cw
-    if current:
-        lines.append(f"{indent}{current}")
-    return lines or [f"{indent}"]
+    return [f"{indent}{line}" for line in wrap_cells(text, width)]
 
 class GameDetailPanel(Panel):
     """游戏详情：简介 + 设置项 + 创建房间
@@ -62,7 +48,6 @@ class GameDetailPanel(Panel):
 
     def show_game(self, game: dict | None) -> None:
         self._game = game
-        self._cursor = 0
         self._settings.clear()
         self._items.clear()
         if not game:
@@ -81,28 +66,14 @@ class GameDetailPanel(Panel):
             self._items.append({'type': 'setting', 'key': s['key'], 'schema': s})
         self._items.append({'type': 'create'})
 
-    def _stable_width(self) -> int:
-        """获取稳定的内容宽度（始终预留 scrollbar 位置，不随其出现/消失变化）
-
-        tab(VerticalScroll).content_region 不含 scrollbar，始终稳定。
-        icon_align 的 .content padding 为 0，所以不需额外减去。
-        再减 scrollbar 预留宽度。
-        """
-        try:
-            tab = self.query_one('#t0')
-            w = tab.content_region.width - _SCROLLBAR_W
-            if w > 0:
-                return w
-        except Exception:
-            pass
-        return max(1, _widget_width(self) - _SCROLLBAR_W)
-
     def _redraw(self) -> None:
         if not self._game:
             return
         g = self._game
-        name = g.get('name', g.get('id', '???'))
-        icon = g.get('icon', '')
+        game_id = g.get('id', '')
+        name = g.get('name', game_id or '???')
+        renderer = get_renderer(game_id)
+        icon = renderer.icon if renderer else ''
         desc = g.get('description', '')
         mn = g.get('min_players', '')
         mx = g.get('max_players', '')
@@ -111,7 +82,7 @@ class GameDetailPanel(Panel):
         lines: list[str] = [f"{M_BOLD}{icon} {name}{M_END}", ""]
         if desc:
             # 手动折行，保证每行都有 ICON_INDENT
-            panel_w = self._stable_width()
+            panel_w = self._content_width(0)
             desc_w = max(10, panel_w - text_width(ICON_INDENT))
             for dl in _wrap_text(desc, desc_w, ICON_INDENT):
                 lines.append(f"{M_MUTED}{dl}{M_END}")
@@ -131,13 +102,9 @@ class GameDetailPanel(Panel):
                 if w > max_label_w:
                     max_label_w = w
 
-        # 可用行宽（减去 ICON_INDENT/光标 + 左右间距 + 滚动条）
-        row_w = max(20, self._stable_width())
-        # 标签区占用宽度 = ICON_INDENT(2) + label + gap(2)
-        label_area = 2 + max_label_w + 2
-
-        for i, item in enumerate(self._items):
-            sel = focused and i == self._cursor
+        row_w = max(20, self._content_width(0))
+        options = []
+        for item in self._items:
             if item['type'] == 'setting':
                 s = item['schema']
                 label = s['label']
@@ -149,27 +116,28 @@ class GameDetailPanel(Panel):
                         break
 
                 padded_label = _pad_left(label, max_label_w)
-                # 值右对齐：用空格填充到行尾
-                val_w = text_width(val_label)
-                gap = max(1, row_w - label_area - val_w)
-                spacer = ' ' * gap
-                if sel:
-                    lines.append(
-                        f"[bold {COLOR_FG_PRIMARY}]> {padded_label}  "
-                        f"{spacer}[{COLOR_HINT_TAB_ACTIVE}]{val_label}[/][/]"
-                    )
-                else:
-                    lines.append(
-                        f"[{COLOR_FG_TERTIARY}]{ICON_INDENT}{padded_label}  "
-                        f"{spacer}[{COLOR_HINT_TAB_ACTIVE}]{val_label}[/][/]"
-                    )
+                options.append(Option(
+                    item["key"],
+                    padded_label,
+                    val_label,
+                    data=item,
+                    description_align="right",
+                ))
             elif item['type'] == 'create':
-                if sel:
-                    lines.append(f"\n[bold {COLOR_FG_PRIMARY}]> 创建房间[/]")
-                else:
-                    lines.append(f"\n[{COLOR_FG_TERTIARY}]{ICON_INDENT}创建房间[/]")
+                options.append(Option("create", "创建房间", data=item))
 
-        self._focus_line = self._header_lines + self._cursor
+        self.set_options(options, f"game-detail:{game_id}")
+        lines.extend(("", self.selection.render(
+            row_w,
+            idle_prefix=ICON_INDENT,
+            selected_style=(
+                f"bold {COLOR_FG_PRIMARY}"
+                if focused else COLOR_FG_TERTIARY
+            ),
+            idle_style=COLOR_FG_TERTIARY,
+        )))
+
+        self._focus_line = self._header_lines + self.selected_line(width=row_w)
         self.update("\n".join(lines))
 
     def _cycle_setting(self, key: str, schema: dict, step: int = 1) -> None:
@@ -194,7 +162,7 @@ class GameDetailPanel(Panel):
         self._panel_focused = False
         self._redraw()
 
-    def on_resize(self, event) -> None:
+    def reflow_content(self) -> None:
         self._redraw()
 
     def nav(self, action: str) -> None:
@@ -202,10 +170,13 @@ class GameDetailPanel(Panel):
             super().nav(action)
             return
         if action in ("up", "down"):
-            if self._move_cursor(-1 if action == 'up' else 1, len(self._items)):
+            if self.selection.move(-1 if action == 'up' else 1):
                 self._redraw()
         elif action == "enter":
-            item = self._items[self._cursor]
+            selected = self.selected_option
+            if selected is None:
+                return
+            item = selected.data
             if item['type'] == 'setting':
                 self._cycle_setting(item['key'], item['schema'])
                 self._redraw()
@@ -215,7 +186,8 @@ class GameDetailPanel(Panel):
                     settings = json.dumps(self._settings, ensure_ascii=False)
                     self._send(f"/create {gid} {settings}")
         elif action in ("tab_prev", "tab_next"):
-            item = self._items[self._cursor] if self._items else None
+            selected = self.selected_option
+            item = selected.data if selected is not None else None
             if item and item['type'] == 'setting':
                 step = -1 if action == "tab_prev" else 1
                 self._cycle_setting(item['key'], item['schema'], step)

@@ -4,15 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uparlor"
-version = "0.3.3"
+version = "0.4.0"
 description = "UParlor — 终端游戏厅 TUI 客户端"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
     "textual>=0.40",
+    "rich>=13.3",
+    "regex>=2024.11",
     "google-genai>=1.0",
     "openai>=1.0",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 uparlor = "client.app:main"

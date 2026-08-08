@@ -15,6 +15,11 @@ class LoginSuccess:
     text: str
 
 @dataclass
+class AuthConflict:
+    text: str
+    choices: list[dict] = field(default_factory=list)
+
+@dataclass
 class SystemMessage:
     text: str
     broadcast: bool = False
@@ -90,23 +95,27 @@ class AllUsers:
 
 @dataclass
 class ChatMessage:
+    message_id: str = ""
     name: str = ""
     text: str = ""
     channel: int = 1
     time: str = ""
+    sender: dict = field(default_factory=dict)
 
 @dataclass
 class ChatHistory:
     channel: int = 1
     messages: list = field(default_factory=list)
+    prepend: bool = False
+    has_more: bool = False
 
 @dataclass
 class PrivateChat:
     from_name: str = ""
-    from_display: str = ""
     to_name: str = ""
     text: str = ""
     time: str = ""
+    sender: dict = field(default_factory=dict)
 
 @dataclass
 class RoomChat:
@@ -114,6 +123,7 @@ class RoomChat:
     from_name: str = ""
     text: str = ""
     time: str = ""
+    sender: dict = field(default_factory=dict)
 
 @dataclass
 class FriendRequest:
@@ -144,6 +154,8 @@ class RoomList:
 _PARSERS = {
     'login_prompt':   lambda m: LoginPrompt(text=m.get('text', '')),
     'login_success':  lambda m: LoginSuccess(text=m.get('text', '')),
+    'auth_conflict':  lambda m: AuthConflict(
+        text=m.get('text', ''), choices=m.get('choices', [])),
     'system':         lambda m: SystemMessage(text=m.get('text', ''), broadcast=m.get('broadcast', False)),
     'game':           lambda m: GameMessage(text=m.get('text', ''), update_last=m.get('update_last', False)),
     'status':         lambda m: StatusUpdate(data=m.get('data', {}), location_path=m.get('location_path'),
@@ -165,19 +177,27 @@ _PARSERS = {
     'action':         lambda m: ActionCommand(action=m.get('action', ''), raw=m),
     'friend_list':    lambda m: FriendList(friends=m.get('friends', [])),
     'all_users':      lambda m: AllUsers(users=m.get('users', [])),
-    'chat':           lambda m: ChatMessage(name=m.get('name', ''), text=m.get('text', ''),
-                                            channel=m.get('channel', 1), time=m.get('time', '')),
-    'chat_history':   lambda m: ChatHistory(channel=m.get('channel', 1), messages=m.get('messages', [])),
-    'private_chat':   lambda m: PrivateChat(from_name=m.get('from', ''), from_display=m.get('from_display', ''),
+    'chat':           lambda m: ChatMessage(message_id=m.get('id', ''),
+                                            name=m.get('name', ''), text=m.get('text', ''),
+                                            channel=m.get('channel', 1), time=m.get('time', ''),
+                                            sender=m.get('sender', {})),
+    'chat_history':   lambda m: ChatHistory(
+        channel=m.get('channel', 1),
+        messages=m.get('messages', []),
+        prepend=m.get('prepend', False),
+        has_more=m.get('has_more', False),
+    ),
+    'private_chat':   lambda m: PrivateChat(from_name=m.get('from', ''),
                                             to_name=m.get('to', ''), text=m.get('text', ''),
-                                            time=m.get('time', '')),
+                                            time=m.get('time', ''), sender=m.get('sender', {})),
     'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending')),
     'dm_history':     lambda m: DMHistory(conversations=m.get('conversations', {})),
     'profile_card':   lambda m: ProfileCard(data=m.get('data', {})),
     'game_list':      lambda m: GameList(games=m.get('games', [])),
     'room_list':      lambda m: RoomList(rooms=m.get('rooms', [])),
     'room_chat':      lambda m: RoomChat(name=m.get('name', ''), from_name=m.get('from', ''),
-                                          text=m.get('text', ''), time=m.get('time', '')),
+                                          text=m.get('text', ''), time=m.get('time', ''),
+                                          sender=m.get('sender', {})),
 }
 
 

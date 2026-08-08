@@ -1,4 +1,4 @@
-"""UNO Flip 房间逻辑 — 2-10 人
+"""UNO 房间逻辑 — 2-10 人
 
 流程:
   1. 等待 2-10 人 → start()
@@ -27,7 +27,7 @@ MAX_PLAYERS = 10
 
 
 class UnoRoom:
-    """UNO Flip 房间"""
+    """UNO 房间"""
 
     def __init__(self, room_id: str, players: list[str],
                  settings: dict | None = None):
@@ -36,6 +36,8 @@ class UnoRoom:
         self.players = list(players)
         self.state = 'waiting'  # waiting → playing → finished
         self.bots: set[str] = set()
+        # 非房主玩家的准备状态（仅在等待室有意义）
+        self.ready: set[str] = set()
 
         # 房间设置
         s = settings or {}
@@ -75,6 +77,37 @@ class UnoRoom:
         self.winner: str = ''
         self.scores: dict[str, int] = {}
         self._result_pending: set[str] = set()  # 尚未确认结算的玩家
+        self._settled_players: set[str] = set()
+        self._settlement_results: dict[str, dict] = {}
+        self._settlement_generation: int = 0
+        self._settlement_retry_scheduled: bool = False
+        self._settlement_retry_attempt: int = 0
+
+    def reset_match(self) -> None:
+        """清除一局对战的全部状态，保留房间成员和设置。"""
+        self._settlement_generation += 1
+        self._settlement_retry_scheduled = False
+        self._settlement_retry_attempt = 0
+        self.deck = None
+        self.hands.clear()
+        self.discard_pile.clear()
+        self.side = 'light'
+        self.direction = 1
+        self.current_idx = 0
+        self.chosen_color = None
+        self.pending_draw = 0
+        self.pending_draw_type = ''
+        self.draw_until_color = None
+        self.challengeable = False
+        self.last_wild_player = ''
+        self.last_wild_had_match = False
+        self.uno_called.clear()
+        self.draw_play_card = None
+        self.winner = ''
+        self.scores.clear()
+        self._result_pending.clear()
+        self._settled_players.clear()
+        self._settlement_results.clear()
 
     def is_bot(self, name: str) -> bool:
         return name in self.bots
@@ -99,20 +132,10 @@ class UnoRoom:
     def start(self) -> str | None:
         """发牌并开始游戏。返回首张牌的消息（如果是功能牌）。"""
         import random as _rng
+        self.reset_match()
         _rng.shuffle(self.players)
         self.deck = UnoDeck()
         self.deck.shuffle()
-        self.side = 'light'
-        self.direction = 1
-        self.current_idx = 0
-        self.pending_draw = 0
-        self.pending_draw_type = ''
-        self.draw_until_color = None
-        self.challengeable = False
-        self.draw_play_card = None
-        self.uno_called.clear()
-        self.discard_pile.clear()
-        self.hands.clear()
 
         # 发牌 7 张
         for name in self.players:
@@ -120,9 +143,11 @@ class UnoRoom:
 
         # 翻出首张到弃牌堆
         first = self.deck.draw_one()
-        # 如果首张是 Wild，放回重抽（官方规则）
+        # 如果首张是 Wild 或 Flip，放回重抽（保证开局为 Light 正面）
         retries = 0
-        while first and first.value in ('wild_draw2', 'wild_draw_color') and retries < 10:
+        while first and (
+            first.value in ('wild_draw2', 'wild_draw_color', 'flip')
+        ) and retries < 10:
             self.deck.put_bottom([first])
             self.deck.shuffle()
             first = self.deck.draw_one()
@@ -158,9 +183,6 @@ class UnoRoom:
             self.pending_draw = draw_n
             self.pending_draw_type = v
             return f'首张是 {card.label}，第一位玩家需摸 {draw_n} 张。'
-        if v == 'flip':
-            self._do_flip()
-            return '首张是翻转牌，所有牌翻面！'
         return ''
 
     # ── 当前玩家 ──
@@ -597,6 +619,8 @@ class UnoRoom:
             'uno_called': list(self.uno_called),
             'max_players': self.max_players,
             'played_colors': played_colors,
+            'ready': sorted(self.ready),
+            'bots': sorted(self.bots),
         }
         if top:
             data['top_card'] = top.to_dict()
@@ -626,4 +650,6 @@ class UnoRoom:
             'ranked': self.ranked,
             'draw_stacking': self.draw_stacking,
             'challenge_enabled': self.challenge_enabled,
+            'ready': sorted(self.ready),
+            'bots': sorted(self.bots),
         }

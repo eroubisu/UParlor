@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.message import Message
 from textual.widgets import Static
 from rich.table import Table
 from rich.console import Group
-from rich.rule import Rule
 
 from ...config import (
     COLOR_FG_PRIMARY, COLOR_FG_SECONDARY, COLOR_FG_TERTIARY,
@@ -16,6 +16,7 @@ from ...config import (
     M_DIM, M_END,
 )
 from ...widgets.panel import Panel
+from ...window_engine import Option
 
 _BAR_DONE = '━'
 _BAR_TODO = '━'
@@ -38,7 +39,7 @@ def _row(table: Table, label: str, value: str, icon: str = "") -> None:
 
 
 def _exp_bar(exp: int, exp_next: int, width: int = _BAR_LEN) -> str:
-    """pip install 风格进度条"""
+    """渲染玩家经验进度条。"""
     ratio = min(exp / exp_next, 1.0) if exp_next else 0
     filled = int(ratio * width)
     return (f"[{COLOR_FG_PRIMARY}]{_BAR_DONE * filled}[/]"
@@ -60,21 +61,28 @@ _ACTIONS_STRANGER = [
     {"label": "私聊", "cmd": "__dm__"},
 ]
 
+_ACTIONS_SELF = [
+    {"label": "聊天样式", "cmd": "__chat_style__"},
+]
+
 
 class StatusPanel(Panel):
     """左侧状态面板：左右对齐的玩家名片"""
 
     icon_align = True
 
+    class OpenChatStyle(Message):
+        """Request the separate chat style editor."""
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._status_state = None
         self._viewed_name: str = ""
         self._is_other: bool = False
-        self._action_cursor: int = 0
         self._confirming: bool = False
         self._actions: list[dict] = _ACTIONS_STRANGER
         self._friends: list[str] = []
+        self._card_data: dict = {}
 
     def compose_content(self) -> ComposeResult:
         with VerticalScroll(classes="tab", id="t0"):
@@ -88,13 +96,13 @@ class StatusPanel(Panel):
         self._render_info()
 
     def reset_cursor(self) -> None:
-        self._action_cursor = 0
         self._confirming = False
         super().reset_cursor()
         if self._active != 0:
             self.switch_tab(0)
 
     def _on_status_event(self, event: str, *args):
+        del args
         if event == 'update_player_info':
             self._render_info()
 
@@ -108,9 +116,10 @@ class StatusPanel(Panel):
                      friends: list[str] | None = None) -> None:
         """渲染任意玩家名片数据"""
         is_bot = d.get('is_bot', False) if d else False
+        self._card_data = d or {}
         self._is_other = not is_self and not is_bot
         self._confirming = False
-        self._confirm_cursor = 0
+
         if friends is not None:
             self._friends = friends
         if self._is_other:
@@ -119,11 +128,10 @@ class StatusPanel(Panel):
                             if self._viewed_name in self._friends
                             else _ACTIONS_STRANGER)
             self.tabs = ["信息", "操作"]
-            self._action_cursor = 0
         else:
             self._viewed_name = ''
-            self._actions = _ACTIONS_STRANGER
-            self.tabs = []
+            self._actions = _ACTIONS_SELF
+            self.tabs = [] if is_bot else ["信息", "操作"]
         if not d:
             self.border_title = self._render_tabs() or self.border_title
             self.border_subtitle = ""
@@ -138,9 +146,8 @@ class StatusPanel(Panel):
             self.border_title = self._render_tabs()
             self.border_subtitle = name
         else:
-            # 查看自己/机器人：无标签，名字在 border_title
-            self.border_title = name
-            self.border_subtitle = ""
+            self.border_title = self._render_tabs() or name
+            self.border_subtitle = name if self.tabs else ""
 
         # ── 机器人：只显示简介 ──
         if is_bot:
@@ -160,18 +167,22 @@ class StatusPanel(Panel):
         if title:
             header = f"{ICON_INDENT}[{COLOR_FG_SECONDARY}]{title}[/]"
 
-        # ── 等级区：上行 exp 数字右对齐，下行 左等级 右[level]进度条 ──
+        # ── 等级区：经验数字与经验进度条 ──
         level = d.get('level', 0)
         exp = d.get('exp', 0)
         exp_next = d.get('exp_to_next', 0)
 
         lvl_table = _make_table()
         if exp_next:
-            lvl_table.add_row("", f"[{COLOR_FG_TERTIARY}]{exp}/{exp_next}[/]")
-        bar_right = f"[{COLOR_FG_PRIMARY}][{level}][/] {_exp_bar(exp, exp_next)}" if exp_next else f"[{COLOR_FG_PRIMARY}]{level}[/]"
+            lvl_table.add_row(
+                "", f"[{COLOR_FG_TERTIARY}]{exp}/{exp_next}[/]")
+        level_value = (
+            f"[{COLOR_FG_PRIMARY}][{level}][/] {_exp_bar(exp, exp_next)}"
+            if exp_next else f"[{COLOR_FG_PRIMARY}]{level}[/]"
+        )
         lvl_table.add_row(
             f"[{COLOR_FG_TERTIARY}]{NF_LEVEL} 等级[/]",
-            bar_right,
+            level_value,
         )
 
         # ── 属性表 ──
@@ -189,18 +200,18 @@ class StatusPanel(Panel):
 
         parts = []
         if header:
-            parts += [header, Rule(style=COLOR_BORDER)]
+            parts += [header, ""]
         parts += [lvl_table, t]
         self.query_one("#t0 .content", Static).update(Group(*parts))
-        # 切到信息页
-        if self._active != 0:
+        if self._is_other and self._active != 0:
             self.switch_tab(0)
         # 刷新操作页
-        if self._is_other:
+        if self.tabs:
             self._redraw_actions()
         # 隐藏 t1 tab when viewing self
         try:
-            self.query_one("#t1").display = self._is_other and self._active == 1
+            self.query_one("#t1").display = bool(
+                self.tabs and self._active == 1)
         except Exception:
             pass
 
@@ -208,7 +219,10 @@ class StatusPanel(Panel):
         """重绘操作标签页"""
         actions = self._actions
         if self._confirming:
-            act = actions[self._action_cursor]
+            selected = self.selected_option
+            if selected is None:
+                return
+            act = selected.data
             msg = act.get('confirm', '确认?').replace('{name}', self._viewed_name)
             text = self._render_confirm(msg)
             try:
@@ -216,30 +230,32 @@ class StatusPanel(Panel):
             except Exception:
                 pass
             return
-        lines = []
-        for i, act in enumerate(actions):
-            sel = i == self._action_cursor
-            label = act['label']
-            if sel:
-                lines.append(f"[bold {COLOR_FG_PRIMARY}]> {label}[/]")
-            else:
-                lines.append(f"[{COLOR_FG_TERTIARY}]{ICON_INDENT}{label}[/]")
+        self.set_options(
+            (Option(act["cmd"], act["label"], data=act) for act in actions),
+            f"profile-actions:{self._viewed_name}",
+        )
         try:
-            self.query_one("#t1 .content", Static).update("\n".join(lines))
+            self.query_one("#t1 .content", Static).update(
+                self.render_options())
         except Exception:
             pass
 
     def _execute_action(self) -> None:
         """执行当前选中的操作"""
+        selected = self.selected_option
+        if selected is None:
+            return
+        act = selected.data
+        cmd = act['cmd']
+        if cmd == '__chat_style__':
+            self.post_message(self.OpenChatStyle())
+            return
         if not self._viewed_name:
             return
-        actions = self._actions
-        act = actions[self._action_cursor]
-        cmd = act['cmd']
         # 需要确认的操作
         if act.get('confirm') and not self._confirming:
             self._confirming = True
-            self._confirm_cursor = 0
+
             self._redraw_actions()
             return
         self._confirming = False
@@ -258,9 +274,17 @@ class StatusPanel(Panel):
         cmd = cmd.replace('{name}', self._viewed_name)
         self.app.send_command(cmd)
 
+    def switch_tab(self, index: int) -> None:
+        super().switch_tab(index)
+        self.border_title = self._render_tabs() or self.border_title
+
+    def reflow_content(self) -> None:
+        if self._active == 1 and self.tabs:
+            self._redraw_actions()
+
     def nav(self, action: str) -> None:
         # 操作页的导航
-        if self._is_other and self._active == 1:
+        if self._active == 1:
             if self._confirming:
                 def _on_yes():
                     self._execute_action()
@@ -271,13 +295,11 @@ class StatusPanel(Panel):
                 self._redraw_actions()
                 return
             if action == "up":
-                if self._action_cursor > 0:
-                    self._action_cursor -= 1
+                if self.selection.move(-1):
                     self._redraw_actions()
                 return
             elif action == "down":
-                if self._action_cursor < len(self._actions) - 1:
-                    self._action_cursor += 1
+                if self.selection.move(1):
                     self._redraw_actions()
                 return
             elif action == "enter":

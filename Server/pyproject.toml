@@ -4,13 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uparlor-server"
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.10"
 dependencies = [
     "werkzeug",
-    "english-words",
-    "mahjong",
-    "python-chess",
 ]
 
 [project.scripts]
@@ -18,9 +15,6 @@ uparlor-server = "server:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["server*"]

@@ -84,19 +84,18 @@ def get_all_games():
     return result
 
 
-# 注册所有游戏（添加新游戏只需在此添加两行）
-# 游戏模块已移至 _archive/server_games/，恢复时取消注释。
-# from . import wordle
-# register_game('wordle', wordle)
+# 注册所有游戏（添加新游戏只需在此导入并注册）
 
 from . import uno
 register_game('uno', uno)
+
+from . import ludo
+register_game('ludo', ludo)
 # 游戏模块目录结构（JSON 文件均为可选，存在即自动注入）:
 #   games/chess/
 #       __init__.py        — GAME_INFO（id, name, icon, locations, create_engine）
 #       commands.json      — 各位置指令集
 #       ranks.json         — 游戏专属段位体系（可选，不提供则用框架默认）
 #       titles.json        — 游戏头衔 + 来源分类
-#       items.json         — 游戏物品 + 来源分类
 #       player_data.json   — 默认玩家数据（注册时自动写入用户档案）
 #       engine.py          — 游戏引擎

@@ -1,4 +1,4 @@
-"""UNO Flip 引擎 — 2-10 人房间制
+"""UNO 引擎 — 2-10 人房间制
 
 位置: lobby（大厅）/ uno#房间号（房间内）
 """
@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import threading
@@ -18,6 +19,7 @@ from .cards import LIGHT_COLORS, DARK_COLORS, COLOR_NAMES, VALUE_LABELS
 
 _dir = os.path.dirname(__file__)
 _data_dir = os.path.join(_dir, 'data')
+logger = logging.getLogger(__name__)
 
 
 def _load_help() -> str:
@@ -35,10 +37,11 @@ def _load_rewards() -> dict:
 
 
 class UnoEngine(BaseGameEngine):
-    """UNO Flip 引擎"""
+    """UNO 引擎"""
 
     game_key = 'uno'
-    display_name = 'UNO Flip'
+    display_name = 'UNO'
+    underfilled_start = 'confirm'
     _module_file = __file__
     _HELP_TEXT = _load_help()
     _REWARDS = _load_rewards()
@@ -54,6 +57,7 @@ class UnoEngine(BaseGameEngine):
         },
         'room': {
             'start': '_cmd_start',
+            'ready': '_cmd_ready',
             'invite': '_cmd_invite',
             'kick': '_cmd_kick',
             'bot': '_cmd_bot',
@@ -87,23 +91,24 @@ class UnoEngine(BaseGameEngine):
         return f'{self.game_key}#{room.room_id}'
 
     _HOST_ONLY_COMMANDS = {'start', 'kick', 'bot', 'dissolve'}
+    _NON_HOST_ONLY_COMMANDS = {'ready'}
 
     def get_commands(self, lobby, location, player_name, player_data):
         """根据房间状态返回指令列表，非房主过滤房主专属指令。"""
-        import copy
         from . import GAME_INFO
         cmd_data = GAME_INFO.get('commands', {})
         key = f'{self.game_key}:{self._get_command_key(player_name)}'
-        cmds = copy.deepcopy(cmd_data.get(key, []))
+        cmds = cmd_data.get(key, [])
         room = self.get_player_room(player_name)
         if room and room.host != player_name:
-            cmds = [c for c in cmds if c.get('name') not in self._HOST_ONLY_COMMANDS]
-        elif room:
+            return [c for c in cmds if c.get('name') not in self._HOST_ONLY_COMMANDS]
+        if room:
+            cmds = [c for c in cmds if c.get('name') not in self._NON_HOST_ONLY_COMMANDS]
             host = [c for c in cmds if c.get('name') in self._HOST_ONLY_COMMANDS]
             rest = [c for c in cmds if c.get('name') not in self._HOST_ONLY_COMMANDS]
             if host and rest:
-                cmds = host + [{'type': 'separator'}] + rest
-        return cmds
+                return host + [{'type': 'separator'}] + rest
+        return list(cmds)
 
     def handle_disconnect(self, lobby, player_name):
         room = self.get_player_room(player_name)
@@ -142,7 +147,10 @@ class UnoEngine(BaseGameEngine):
                 {'label': '确认放弃对局？', 'type': 'text'},
                 {'type': 'separator'},
                 {'label': '是', 'desc': '', 'command': '/forfeit'},
-                {'label': '否', 'desc': '', 'command': ''},
+                {
+                    'label': '否', 'desc': '',
+                    'command': '', 'type': 'return',
+                },
             ])
         if room and player_name in room._result_pending:
             # 刚结束 → 回到等待室
@@ -167,14 +175,17 @@ class UnoEngine(BaseGameEngine):
                 {'label': '确认放弃对局？', 'type': 'text'},
                 {'type': 'separator'},
                 {'label': '是', 'desc': '', 'command': '/forfeit'},
-                {'label': '否', 'desc': '', 'command': ''},
+                {
+                    'label': '否', 'desc': '',
+                    'command': '', 'type': 'return',
+                },
             ])
         self._remove_player(player_name)
         lobby.set_player_location(player_name, DEFAULT_LOCATION)
         result = {
             'action': 'location_update',
             'location': DEFAULT_LOCATION,
-            'send_to_caller': [{'type': GAME, 'text': '离开了 UNO Flip。'}],
+            'send_to_caller': [{'type': GAME, 'text': '离开了 UNO。'}],
             'refresh_commands': True,
             'refresh_room_list': True,
         }
@@ -195,12 +206,14 @@ class UnoEngine(BaseGameEngine):
             room = self._rooms[room_id]
             room.players = [p for p in room.players if p != player_name]
             room.bots.discard(player_name)
+            room.ready.discard(player_name)
             if not room.players or all(room.is_bot(p) for p in room.players):
                 self._rooms.pop(room_id, None)
             elif room.host == player_name:
                 for p in room.players:
                     if not room.is_bot(p):
                         room.host = p
+                        room.ready.discard(p)
                         break
 
     def _cleanup_room(self, room: UnoRoom):
@@ -261,7 +274,7 @@ class UnoEngine(BaseGameEngine):
         return {
             'action': 'uno_room_created',
             'send_to_caller': [
-                {'type': GAME, 'text': f'创建了 UNO Flip 房间 #{room_id}'},
+                {'type': GAME, 'text': f'创建了 UNO 房间 #{room_id}'},
                 {'type': ROOM_UPDATE, 'room_data': room.get_table_data()},
                 {'type': LOCATION_UPDATE, 'location': loc},
             ],
@@ -361,10 +374,21 @@ class UnoEngine(BaseGameEngine):
         room = self.get_player_room(player_name)
         if not room or room.host != player_name:
             return self._msg(player_name, '你不是房主。')
-        if len(room.players) < MIN_PLAYERS:
-            return self._msg(player_name, f'需要至少 {MIN_PLAYERS} 名玩家。')
+        player_check = self._check_start_players(
+            player_name, len(room.players), MIN_PLAYERS,
+            room.max_players, args)
+        if player_check:
+            return player_check
         if room.state != 'waiting':
             return self._msg(player_name, '游戏已在进行中。')
+        # 所有非房主、非 Bot 玩家都必须已准备
+        not_ready = [p for p in room.players
+                     if p != room.host and not room.is_bot(p)
+                     and p not in room.ready]
+        if not_ready:
+            return self._msg(player_name,
+                             f'还有玩家未准备：{", ".join(not_ready)}')
+        room.ready.clear()
 
         first_msg = room.start()
         loc = self._loc(room)
@@ -372,7 +396,7 @@ class UnoEngine(BaseGameEngine):
             if not room.is_bot(p):
                 lobby.set_player_location(p, loc)
 
-        game_text = 'UNO Flip 开始！'
+        game_text = 'UNO 开始！'
         if first_msg:
             game_text += f'\n{first_msg}'
 
@@ -391,6 +415,33 @@ class UnoEngine(BaseGameEngine):
             'refresh_commands': True,
             'refresh_room_list': True,
             'schedule': self._maybe_schedule_bot(room),
+        }
+
+    def _cmd_ready(self, lobby, player_name, player_data, args):
+        room = self.get_player_room(player_name)
+        if not room or room.state != 'waiting':
+            return self._msg(player_name, '当前不在等待中的房间。')
+        if room.host == player_name:
+            return self._msg(player_name, '房主无需准备。')
+        if player_name in room.ready:
+            room.ready.discard(player_name)
+            text = '已取消准备。'
+        else:
+            room.ready.add(player_name)
+            text = '已准备。'
+        td = room.get_table_data()
+        notify = {}
+        for p in room.players:
+            if p == player_name or room.is_bot(p):
+                continue
+            notify[p] = [{'type': ROOM_UPDATE, 'room_data': td}]
+        return {
+            'action': 'uno_ready',
+            'send_to_caller': [
+                {'type': GAME, 'text': text},
+                {'type': ROOM_UPDATE, 'room_data': td},
+            ],
+            'send_to_players': notify,
         }
 
     def _cmd_invite(self, lobby, player_name, player_data, args):
@@ -447,6 +498,7 @@ class UnoEngine(BaseGameEngine):
             return self._msg(player_name, f'{target} 不在房间中。')
         room.players.remove(target)
         room.bots.discard(target)
+        room.ready.discard(target)
         self._player_room.pop(target, None)
         lobby.set_player_location(target, DEFAULT_LOCATION)
         lobby_board = self._lobby_board()
@@ -759,8 +811,8 @@ class UnoEngine(BaseGameEngine):
             return self._msg(player_name, '当前不在游戏中。')
 
         msg = f'{player_name} 放弃了游戏。'
+        room.reset_match()
         room.state = 'waiting'
-        room.hands.clear()
 
         loc = self._loc(room)
         td = room.get_table_data()
@@ -790,46 +842,83 @@ class UnoEngine(BaseGameEngine):
     # ── 结算 ──
 
     def _handle_game_over(self, lobby, room, caller, caller_data):
+        if room.state != 'finished':
+            return self._msg(caller, '游戏尚未结束。')
+
+        from copy import deepcopy
         from ...systems.leveling import check_level_up
         from ...player.manager import PlayerManager
 
-        send_to_players = {}
-        refresh_status = []
-        caller_msgs = None
         has_bots = bool(room.bots)
-        rank_changes = {}
 
+        # 先逐玩家提交完整结果。成功玩家立即记入房间阶段状态；后续玩家
+        # 保存失败时，重试会跳过已提交玩家，而失败玩家的在线镜像未被修改。
         for p in room.players:
-            if room.is_bot(p):
+            if room.is_bot(p) or p in room._settled_players:
                 continue
             pd = caller_data if p == caller else lobby.online_players.get(p)
             if pd is None:
                 continue
 
             outcome = 'win' if p == room.winner else 'loss'
-            if outcome == 'win':
-                exp, gold = self._REWARDS['win']
-                self.report_game_result(lobby, p, pd, 'win')
-                rc = self._update_player_rank(pd, 'win', has_bots)
-            else:
-                exp, gold = self._REWARDS['loss']
-                self.report_game_result(lobby, p, pd, 'loss')
-                rc = self._update_player_rank(pd, 'loss', has_bots)
-            rank_changes[p] = rc
+            exp, gold = self._REWARDS[outcome]
+            working = deepcopy(pd)
+            self._apply_game_result(working, outcome)
+            rc = self._update_player_rank(working, outcome, has_bots)
 
             if has_bots:
                 gold = int(exp * self._REWARDS.get('gold_ratio_bot', 0.15))
 
-            pd['exp'] = pd.get('exp', 0) + exp
-            check_level_up(pd)
-            pd['gold'] = max(0, pd.get('gold', 0) + gold)
-            PlayerManager.save_player_data(p, pd)
-            refresh_status.append(p)
+            working['exp'] = working.get('exp', 0) + exp
+            check_level_up(working)
+            working['gold'] = max(0, working.get('gold', 0) + gold)
+            settlement = {'exp': exp, 'gold': gold, 'rank_change': rc}
+            try:
+                PlayerManager.save_player_data(p, working)
+            except OSError:
+                logger.exception(
+                    "UNO 房间 %s 的玩家 %s 结算保存失败，等待重试",
+                    room.room_id, p)
+                return self._settlement_retry_result(room, caller)
+            room._settlement_results[p] = settlement
+            room._settled_players.add(p)
+            working.pop('password_hash', None)
+            pd.clear()
+            pd.update(working)
 
+        unsettled = [
+            p for p in room.players
+            if not room.is_bot(p) and p not in room._settled_players
+        ]
+        if unsettled:
+            logger.warning(
+                "UNO 房间 %s 等待玩家数据后重试结算: %s",
+                room.room_id, unsettled)
+            return self._settlement_retry_result(room, caller)
+
+        send_to_players = {}
+        refresh_status = []
+        caller_msgs = None
+        rank_changes = {
+            p: result['rank_change']
+            for p, result in room._settlement_results.items()
+        }
+
+        # 只有全部持久化阶段完成后才构造通知并切回等待状态。若此阶段异常，
+        # 下一次调用仍会复用已记录的结算结果，不会再次发奖。
+        for p in room.players:
+            settlement = room._settlement_results.get(p)
+            if settlement is None:
+                continue
+            pd = caller_data if p == caller else lobby.online_players.get(p)
+            exp = settlement['exp']
+            gold = settlement['gold']
+            rc = settlement['rank_change']
+            refresh_status.append(p)
             lobby.set_player_location(p, self._loc(room))
             board = room.get_game_data(viewer=p)
             board['rank_changes'] = rank_changes
-            result_text = self._format_result(p, room, exp, gold, rank_changes.get(p))
+            result_text = self._format_result(p, room, exp, gold, rc)
             msgs = [
                 {'type': GAME, 'text': result_text},
                 {'type': ROOM_UPDATE, 'room_data': board},
@@ -841,6 +930,7 @@ class UnoEngine(BaseGameEngine):
                 send_to_players[p] = msgs
 
         room.state = 'waiting'
+        room._settlement_retry_scheduled = False
         room.hands.clear()
         room._result_pending = {p for p in room.players if not room.is_bot(p)}
 
@@ -863,7 +953,7 @@ class UnoEngine(BaseGameEngine):
     def _format_result(self, player, room, exp, gold, rc):
         lines = []
         if room.winner:
-            lines.append(f'★ {room.winner} 获胜！')
+            lines.append(f'{room.winner} 获胜！')
         if room.scores:
             total = sum(v for k, v in room.scores.items() if v > 0)
             if total:
@@ -897,7 +987,7 @@ class UnoEngine(BaseGameEngine):
 
 
 class UnoBotScheduler:
-    """UNO Flip Bot 调度器"""
+    """UNO Bot 调度器"""
 
     def __init__(self, server):
         self._server = server
@@ -910,6 +1000,25 @@ class UnoBotScheduler:
             t = threading.Timer(delay, self._run_bot_turn, args=(room_id,))
             t.daemon = True
             t.start()
+        elif action == 'settlement_retry':
+            delay = task.get('delay', 1.0)
+            generation = task.get('generation', -1)
+            t = threading.Timer(
+                delay, self._run_settlement_retry,
+                args=(room_id, generation))
+            t.daemon = True
+            t.start()
+
+    def _run_settlement_retry(self, room_id, generation):
+        server = self._server
+        lobby = server.lobby_engine
+        with lobby._lock:
+            engine = lobby.game_engines.get('uno')
+            if not engine:
+                return
+            result = engine._retry_settlement(lobby, room_id, generation)
+            if result is not None:
+                server.dispatch_game_result(result)
 
     def _run_bot_turn(self, room_id):
         server = self._server
@@ -1020,31 +1129,23 @@ class UnoBotScheduler:
 
     def _broadcast(self, engine, room, msg):
         server = self._server
-        with server.lock:
-            for p in room.players:
-                if not room.is_bot(p):
-                    board = room.get_game_data(viewer=p)
-                    msgs = []
-                    if msg:
-                        msgs.append({'type': GAME, 'text': msg})
-                    msgs.append({'type': ROOM_UPDATE, 'room_data': board})
-                    for m in msgs:
-                        server.send_to_player(p, m)
+        for p in room.players:
+            if not room.is_bot(p):
+                board = room.get_game_data(viewer=p)
+                msgs = []
+                if msg:
+                    msgs.append({'type': GAME, 'text': msg})
+                msgs.append({'type': ROOM_UPDATE, 'room_data': board})
+                for m in msgs:
+                    server.send_to_player(p, m)
 
-            if room.state == 'finished':
-                for p in room.players:
-                    if not room.is_bot(p):
-                        pd = server._get_player_data(p)
-                        if pd:
-                            from ...core.result_dispatcher import dispatch_game_result
-                            result = engine._handle_game_over(
-                                server.lobby_engine, room, p, pd)
-                            dispatch_game_result(
-                                server, result, caller_name=p, caller_data=pd)
-                            break
-            else:
-                for t in engine._maybe_schedule_bot(room):
-                    self.handle_schedule(t)
+        if room.state == 'finished':
+            result = engine._handle_game_over(
+                server.lobby_engine, room, '', {})
+            server.dispatch_game_result(result)
+        else:
+            for t in engine._maybe_schedule_bot(room):
+                self.handle_schedule(t)
 
 
 def create_bot_scheduler(server):

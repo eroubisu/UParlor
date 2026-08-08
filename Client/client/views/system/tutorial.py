@@ -8,14 +8,17 @@
 """
 from __future__ import annotations
 
-from rich.cells import cell_len
+from ...window_engine.text import cell_width
 from textual.app import ComposeResult
 from textual.events import Click, MouseDown, MouseMove
-from textual.widgets import Input
+from textual.containers import VerticalScroll
+from textual.widgets import Input, Static
 from textual.message import Message
 
 from ...widgets.panel import Panel
+from ...window_engine import Divider, InputSpec, Option
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
 from ...config import (
     M_DIM, M_BOLD, M_CMD, M_ONLINE, M_END,
     COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_ONLINE,
@@ -64,11 +67,11 @@ _PREF = [
 ]
 
 # Max CJK width of label column for alignment
-_LABEL_W = max(cell_len(p['label']) for p in _PREF)
+_LABEL_W = max(cell_width(p['label']) for p in _PREF)
 
 
 def _pad(text: str, width: int) -> str:
-    return text + ' ' * (width - cell_len(text))
+    return text + ' ' * (width - cell_width(text))
 
 
 def _radio_label(idx: int) -> str:
@@ -153,9 +156,9 @@ def _page_focus() -> list[tuple[str, str]]:
     """Page 4: 面板切换（左侧面板内容）"""
     return [
         # 介绍
-        (TEXT, f'小写 {M_CMD}h/j/k/l{M_END} 移动光标'),
-        (TEXT, f'大写 {M_CMD}H/J/K/L{M_END} 切换面板'),
-        (TEXT, f'{M_DIM}{M_CMD}Shift+方向键{M_END}{M_DIM} 和 {M_CMD}W/A/S/D{M_END}{M_DIM} 同效{M_END}'),
+        (TEXT, f'方向键只在当前面板内导航'),
+        (TEXT, f'{M_CMD}Shift+方向键{M_END} 切换面板'),
+        (TEXT, f'{M_DIM}大写 {M_CMD}W/A/S/D{M_END}{M_DIM}、{M_CMD}H/J/K/L{M_END}{M_DIM} 与其同效{M_END}'),
         (SEP, ''),
         # 练习区
         (TEXT, f'{M_BOLD}切换到右侧面板{M_END}'),
@@ -188,14 +191,15 @@ def _page_input(p: int, messages: list[str]) -> list[tuple[str, str]]:
 
 
 def _page_space(p: int) -> list[tuple[str, str]]:
-    """Page 6: 快捷菜单"""
+    """Page 6: root menu"""
     return [
         # 介绍
-        (TEXT, f'{M_DIM}快捷菜单集中了常用功能入口。{M_END}'),
+        (TEXT, f'{M_DIM}功能菜单集中了常用入口。{M_END}'),
         (TEXT, f'{M_DIM}注意：开始界面无法使用，进入游戏后可体验。{M_END}'),
         (SEP, ''),
         # 说明区
-        (TEXT, f'{M_CMD}Space{M_END}  打开快捷菜单'),
+        (TEXT, f'{M_CMD}Space{M_END}  打开功能菜单'),
+        (TEXT, f'{M_DIM}使用方向键移动并确认选择，不使用字母快捷项。{M_END}'),
         (SEP, ''),
         # 导航
         (BACK, _LABEL_BACK),
@@ -209,7 +213,7 @@ def _page_done(p: int) -> list[tuple[str, str]]:
         (TEXT, f'{M_BOLD}基础教程完成！{M_END}'),
         (SEP, ''),
         (TEXT, f'按 {M_CMD}Esc{M_END} 退出教程'),
-        (TEXT, f'{M_DIM}详细文档可进入游戏后通过 {M_CMD}Space → s → 打开文档{M_END} 查看'),
+        (TEXT, f'{M_DIM}进入游戏后可从 {M_CMD}Space{M_END}{M_DIM} 菜单选择“设置”，再选择“打开文档”。{M_END}'),
         (SEP, ''),
         # 导航
         (BACK, _LABEL_BACK),
@@ -276,14 +280,27 @@ class TutorialPanel(Panel):
         self._input_ready: bool = False
         self._messages: list[str] = []
 
+    def compose_content(self) -> ComposeResult:
+        for index in range(2):
+            with VerticalScroll(classes="tab", id=f"t{index}"):
+                yield Static(
+                    "", id=f"tutorial-before-{index}",
+                    classes="content icon-align", markup=True,
+                )
+                yield Divider(id=f"tutorial-divider-{index}")
+                yield Static(
+                    "", id=f"tutorial-after-{index}",
+                    classes="tutorial-after icon-align", markup=True,
+                )
+
     def on_mount(self) -> None:
         super().on_mount()
         for t in self.query('.tab'):
             t.can_focus = False
-        self.query_one('#input-row').display = False
+        self.activate_input_context()
         self.call_after_refresh(self._build_page)
 
-    def on_resize(self) -> None:
+    def reflow_content(self) -> None:
         self._build_page()
 
     def reset_cursor(self) -> None:
@@ -295,10 +312,8 @@ class TutorialPanel(Panel):
         self._on_tab1 = False
         self._input_ready = False
         self._messages.clear()
-        try:
-            self.query_one('#input-row').display = False
-        except Exception:
-            pass
+        if self.is_mounted:
+            self.activate_input_context()
         if self._active != 0:
             self.switch_tab(0)
         self._update_title()
@@ -316,30 +331,29 @@ class TutorialPanel(Panel):
         event.stop()
         event.prevent_default()
 
-    def get_input_widget(self) -> Input | None:
-        if self._page == _P_INPUT and self._input_ready:
-            return self.query_one('#input', Input)
-        return None
+    def input_spec(self) -> InputSpec:
+        available = self._page == _P_INPUT and self._input_ready
+        return InputSpec(
+            context_id="tutorial:practice-input",
+            placeholder=self.placeholder,
+            visible=available,
+            enabled=available,
+            focus=True,
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if self._page != _P_INPUT:
             return
-        text = event.input.value.strip()
+        text = self.submit_input(event, clear=True).strip()
         if not text:
             return
         self._messages.append(text)
-        event.input.value = ''
-        event.stop()
         screen = self.app.screen
         sticky = getattr(screen, '_sticky_insert', False)
         if sticky:
             # 大写 I: 保持输入框打开，只刷新页面
             self._build_page()
         else:
-            # 小写 i: 禁用输入框，退出 INSERT
-            event.input.disabled = True
-            if hasattr(screen, '_to_normal'):
-                screen._to_normal()
             self._build_page()
 
     # ── Navigation ──
@@ -362,7 +376,6 @@ class TutorialPanel(Panel):
                 self.switch_tab(1)
                 self._update_title()
                 self._items = _page_tab_t1(self._pref)
-                self._cursor = self._first_selectable()
                 self.call_after_refresh(lambda: self._redraw(tab=1))
                 return
             if action == 'tab_prev':
@@ -371,7 +384,6 @@ class TutorialPanel(Panel):
                     self.switch_tab(0)
                     self._update_title()
                     self._items = _page_tab(self._pref)
-                    self._cursor = self._first_selectable()
                     self.call_after_refresh(lambda: self._redraw(tab=0))
                 return
 
@@ -384,31 +396,19 @@ class TutorialPanel(Panel):
                 self._activate()
 
     def _skip_cursor(self, delta: int) -> None:
-        if not self._items:
-            return
-        n = len(self._items)
-        new = self._cursor + delta
-        while 0 <= new < n:
-            if self._items[new][0] not in (TEXT, SEP):
-                self._cursor = new
-                self._redraw()
-                return
-            new += delta
-
-    def _first_selectable(self) -> int:
-        for i, (t, _) in enumerate(self._items):
-            if t not in (TEXT, SEP):
-                return i
-        return -1
+        if self.selection.move(delta):
+            self._redraw()
 
     def _activate(self) -> None:
-        if self._cursor < 0 or self._cursor >= len(self._items):
+        selected = self.selected_option
+        if selected is None:
             return
-        typ, _ = self._items[self._cursor]
+        index = int(selected.id)
+        typ, _ = self._items[index]
 
         if typ == RADIO:
             radio_idx = [i for i, (t, _) in enumerate(self._items) if t == RADIO]
-            self._pref = radio_idx.index(self._cursor)
+            self._pref = radio_idx.index(index)
             old_set = self._pref_set
             self._pref_set = True
             if not old_set:
@@ -419,7 +419,7 @@ class TutorialPanel(Panel):
             return
 
         if typ == PRACTICE:
-            self._checked ^= {self._cursor}
+            self._checked ^= {index}
             self._redraw()
             return
 
@@ -458,10 +458,7 @@ class TutorialPanel(Panel):
             window._set_focus_target(page == _P_FOCUS)
             if window._focus_pos != (0, 0):
                 window.reset_focus()
-        try:
-            self.query_one('#input-row').display = (page == _P_INPUT)
-        except Exception:
-            pass
+        self.activate_input_context()
         if self._active != 0:
             self.switch_tab(0)
         self._update_title()
@@ -470,7 +467,7 @@ class TutorialPanel(Panel):
     def _build_page(self) -> None:
         if self._page == _P_SCROLL:
             self._items = []
-            self._cursor = -1
+            self.selection.set_options((), f"tutorial:{self._page}")
             self._set_scrollbar(True)
             self.call_after_refresh(self._redraw_scroll)
             return
@@ -478,13 +475,11 @@ class TutorialPanel(Panel):
         # Input page uses special builder
         if self._page == _P_INPUT:
             self._items = _page_input(self._pref, self._messages)
-            self._cursor = self._first_selectable()
             self.call_after_refresh(self._redraw)
             return
         # Focus page uses special builder
         if self._page == _P_FOCUS:
             self._items = _page_focus()
-            self._cursor = self._first_selectable()
             self._redraw()
             return
         builder = _BUILDERS[self._page]
@@ -496,7 +491,6 @@ class TutorialPanel(Panel):
             self._items = builder(self._pref_set)
         else:
             self._items = builder(self._pref)
-        self._cursor = self._first_selectable()
         self._redraw()
 
     def _update_title(self) -> None:
@@ -508,55 +502,78 @@ class TutorialPanel(Panel):
             self.border_title = f'({n}/{_TOTAL}) {title}'
 
     def _set_scrollbar(self, visible: bool) -> None:
-        for t in self.query('.tab'):
-            t.styles.scrollbar_size_vertical = 1 if visible else 0
+        self.set_scrollbar_visible(visible)
 
     # ── Rendering ──
 
     def _redraw(self, tab: int | None = None) -> None:
-        sep = self._separator_line(COLOR_FG_TERTIARY)
         radio_idx = [i for i, (t, _) in enumerate(self._items) if t == RADIO]
-        lines: list[str] = []
+        target = tab if tab is not None else (1 if self._on_tab1 else 0)
+        options = []
+        for index, (typ, label) in enumerate(self._items):
+            if typ == RADIO:
+                selected = radio_idx.index(index) == self._pref and self._pref_set
+                dot = (
+                    f"[{COLOR_ONLINE}]{NF_ONLINE}[/]"
+                    if selected else NF_OFFLINE
+                )
+                rendered_label = f"{dot} {label}"
+            elif typ == PRACTICE:
+                dot = (
+                    f"[{COLOR_ONLINE}]{NF_ONLINE}[/]"
+                    if index in self._checked else NF_OFFLINE
+                )
+                rendered_label = f"{dot} {label}"
+            else:
+                rendered_label = label
+            options.append(Option(
+                str(index),
+                rendered_label,
+                enabled=typ not in (TEXT, SEP),
+                data=(typ, label),
+                markup=True,
+            ))
+        self.set_options(
+            options, f"tutorial:{self._page}:{target}",
+        )
+        before: list[str] = []
+        after: list[str] = []
+        lines = before
+        has_divider = False
 
         for i, (typ, label) in enumerate(self._items):
             if typ == TEXT:
                 lines.append(label)
             elif typ == SEP:
-                lines.append(sep)
-            elif typ == RADIO:
-                ri = radio_idx.index(i)
-                sel = ri == self._pref and self._pref_set
-                dot = f'[{COLOR_ONLINE}]{NF_ONLINE}[/]' if sel else f'{NF_OFFLINE}'
-                if i == self._cursor:
-                    lines.append(f'[bold {COLOR_FG_PRIMARY}]> {dot} {label}[/]')
-                else:
-                    lines.append(f'{ICON_INDENT}{dot} {label}')
-            elif typ == PRACTICE:
-                sel = i in self._checked
-                dot = f'[{COLOR_ONLINE}]{NF_ONLINE}[/]' if sel else f'{NF_OFFLINE}'
-                if i == self._cursor:
-                    lines.append(f'[bold {COLOR_FG_PRIMARY}]> {dot} {label}[/]')
-                else:
-                    lines.append(f'{ICON_INDENT}{dot} {label}')
-            elif typ in (ACTION, BACK):
-                if i == self._cursor:
-                    lines.append(f'[bold {COLOR_FG_PRIMARY}]> {label}[/]')
-                else:
-                    lines.append(f'{ICON_INDENT}{M_DIM}{label}{M_END}')
+                has_divider = True
+                lines = after
+            else:
+                lines.extend(self.selection.render_option(
+                    options[i],
+                    self._content_width(target),
+                    idle_prefix=ICON_INDENT,
+                    selected_style=f"bold {COLOR_FG_PRIMARY}",
+                    idle_style=COLOR_FG_TERTIARY,
+                ))
 
-        target = tab if tab is not None else (1 if self._on_tab1 else 0)
-        self.update('\n'.join(lines), tab=target)
+        self.query_one(
+            f"#tutorial-before-{target}", Static,
+        ).update("\n".join(before))
+        self.query_one(
+            f"#tutorial-divider-{target}", Divider,
+        ).display = has_divider
+        self.query_one(
+            f"#tutorial-after-{target}", Static,
+        ).update("\n".join(after))
 
     def _redraw_scroll(self) -> None:
-        w = self._content_width()
-        # Scrollbar takes 1 col; separator must not wrap
-        sep_w = max(w - 1, 1)
-        line = '\u2500' * sep_w
-        sep = f'[{COLOR_FG_TERTIARY}]{line}[/]'
-        text = _SCROLL_TMPL.format(
-            sep=sep, dim=M_DIM, end=M_END, cmd=M_CMD,
-        )
-        self.update(text)
+        before, after = _SCROLL_TMPL.split("{sep}", 1)
+        values = {"dim": M_DIM, "end": M_END, "cmd": M_CMD}
+        self.query_one("#tutorial-before-0", Static).update(
+            before.format(**values))
+        self.query_one("#tutorial-divider-0", Divider).display = True
+        self.query_one("#tutorial-after-0", Static).update(
+            after.format(**values))
 
 
 class _FocusTarget(Panel):
@@ -578,10 +595,14 @@ class _FocusTarget(Panel):
     def _show_success(self) -> None:
         """用户已切换到此面板，显示下一步"""
         self._arrived = True
+        self.set_options(
+            (Option("next", _LABEL_NEXT),),
+            "tutorial-focus-target",
+        )
         self.update(
             f'{ICON_INDENT}{M_ONLINE}{NF_CHECK}{M_END} 切换成功！\n'
             f'\n'
-            f'[bold {COLOR_FG_PRIMARY}]> {_LABEL_NEXT}[/]'
+            f'{self.render_options()}'
         )
 
     def on_panel_focus(self) -> None:
@@ -623,6 +644,12 @@ class TutorialWindow(Window):
 
     focus_grid = [["tutorial-panel", "focus-target"]]
 
+    # WindowEngine 主窗口 (教程 - 未完成时走这条)
+    spec = WindowSpec(
+        id="tutorial-window", title="教程",
+        group="primary", mode="primary", order=5,
+    )
+
     def compose(self) -> ComposeResult:
         yield TutorialPanel(id="tutorial-panel")
         yield _FocusTarget(id="focus-target")
@@ -652,3 +679,6 @@ class TutorialWindow(Window):
 
     def on_mouse_move(self, event: MouseMove) -> None:
         event.stop()
+
+
+register_window(TutorialWindow)

@@ -21,6 +21,7 @@ Screen {
     background: ansi_default;
     layers: default windows floating overlay;
     align: center middle;
+    overflow: hidden hidden;
 }
 
 /* ── footer ── */
@@ -68,65 +69,12 @@ Input > .input--cursor {
 
 /* ── 全屏 Window 避开底栏 ── */
 
-#login-window, #lobby-window, #waiting-window, #game-window {
+Window.-primary {
     margin-bottom: 1;
 }
 
-.panel-prompt.visible {
-    display: block;
-}
-
-/* ── 物品栏列表 ── */
-#inventory-list {
-    height: 1fr;
-}
-
-#status-list {
-    height: 1fr;
-    display: none;
-}
-
-/* ── 面板标签栏 ── */
-#chat-header, #online-header, #notify-header, #inventory-header, #status-header {
-    height: auto;
-    dock: top;
-    background: transparent;
-    border: none;
-    padding: 0 1;
-}
-
-/* ── 游戏面板指令栏容器 ── */
-
-#chat-input-bar {
-    max-height: 7;
-}
-
-#inventory-input-bar {
-    max-height: 7;
-}
-
-.input-bar-prompt {
-    height: auto;
-    max-height: 4;
-    width: 100%;
-    border: none;
-    background: transparent;
-}
-
-.hint-tabs {
-    height: 1;
-    width: 100%;
-}
-
-.hint-content {
-    height: 5;
-    width: 100%;
-    color: $color-fg-secondary;
-    padding: 0 1 0 0;
-}
-
 /* ── 聚焦指示 ── */
-Panel.-focused {
+Window.-active Panel.-focused {
     border: round $color-fg-secondary;
     border-title-color: $color-fg-primary;
 }
@@ -134,32 +82,4 @@ Panel.-focused {
 /* ── 聊天浮窗 ── */
 #chat-window {
     margin-bottom: 1;
-}
-
-/* ── which-key 浮动弹窗 ── */
-#which-key-overlay {
-    layer: overlay;
-    display: none;
-    dock: bottom;
-    align-horizontal: right;
-    width: auto;
-    min-width: 20;
-    max-width: 40;
-    height: auto;
-    max-height: 20;
-    margin: 0 0 1 0;
-    border: round $color-accent;
-    border-title-color: $color-accent;
-    padding: 0 1;
-    background: transparent;
-}
-
-#which-key-overlay.visible {
-    display: block;
-}
-
-#wk-content {
-    width: 100%;
-    height: auto;
-    color: $color-fg-secondary;
 }

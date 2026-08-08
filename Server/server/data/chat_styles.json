@@ -1,0 +1,46 @@
+{
+  "colors": [
+    {"id": "white", "label": "白色", "value": "#ffffff"},
+    {"id": "silver", "label": "浅灰", "value": "#b3b3b3"},
+    {"id": "gray", "label": "中灰", "value": "#808080"},
+    {"id": "charcoal", "label": "深灰", "value": "#454545"},
+    {"id": "blue", "label": "蓝色", "value": "#6fa8dc"},
+    {"id": "gold", "label": "金色", "value": "#d4a017"},
+    {"id": "green", "label": "绿色", "value": "#81c784"},
+    {"id": "red", "label": "红色", "value": "#e57373"},
+    {"id": "orange", "label": "橙色", "value": "#ffb74d"},
+    {"id": "purple", "label": "紫色", "value": "#b39ddb"}
+  ],
+  "edge_connectors": [
+    {"id": "flat", "label": "平直"},
+    {"id": "blurred", "label": "模糊渐变"},
+    {"id": "angled", "label": "尖角"},
+    {"id": "slanted", "label": "斜面"},
+    {"id": "round", "label": "圆弧"}
+  ],
+  "separators": [
+    {"id": "angled", "label": "尖角"},
+    {"id": "vertical", "label": "垂直"},
+    {"id": "slanted", "label": "斜线"},
+    {"id": "round", "label": "圆弧"}
+  ],
+  "frames": [
+    {"id": "square", "label": "直角外框"},
+    {"id": "round", "label": "圆角外框"}
+  ],
+  "default": {
+    "title_id": "newcomer",
+    "name_fg": "white",
+    "name_bg": "blue",
+    "title_fg": "white",
+    "title_bg": "purple",
+    "level_fg": "white",
+    "level_bg": "charcoal",
+    "frame": "silver",
+    "body": "white",
+    "left_connector": "round",
+    "inner_connector": "angled",
+    "right_connector": "round",
+    "frame_shape": "square"
+  }
+}

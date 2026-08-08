@@ -17,6 +17,7 @@ from ...config import M_DIM, M_END, COLOR_BORDER
 from ...widgets.panel import Panel, _widget_width, _widget_height
 from ...protocol.renderer import get_renderer, render_doc
 from ...protocol.handler import get_handler, GameHandlerContext
+from ...window_engine import Divider
 
 # 卡牌布局常量（需与 renderer 中的 _CARD_W 一致）
 _CARD_TOTAL_W = 5  # 内宽3 + 左右边框2
@@ -61,7 +62,6 @@ class GameBoardPanel(Panel):
     GameBoardPanel > #board-controls {{
         height: auto;
         padding: 0;
-        border-top: solid {COLOR_BORDER};
     }}
     """
 
@@ -78,14 +78,20 @@ class GameBoardPanel(Panel):
         yield Static("", id="board-info", classes="full-width", markup=True)
         with VerticalScroll(classes="tab", id="t0"):
             yield Static("", id="board-main", classes="content full-width", markup=True)
+        yield Divider(style=COLOR_BORDER)
         yield Static("", id="board-controls", classes="full-width", markup=True)
 
     def bind_state(self, st, send_command=None, set_timer=None) -> None:
+        if self._state is not None:
+            self._state.game_board.remove_listener(self._on_event)
+            self._state.game_interaction.remove_listener(
+                self._on_interaction_event)
         self._state = st
         self._game_state = st.game_board
         self._send_command = send_command
         self._set_timer = set_timer
         st.game_board.add_listener(self._on_event)
+        st.game_interaction.add_listener(self._on_interaction_event)
         self._refresh()
 
     def _on_event(self, event: str, *args):
@@ -94,7 +100,10 @@ class GameBoardPanel(Panel):
                 self._section_sigs.clear()
             self._refresh()
 
-    def on_resize(self, event) -> None:
+    def _on_interaction_event(self, event: str, *args) -> None:
+        self._refresh()
+
+    def reflow_content(self) -> None:
         self._section_sigs.clear()
         self._refresh()
 
@@ -133,12 +142,15 @@ class GameBoardPanel(Panel):
         board_width = _widget_width(self, 't0')
         board_height = _widget_height(self, 't0')
 
-        handler = get_handler(game_type)
         interaction = None
-        if handler and hasattr(handler, 'interaction_state') and room_state == 'playing':
-            interaction = handler.interaction_state
-            if hasattr(handler, '_cards_per_row'):
-                handler._cards_per_row = _calc_cards_per_row(board_width)
+        if self._state and room_state == 'playing':
+            interaction = self._state.game_interaction.snapshot(game_type)
+            if interaction and 'cards_per_row' in interaction:
+                cards_per_row = _calc_cards_per_row(board_width)
+                if interaction.get('cards_per_row') != cards_per_row:
+                    self._state.game_interaction.update(
+                        game_type, cards_per_row=cards_per_row)
+                    return
 
         sections = renderer.render_board(rd, interaction, board_width, board_height)
 
@@ -180,8 +192,7 @@ class GameBoardPanel(Panel):
         except Exception:
             pass
         try:
-            vs = self.query_one("#t0", VerticalScroll)
-            vs.styles.scrollbar_size_vertical = 1
+            self.set_scrollbar_visible(True, 0)
         except Exception:
             pass
         self.query_one("#board-main", Static).update(renderable)
@@ -203,8 +214,7 @@ class GameBoardPanel(Panel):
         except Exception:
             pass
         try:
-            vs = self.query_one("#t0", VerticalScroll)
-            vs.styles.scrollbar_size_vertical = 0
+            self.set_scrollbar_visible(False, 0)
         except Exception:
             pass
         self._refresh()
@@ -220,8 +230,8 @@ class GameBoardPanel(Panel):
 
         if (handler and hasattr(handler, 'on_nav')
                 and room_state == 'playing'
-                and hasattr(handler, 'interaction_state')
-                and handler.interaction_state is not None):
+                and self._state
+                and self._state.game_interaction.snapshot(game_type) is not None):
             ctx = self._make_ctx()
             if ctx:
                 direction_map = {

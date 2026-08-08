@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from rich.console import RenderableType
 
+from ..config import GAME_GLYPHS
+from ..window_engine.text import cell_width, uses_emoji_presentation
+
 
 @runtime_checkable
 class GameRenderer(Protocol):
@@ -23,6 +26,8 @@ class GameRenderer(Protocol):
     """
 
     game_type: str  # 游戏标识符，与 room_data["game_type"] 一致
+    icon: str  # 游戏列表使用的 Nerd Font 单色图标
+    glyphs: frozenset[str]  # 游戏使用的单色布局字形
 
     def render_board(self, room_data: dict) -> dict[str, RenderableType | None]:
         """渲染游戏主画面，返回分区 dict"""
@@ -36,6 +41,19 @@ RENDERER_REGISTRY: dict[str, GameRenderer] = {}
 
 def register_renderer(renderer: GameRenderer) -> None:
     """注册游戏渲染器"""
+    if renderer.icon not in renderer.glyphs:
+        raise ValueError(
+            f"{renderer.game_type}: renderer icon must be a declared glyph")
+    for glyph in renderer.glyphs:
+        if uses_emoji_presentation(glyph):
+            raise ValueError(
+                f"{renderer.game_type}: emoji presentation is not allowed")
+        if cell_width(glyph) != 1:
+            raise ValueError(
+                f"{renderer.game_type}: glyph must occupy one cell: {glyph!r}")
+        if glyph not in GAME_GLYPHS:
+            raise ValueError(
+                f"{renderer.game_type}: unregistered game glyph {glyph!r}")
     RENDERER_REGISTRY[renderer.game_type] = renderer
 
 

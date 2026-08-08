@@ -1,12 +1,15 @@
-"""游戏主窗口 — LogPanel + 游戏棋盘 + RoomControlsPanel"""
+"""游戏主窗口 — LogPanel + 游戏棋盘 + 右上聊天 + 右下操作"""
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import bind_state_with_send
 from ..lobby.log import LogPanel
+from ..chat.content import ChatContentPanel
 from .board import GameBoardPanel
 from .controls import RoomControlsPanel
 
@@ -32,13 +35,36 @@ class GameWindow(Window):
     GameWindow > #game-body > #game-board {
         width: 1fr;
     }
-    GameWindow > #game-body > #room-controls {
-        width: 24;
+    GameWindow > #game-body > #game-right {
+        width: 36;
+        height: 1fr;
+    }
+    GameWindow > #game-body > #game-right > #game-chat {
+        height: 3fr;
+        width: 1fr;
+        min-height: 8;
+    }
+    GameWindow > #game-body > #game-right > #room-controls {
+        height: 1fr;
+        width: 1fr;
+        min-height: 6;
     }
     """
 
-    focus_grid = [["game-log"], ["game-board", "room-controls"]]
+    # 同 waiting_window 的多行布局：左栏跨行，右栏分上下两行
+    focus_grid = [
+        ["game-log"],
+        ["game-board", "game-chat"],
+        ["game-board", "room-controls"],
+    ]
     primary_panel = 'game-board'
+
+    # WindowEngine 主窗口 (游戏中)
+    spec = WindowSpec(
+        id="game-window", title="游戏中",
+        group="primary", mode="primary", order=40,
+        bind=bind_state_with_send,
+    )
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -49,7 +75,9 @@ class GameWindow(Window):
         yield LogPanel(id="game-log")
         with Horizontal(id="game-body"):
             yield GameBoardPanel(id="game-board")
-            yield RoomControlsPanel(id="room-controls")
+            with Vertical(id="game-right"):
+                yield ChatContentPanel(id="game-chat")
+                yield RoomControlsPanel(id="room-controls")
 
     def bind_state(self, st, send_fn=None) -> None:
         if self._bound:
@@ -57,11 +85,16 @@ class GameWindow(Window):
         self._bound = True
         self.query_one("#game-log", LogPanel).bind_state(st)
         board = self.query_one("#game-board", GameBoardPanel)
-        board.bind_state(st, send_command=send_fn,
-                         set_timer=self.app.set_timer if hasattr(self.app, 'set_timer') else None)
+        board.bind_state(
+            st, send_command=send_fn,
+            set_timer=self.app.set_timer if hasattr(self.app, 'set_timer') else None,
+        )
+        cp = self.query_one("#game-chat", ChatContentPanel)
+        cp.bind_state(st)
+        cp.show_conversation("room")
         rc = self.query_one("#room-controls", RoomControlsPanel)
         if send_fn:
             rc.bind_send(send_fn)
 
-    def show(self) -> None:
-        super().show()
+
+register_window(GameWindow)

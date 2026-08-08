@@ -5,6 +5,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from ...widgets.window import Window
+from ...window_engine import WindowSpec, register_window
+from ...window_specs import logged_in, bind_profile
 from .status_panel import StatusPanel
 
 
@@ -24,6 +26,13 @@ class ProfileWindow(Window):
     """
 
     focus_grid = [["status-panel"]]
+
+    spec = WindowSpec(
+        id="profile-window", title="档案", menu=True,
+        group="root", order=55,
+        preconditions=(logged_in,),
+        bind=bind_profile,
+    )
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -45,5 +54,5 @@ class ProfileWindow(Window):
         self.query_one("#status-panel", StatusPanel).render_card(
             data, is_self=is_self, friends=friends)
 
-    def show(self) -> None:
-        super().show()
+
+register_window(ProfileWindow)

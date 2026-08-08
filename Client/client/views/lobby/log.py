@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from textual.containers import VerticalScroll
-
 from ...widgets.panel import Panel
 
 
@@ -12,13 +10,6 @@ class LogPanel(Panel):
 
     title = "记录"
     hide_scrollbar = True
-
-    def append(self, text: str, tab: int | None = None) -> None:
-        """追加消息并强制滚动到最新（覆盖父类的 at_bottom 检测）"""
-        super().append(text, tab)
-        tab = self._active if tab is None else tab
-        vs = self.query_one(f"#t{tab}", VerticalScroll)
-        vs.scroll_end(animate=False)
 
     def _on_state(self, event: str, *args):
         match event:
