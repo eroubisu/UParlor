@@ -534,14 +534,64 @@ class ScrollPolicy:
         return scroll.scroll_offset.y >= scroll.max_scroll_y - 1
 
     @classmethod
-    def update(cls, scroll, update: Callable[[], None], defer: Callable | None = None) -> None:
+    def update(
+        cls,
+        scroll,
+        update: Callable[[], None],
+        defer: Callable | None = None,
+        reflow: Callable[[], None] | None = None,
+    ) -> None:
         at_bottom = cls.at_bottom(scroll)
+        scrollbar_was_visible = scroll.show_vertical_scrollbar
+        revision = getattr(scroll, "_scroll_policy_revision", 0) + 1
+        setattr(scroll, "_scroll_policy_revision", revision)
         update()
+        if defer is not None and reflow is not None:
+            defer(
+                cls._check_after_layout,
+                scroll,
+                scrollbar_was_visible,
+                revision,
+                defer,
+                reflow,
+            )
         if at_bottom:
             if defer is not None:
                 defer(scroll.scroll_end, animate=False)
             else:
                 scroll.scroll_end(animate=False)
+
+    @staticmethod
+    def _check_after_layout(
+        scroll,
+        was_visible: bool,
+        revision: int,
+        defer: Callable,
+        reflow: Callable[[], None],
+    ) -> None:
+        """Wait for Textual to commit scrollbar layout before comparing."""
+        if getattr(scroll, "_scroll_policy_revision", 0) != revision:
+            return
+        defer(
+            ScrollPolicy._reflow_if_scrollbar_changed,
+            scroll,
+            was_visible,
+            revision,
+            reflow,
+        )
+
+    @staticmethod
+    def _reflow_if_scrollbar_changed(
+        scroll,
+        was_visible: bool,
+        revision: int,
+        reflow: Callable[[], None],
+    ) -> None:
+        if (
+            getattr(scroll, "_scroll_policy_revision", 0) == revision
+            and scroll.show_vertical_scrollbar != was_visible
+        ):
+            reflow()
 
 
 class SurfaceKind(str, Enum):

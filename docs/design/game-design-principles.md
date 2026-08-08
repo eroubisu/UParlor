@@ -89,6 +89,33 @@ belong in `.github/`.
 
 ## Interface language
 
+- The supported minimum terminal size is 88 columns by 32 rows. During play, the record panel remains
+  across the top. The left column contains only the board and that game's hand/action region; the right
+  column contains game status, chat, and room operations in that order.
+- Every game explicitly declares its hand/action-region height and computes its status-panel height
+  from current game content. The framework provides no default game-region height. Chat receives the
+  remaining right-column height, while the shared room-operation panel is six rows total: two frame
+  rows and four content rows.
+- Sending a game command never clears or replaces the visible hand/action content while awaiting the
+  authoritative server update. The existing content remains in place but cannot be submitted again;
+  the next game update or selection response restores interaction.
+- UNO uses a 40-column right rail and a status height of current player count plus seven rows. Two
+  prompt rows are always reserved because the server rules permit at most two simultaneous prompts,
+  so prompt changes never move the surrounding layout or the player-list origin. No rows are reserved
+  for absent players. The status panel never scrolls or truncates valid maximum-width content.
+- A game-to-waiting or waiting-to-lobby transition keeps the old primary's last complete frame unchanged
+  while the target reads the updated SSOT off-screen. Only the target presentation commit replaces it;
+  intermediate lobby, cleared-room, or waiting-state frames are never shown.
+- A fixed-format game board must remain fully visible without a scrollbar at the minimum terminal size.
+  Changing status or action prompts scrolls only inside that game's declared region and never resizes
+  the board.
+
+- Companion replies become visible only after their psychological-state evaluation completes. Each
+  persisted reply stores the mood shown with that reply; later mood changes never relabel history.
+- Companion mood has inertia: ordinary evaluations require repeated evidence to change the primary
+  mood, and one interaction cannot sharply change intensity. Only an extreme evaluation may switch
+  the primary mood immediately.
+
 - Player-facing wording is concise, formal, and unambiguous.
 - Avoid conversational phrases when a stable product term can describe the same action.
 - Destructive or session-changing choices state the affected object and result explicitly.

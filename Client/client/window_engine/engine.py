@@ -27,6 +27,12 @@ from typing import Any, Callable, Iterator
 
 from .overlay import OverlayStack
 from .registry import WindowRegistry, get_registry
+
+
+def _cancel_staged_presentation(window) -> None:
+    cancel = getattr(window, "cancel_staged_presentation", None)
+    if cancel is not None:
+        cancel()
 from .spec import WindowSpec
 
 _LOG = logging.getLogger(__name__)
@@ -49,6 +55,7 @@ class WindowEngine:
         self._pending_activation: set[str] = set()
         self._pending_replacements: dict[str, tuple[str, ...]] = {}
         self._pending_dismissals: dict[str, tuple[str, ...]] = {}
+        self._pending_present_callbacks: dict[str, Callable[[], None]] = {}
 
     # ── 宿主绑定 ──
 
@@ -147,7 +154,11 @@ class WindowEngine:
 
     def _do_open_floating(self, spec: WindowSpec, w, ctx, bind_kwargs: dict) -> bool:
         already_active = self.active_window() is w and w.has_class("visible")
-        self._invoke_bind(spec, w, ctx, bind_kwargs)
+        try:
+            self._invoke_bind(spec, w, ctx, bind_kwargs)
+        except Exception:
+            _cancel_staged_presentation(w)
+            raise
         if already_active:
             self._sync_primitives(w)
             return True
@@ -180,7 +191,11 @@ class WindowEngine:
 
         # Binding is the only fallible preparation step. Keep the current
         # primary intact until the replacement is ready to commit.
-        self._invoke_bind(spec, w, ctx, bind_kwargs)
+        try:
+            self._invoke_bind(spec, w, ctx, bind_kwargs)
+        except Exception:
+            _cancel_staged_presentation(w)
+            raise
         if not already_active:
             self._cancel_pending_mode("primary", except_id=spec.id)
             self._pending_primary[spec.id] = old_id
@@ -190,13 +205,39 @@ class WindowEngine:
             except Exception:
                 self._pending_primary.pop(spec.id, None)
                 self._finish_presentation(spec.id)
+                _cancel_staged_presentation(w)
                 raise
         self._sync_primitives(w)
         return True
 
-    def set_primary(self, window_id: str, **bind_kwargs) -> bool:
-        """显式切换主窗口 (等同于 open() 主窗口模式)"""
-        return self.open(window_id, **bind_kwargs)
+    def set_primary(
+        self, window_id: str, *, dismiss_overlays: bool = False,
+        on_present: Callable[[], None] | None = None,
+        **bind_kwargs,
+    ) -> bool:
+        """Switch primary and optionally dismiss overlays at presentation."""
+        dismissals = tuple(self._overlay) if dismiss_overlays else ()
+        if dismissals:
+            self._pending_dismissals[window_id] = dismissals
+        if on_present is not None:
+            self._pending_present_callbacks[window_id] = on_present
+        try:
+            opened = self.open(window_id, **bind_kwargs)
+        except Exception:
+            self._pending_dismissals.pop(window_id, None)
+            self._pending_present_callbacks.pop(window_id, None)
+            raise
+        if not opened:
+            self._pending_dismissals.pop(window_id, None)
+            self._pending_present_callbacks.pop(window_id, None)
+            window = self._query(window_id)
+            if window is not None:
+                _cancel_staged_presentation(window)
+        elif window_id not in self._presenting:
+            callback = self._pending_present_callbacks.pop(window_id, None)
+            if callback is not None:
+                callback()
+        return opened
 
     def open_from_popup(
         self, popup_id: str, window_id: str, **bind_kwargs,
@@ -446,6 +487,9 @@ class WindowEngine:
             self._commit_primary(window_id)
             self._commit_replacements(window_id)
             self._commit_dismissals(window_id)
+            callback = self._pending_present_callbacks.pop(window_id, None)
+            if callback is not None:
+                callback()
             self._sync_active_window(previous)
             window = self._query(window_id)
             if window is not None:
@@ -485,6 +529,7 @@ class WindowEngine:
             self._pending_activation.discard(window_id)
             self._pending_replacements.pop(window_id, None)
             self._pending_dismissals.pop(window_id, None)
+            self._pending_present_callbacks.pop(window_id, None)
             self._finish_presentation(window_id)
 
     def _is_visible_floating(self, window_id: str) -> bool:

@@ -18,6 +18,14 @@
 - Do not invent user-facing visual, wording, interaction, or product decisions. Follow explicit user
   requirements and established project rules; when neither determines a necessary choice, ask the
   user before implementing it.
+- This confirmation requirement is blocking. Before changing any product, interaction, visual,
+  gameplay, wording, sizing, timing, persistence, or navigation behavior that is not uniquely
+  determined by the user's request or an existing rule, stop, present the concrete alternatives and
+  tradeoffs, and wait for the user's explicit choice. Do not choose a default, infer consent from
+  urgency, or substitute technical convenience for confirmation.
+- When the user has identified behavior as a shared engine responsibility, implement it in the owning
+  shared abstraction and verify every affected surface. Do not add a view-specific workaround unless
+  the user explicitly chooses that scope after being shown the tradeoff.
 - Do not add unrequested behavior, limits, configuration, or performance changes. If a requested fix
   appears to require one, ask the user before changing it.
 - Every new class, protocol, message, helper, or setting must have a real caller.
@@ -42,6 +50,18 @@
   `WORKFLOW.md`.
 - If no user action is currently required, say so and name the next recommended repository task.
 - Do not offer a vague list of optional next steps when one workflow action is clearly required.
+
+## Release order
+
+- Before every release, inspect the actual diff separately for client and server changes. For each
+  changed package, report its current version and wait for the user to choose the next version.
+- Finish every file modification, including package versions and the server's supported client
+  version, before uploading or deploying. Run the release gate after those final edits.
+- Publish a changed client to PyPI and deploy a changed server to the configured remote host. Do not
+  publish or deploy an unchanged package.
+- After publication and deployment begin, do not modify repository files. Verify the release, then
+  create and push the GitHub commit from exactly the files that passed the release gate. If any file
+  must change, stop and restart the release gate before uploading or deploying again.
 
 ## Safety
 

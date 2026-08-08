@@ -66,6 +66,19 @@ def set_commands(commands: list[dict]) -> None:
     _tabs = list(tabs.items())
 
 
+def parse_game_tabs(commands: list[dict]) -> list[tuple[str, list[CommandInfo]]]:
+    """Parse one target window's game tabs without changing the active cache."""
+    parsed = [
+        command for command in (_parse_command(item) for item in commands)
+        if command.scope != 'inventory'
+        and command.command not in {'/clear', '/exit'}
+    ]
+    tabs: OrderedDict[str, list[CommandInfo]] = OrderedDict()
+    for command in parsed:
+        tabs.setdefault(command.tab, []).append(command)
+    return list(tabs.items())
+
+
 def get_game_tabs() -> list[tuple[str, list[CommandInfo]]]:
     """获取游戏指令标签页（过滤掉全局指令 back/clear/exit）"""
     _global_cmds = {'/clear', '/exit'}

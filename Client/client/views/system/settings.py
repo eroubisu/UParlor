@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.message import Message
 
 from ...widgets.panel import Panel
@@ -17,6 +18,13 @@ _OPTIONS = [
     ('ctrl_c', '屏蔽 Ctrl+C'),
     ('quit', '退出 UParlor'),
 ]
+
+_DETAILS = {
+    'tutorial': '重新打开交互教程。',
+    'docs': '查看按键、确认、输入和窗口操作文档。',
+    'ctrl_c': '开启后，Ctrl+C 不会直接终止客户端。',
+    'quit': '结束当前会话并退出 UParlor。',
+}
 
 
 class SettingsPanel(Panel):
@@ -33,6 +41,13 @@ class SettingsPanel(Panel):
 
     class QuitRequested(Message):
         """The player confirmed application exit."""
+
+    class Highlighted(Message):
+        """The highlighted setting changed."""
+
+        def __init__(self, target: str) -> None:
+            super().__init__()
+            self.target = target
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -94,6 +109,17 @@ class SettingsPanel(Panel):
             "settings",
         )
         self.update(self.render_options())
+        if self.selection.selected_id:
+            self.post_message(self.Highlighted(self.selection.selected_id))
+
+
+class SettingsDetailPanel(Panel):
+    """Read-only detail for the highlighted setting."""
+
+    title = "详情"
+
+    def show_setting(self, target: str) -> None:
+        self.update(_DETAILS.get(target, ""))
 
 
 class SettingsWindow(Window):
@@ -102,10 +128,18 @@ class SettingsWindow(Window):
     DEFAULT_CSS = """
     SettingsWindow {
         layer: floating;
-        width: 30;
-        height: 12;
+        width: 64;
+        height: 16;
     }
-    SettingsWindow > #settings-panel {
+    SettingsWindow > #settings-columns {
+        width: 1fr;
+        height: 1fr;
+    }
+    SettingsWindow #settings-panel {
+        width: 28;
+        height: 1fr;
+    }
+    SettingsWindow #settings-detail {
         width: 1fr;
         height: 1fr;
     }
@@ -119,7 +153,17 @@ class SettingsWindow(Window):
     )
 
     def compose(self) -> ComposeResult:
-        yield SettingsPanel(id="settings-panel")
+        with Horizontal(id="settings-columns"):
+            yield SettingsPanel(id="settings-panel")
+            yield SettingsDetailPanel(id="settings-detail")
+
+    def on_settings_panel_highlighted(
+        self, event: SettingsPanel.Highlighted,
+    ) -> None:
+        event.stop()
+        self.query_one(
+            "#settings-detail", SettingsDetailPanel,
+        ).show_setting(event.target)
 
 
 register_window(SettingsWindow)

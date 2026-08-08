@@ -43,6 +43,9 @@ _MODULE_IDS = {
     'room_controls': 'room-controls',
 }
 
+MIN_TERMINAL_WIDTH = 88
+MIN_TERMINAL_HEIGHT = 32
+
 class GameScreen(NavigationMixin, InputModeMixin, Screen):
 
     mode = reactive("tutorial")
@@ -57,6 +60,7 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             CompanionController.instance(self.state)
         self._mode = 'normal'
         self._sticky_insert = False  # True = 大写 I，提交后不退出
+        self._terminal_too_small = False
         # 通用窗口引擎（所有已注册窗口均由引擎管理）
         from .window_engine import WindowEngine
         self.engine = WindowEngine()
@@ -71,6 +75,7 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             yield Static("", id="footer-spacer")
             yield Static("", id="badge-indicator")
             yield Static(f" {NF_ONLINE} ---- ", id="connection-status")
+        yield Static("", id="terminal-size-warning", markup=True)
 
     def on_mount(self) -> None:
         from .storage import get_tutorial_done
@@ -81,6 +86,24 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             self.mode = "login"
             self.engine.set_primary("login-window")
         self.app.connect_to_server(DEFAULT_HOST)
+        self._update_terminal_size(self.size.width, self.size.height)
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._update_terminal_size(event.size.width, event.size.height)
+
+    def _update_terminal_size(self, width: int, height: int) -> None:
+        too_small = (
+            width < MIN_TERMINAL_WIDTH or height < MIN_TERMINAL_HEIGHT
+        )
+        self._terminal_too_small = too_small
+        warning = self.query_one("#terminal-size-warning", Static)
+        warning.display = too_small
+        if too_small:
+            warning.update(
+                "[bold]终端尺寸不足[/]\n\n"
+                f"当前 {width} × {height}  ·  "
+                f"至少 {MIN_TERMINAL_WIDTH} × {MIN_TERMINAL_HEIGHT}"
+            )
 
     # ── 模块访问（net/dispatch 调用）──
 
@@ -164,6 +187,7 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             window.receive_proactive(text)
         if active is not window:
             self.state.notify.add_companion_unread()
+        self.state.cmd.add_line("旅伴发来一条消息。")
         self.update_badges()
 
     # ── 位置/命令（net/dispatch 调用）──
@@ -172,8 +196,23 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         from .protocol.commands import get_game_tabs
         from .views.game.controls import RoomControlsPanel
         tabs = get_game_tabs()
-        for rc in self.query(RoomControlsPanel):
-            rc.update_commands(tabs)
+        if self.state.game_board.room_data.get('room_state') == 'finished':
+            tabs = [
+                (name, [
+                    command for command in commands
+                    if command.command in ('/back', '/help')
+                ])
+                for name, commands in tabs
+            ]
+            tabs = [(name, commands) for name, commands in tabs if commands]
+        window = self.engine.active_window()
+        if window is None:
+            return
+        try:
+            controls = window.query_one(RoomControlsPanel)
+        except Exception:
+            return
+        controls.update_commands(tabs)
 
     def _update_location(self, location: str, location_path: str | None = None):
         self.current_location = location
@@ -184,27 +223,65 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
 
     # ── 主窗口切换 ──
 
-    def _switch_main_window(self, target: str) -> None:
+    def _prepare_main_window(self, target: str, commands: list) -> None:
+        """Prepare target-only controls without changing the visible primary."""
+        from .protocol.commands import parse_game_tabs
+        from .views.game.controls import RoomControlsPanel
+
+        window = self.engine.get_window(f"{target}-window")
+        if window is None:
+            return
+        try:
+            controls = window.query_one(RoomControlsPanel)
+        except Exception:
+            return
+        tabs = parse_game_tabs(commands)
+        window.stage_presentation(
+            lambda: controls.prepare_context(tabs),
+        )
+
+    def _commit_main_window_context(
+        self, commands: list | None, location: str | None,
+        location_path: str | None, tile_name: str = '',
+    ) -> None:
+        """Commit global navigation context with the prepared primary."""
+        if commands is not None:
+            from .protocol.commands import set_commands
+            set_commands(commands)
+        if location:
+            self._update_location(location, location_path)
+        try:
+            indicator = self.query_one('#tile-indicator')
+            indicator.update(f" {tile_name} " if tile_name else '')
+        except Exception:
+            pass
+
+    def _switch_main_window(self, target: str, on_present=None) -> None:
         """切换主窗口: 'lobby' / 'waiting' / 'game' — 转交给引擎"""
-        self.engine.set_primary(f"{target}-window")
+        self.engine.set_primary(
+            f"{target}-window", dismiss_overlays=True,
+            on_present=on_present,
+        )
 
     def _on_room_state_change(self, event: str, *args) -> None:
         """监听 game_board state 变化, 自动切换主窗口"""
+        target = None
         if event == 'update_room':
             rd = args[0] if args else {}
             rs = rd.get('room_state', '')
             if rs == 'lobby':
-                self.engine.close_all()
-                self._switch_main_window('lobby')
+                target = 'lobby'
             elif rs == 'waiting':
-                self.engine.close_all()
-                self.state.chat.clear_room_messages()
-                self._switch_main_window('waiting')
+                target = 'waiting'
             elif rs in ('playing', 'finished'):
-                self.engine.close_all()
-                self._switch_main_window('game')
+                target = 'game'
         elif event == 'clear':
-            self._switch_main_window('lobby')
+            target = 'lobby'
+        if target is None or self.engine.primary_id() == f'{target}-window':
+            return
+        if target == 'waiting':
+            self.state.chat.clear_room_messages()
+        self._switch_main_window(target)
 
     # ── 键盘 ──
 
@@ -212,6 +289,10 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         pass
 
     def on_key(self, event) -> None:
+        if getattr(self, "_terminal_too_small", False):
+            event.prevent_default()
+            event.stop()
+            return
         mode = self._mode
 
         # INSERT — 只拦截 Escape

@@ -161,6 +161,19 @@ def test_mood_state_set_and_text():
     assert "test" in text
 
 
+def test_observed_chat_is_labeled_as_other_people_conversation():
+    from client.companion.attention import look_world_chat
+
+    state = SimpleNamespace(chat=SimpleNamespace(world_messages=[
+        SimpleNamespace(sender_name="bob", text="你好", time="10:00:00"),
+    ]))
+
+    text = look_world_chat(state)
+
+    assert "不是对旅伴说的话" in text
+    assert "bob: 你好" in text
+
+
 def test_structured_companion_reply_formats_one_action_and_speech():
     from client.companion.persona import format_companion_reply
 
@@ -249,6 +262,10 @@ def test_clear_visible_history_hides_projection_without_deleting_memory():
     assert service.visible_history() == [
         {"role": "user", "content": "新消息"},
     ]
+
+    assert service.restore_visible_history()
+    assert service.visible_history()[0]["content"] == "你好"
+    assert not service.restore_visible_history()
 
 
 def test_service_rejects_reply_tool_with_second_action_in_speech():
@@ -439,7 +456,11 @@ def test_interaction_state_is_evaluated_by_provider():
 
         await service._evaluate_interaction("测试互动", "测试回复")
 
+        assert service._mood.primary == "calm"
+        assert service._pending_mood_primary == "annoyed"
+        await service._evaluate_interaction("测试互动", "测试回复")
         assert service._mood.primary == "annoyed"
+        assert service._mood.intensity == 0.4
         assert service._social.intimacy < 0
         assert service._social.trust < 0
 
@@ -741,6 +762,47 @@ def test_user_chat_consumes_pending_proactive_event_once():
         assert service._recent[-1]["content"] == (
             "*她抬手*\n我看到了。确实如此。"
         )
+
+    asyncio.run(verify())
+
+
+def test_chat_evaluates_mood_before_exposing_reply():
+    from client.companion.service import AIService
+
+    class _Service(AIService):
+        async def _stream(self, _messages, **_kwargs):
+            yield "回复"
+
+        async def _evaluate_interaction(self, _interaction, _reply):
+            self.evaluated = True
+
+        def _build_messages(self, _user_text=""):
+            return []
+
+    async def verify():
+        service = object.__new__(_Service)
+        service._active = True
+        service._char_id = ""
+        service._last_user_msg = 0
+        service._recent = []
+        service._pending_events = deque(maxlen=10)
+        service._event_lock = threading.Lock()
+        service._attention = __import__(
+            "client.companion.attention",
+            fromlist=["AttentionBuffer"],
+        ).AttentionBuffer()
+        service._mood = SimpleNamespace(
+            primary="joyful", secondary="", intensity=0.4, source="",
+        )
+        service._save_recent = lambda: None
+        service.evaluated = False
+
+        iterator = service.chat("你好").__aiter__()
+        reply = await iterator.__anext__()
+
+        assert service.evaluated
+        assert reply == "回复"
+        assert service._recent[-1]["mood"]["primary"] == "joyful"
 
     asyncio.run(verify())
 

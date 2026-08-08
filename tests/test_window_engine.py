@@ -1,9 +1,15 @@
 """WindowEngine 核心单元测试 — 纯逻辑, 不依赖 textual"""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
+
+from client.widgets.panel import Panel
+from client.widgets.window import Window
 
 from client.screen_nav import NavigationMixin
 from client.screen_modes import InputModeMixin
@@ -38,6 +44,254 @@ def test_scroll_policy_reserves_vertical_scrollbar_width():
     after = ScrollPolicy.content_width(content, scroll)
 
     assert before == after == 67
+
+
+def test_scroll_policy_reflows_when_scrollbar_visibility_changes():
+    scroll = SimpleNamespace(
+        show_vertical_scrollbar=False,
+        scroll_offset=SimpleNamespace(y=0),
+        max_scroll_y=0,
+        scroll_end=Mock(),
+    )
+    deferred = []
+    reflow = Mock()
+
+    def update():
+        scroll.show_vertical_scrollbar = True
+
+    ScrollPolicy.update(
+        scroll,
+        update,
+        lambda callback, *args, **kwargs: deferred.append(
+            (callback, args, kwargs)),
+        reflow,
+    )
+    while deferred:
+        callback, args, kwargs = deferred.pop(0)
+        callback(*args, **kwargs)
+
+    reflow.assert_called_once_with()
+
+
+@pytest.mark.parametrize("before,after", [(False, True), (True, False)])
+def test_scroll_policy_detects_delayed_scrollbar_transitions(before, after):
+    scroll = SimpleNamespace(
+        show_vertical_scrollbar=before,
+        scroll_offset=SimpleNamespace(y=0),
+        max_scroll_y=0,
+        scroll_end=Mock(),
+    )
+    deferred = []
+    reflow = Mock()
+
+    ScrollPolicy.update(
+        scroll,
+        lambda: None,
+        lambda callback, *args, **kwargs: deferred.append(
+            (callback, args, kwargs)),
+        reflow,
+    )
+    callback, args, kwargs = deferred.pop(0)
+    callback(*args, **kwargs)
+    scroll.show_vertical_scrollbar = after
+    while deferred:
+        callback, args, kwargs = deferred.pop(0)
+        callback(*args, **kwargs)
+
+    reflow.assert_called_once_with()
+
+
+def test_panel_reflows_when_real_scrollbar_appears_and_disappears():
+    class ReflowPanel(Panel):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.reflows = 0
+
+        def reflow_content(self):
+            self.reflows += 1
+
+    class ReflowApp(App):
+        def compose(self) -> ComposeResult:
+            yield ReflowPanel(id="reflow-panel")
+
+    async def verify() -> None:
+        app = ReflowApp()
+        async with app.run_test(size=(40, 8)) as pilot:
+            panel = app.query_one(ReflowPanel)
+            scroll = panel.query_one("#t0", VerticalScroll)
+
+            panel.update("short")
+            await pilot.pause()
+            assert not scroll.show_vertical_scrollbar
+
+            before_appear = panel.reflows
+            panel.update("\n".join(f"line-{index}" for index in range(20)))
+            await pilot.pause()
+            await pilot.pause()
+            assert scroll.show_vertical_scrollbar
+            assert panel.reflows > before_appear
+
+            before_disappear = panel.reflows
+            panel.update("short")
+            await pilot.pause()
+            await pilot.pause()
+            assert not scroll.show_vertical_scrollbar
+            assert panel.reflows > before_disappear
+
+    asyncio.run(verify())
+
+
+def test_window_is_on_screen_before_presentation_commit_hides_old_primary():
+    stages = []
+
+    class ProbeWindow(Window):
+        def compose(self) -> ComposeResult:
+            yield Panel(id="panel")
+
+    class ProbeApp(App):
+        def compose(self) -> ComposeResult:
+            yield ProbeWindow(id="probe")
+
+    async def verify() -> None:
+        app = ProbeApp()
+        async with app.run_test(size=(40, 8)) as pilot:
+            window = app.query_one(ProbeWindow)
+            window.set_presentation_observer(
+                lambda stage: stages.append((
+                    stage, window.has_class("-layout-pending"),
+                )),
+            )
+            window.show()
+            await pilot.pause()
+            await pilot.pause()
+
+    asyncio.run(verify())
+    assert ("presenting", False) in stages
+
+
+def test_real_primary_replacement_has_no_offscreen_gap():
+    registry = WindowRegistry()
+
+    class FirstWindow(Window):
+        spec = WindowSpec(id="first", title="First", mode="primary")
+
+        def compose(self) -> ComposeResult:
+            yield Panel(id="first-panel")
+
+    class SecondWindow(Window):
+        spec = WindowSpec(id="second", title="Second", mode="primary")
+
+        def compose(self) -> ComposeResult:
+            yield Panel(id="second-panel")
+
+    registry.register(FirstWindow)
+    registry.register(SecondWindow)
+
+    class EngineApp(App):
+        def __init__(self):
+            super().__init__()
+            self.engine = WindowEngine(registry)
+
+        def compose(self) -> ComposeResult:
+            self.engine.attach(self)
+            yield from self.engine.compose_all()
+
+    async def verify() -> None:
+        app = EngineApp()
+        async with app.run_test(size=(40, 8)) as pilot:
+            first = app.query_one(FirstWindow)
+            second = app.query_one(SecondWindow)
+            snapshots = []
+            second.set_presentation_observer(
+                lambda stage: (
+                    app.engine._on_presentation_stage("second", stage),
+                    snapshots.append((
+                        stage,
+                        first.has_class("visible"),
+                        second.has_class("visible"),
+                        second.has_class("-layout-pending"),
+                        first.region,
+                    )),
+                ),
+            )
+
+            app.engine.set_primary("first")
+            await pilot.pause()
+            await pilot.pause()
+            first_region = first.region
+            app.engine.set_primary("second")
+            assert first.has_class("visible")
+            assert second.has_class("-layout-pending")
+            await pilot.pause()
+            await pilot.pause()
+
+            measured = next(
+                snapshot for snapshot in snapshots
+                if snapshot[0] == "measured"
+            )
+            presenting = next(
+                snapshot for snapshot in snapshots
+                if snapshot[0] == "presenting"
+            )
+            assert measured == (
+                "measured", True, True, True, first_region,
+            )
+            assert presenting[:4] == ("presenting", False, True, False)
+
+    asyncio.run(verify())
+
+
+def test_staged_presentation_runs_after_show_and_clears_on_cancel():
+    class StagedWindow(Window):
+        def compose(self) -> ComposeResult:
+            yield Panel(id="content")
+
+    class StagedApp(App):
+        def compose(self) -> ComposeResult:
+            yield StagedWindow(id="staged")
+
+    async def verify() -> None:
+        app = StagedApp()
+        async with app.run_test(size=(40, 8)) as pilot:
+            window = app.query_one(StagedWindow)
+            events = []
+
+            window.stage_presentation(lambda: events.append("prepared"))
+            window.show()
+            assert events == []
+
+            await pilot.pause()
+            assert events == ["prepared"]
+
+            window.hide()
+            window.stage_presentation(lambda: events.append("stale"))
+            window.hide()
+            window.show()
+            await pilot.pause()
+
+            assert events == ["prepared"]
+
+    asyncio.run(verify())
+
+
+def test_failed_primary_bind_clears_staged_presentation():
+    window = Mock()
+    window.has_class.return_value = False
+    spec = WindowSpec(
+        id="target",
+        title="Target",
+        mode="primary",
+        bind=lambda _window, _context: (_ for _ in ()).throw(RuntimeError()),
+    )
+    engine = WindowEngine(WindowRegistry())
+    engine._context_provider = lambda: object()
+    engine._query = lambda _window_id: window
+    window.stage_presentation(Mock())
+
+    with pytest.raises(RuntimeError):
+        engine._do_open_primary(spec, window, object(), {})
+
+    window.cancel_staged_presentation.assert_called_once_with()
 
 
 def test_overlay_stack_push_pop():
@@ -275,6 +529,26 @@ def test_floating_window_replaces_previous_at_presentation_commit():
     assert not e.is_open('first')
     assert e.is_open('second')
     assert e.active_id() == 'second'
+
+
+def test_primary_dismisses_overlay_only_at_presentation_commit():
+    e, _ = _make_engine([
+        WindowSpec(id='lobby', title='Lobby', mode='primary'),
+        WindowSpec(id='game-select', title='Games'),
+        WindowSpec(id='waiting', title='Waiting', mode='primary'),
+    ])
+    assert e.set_primary('lobby')
+    e._on_presentation_stage('lobby', 'presenting')
+    assert e.open('game-select')
+    e._on_presentation_stage('game-select', 'presenting')
+
+    assert e.set_primary('waiting', dismiss_overlays=True)
+    assert e.is_open('game-select')
+
+    e._on_presentation_stage('waiting', 'presenting')
+
+    assert not e.is_open('game-select')
+    assert e.active_id() == 'waiting'
 
 
 def test_new_floating_request_cancels_older_pending_presentation():
@@ -556,6 +830,43 @@ def test_engine_set_primary_replaces_old():
     assert e.is_open('p2')
     assert not host._widgets['p1'].active
     assert host._widgets['p2'].active
+
+
+def test_engine_primary_context_callback_runs_only_at_presentation_commit():
+    e, host = _make_engine([
+        WindowSpec(id='p1', title='P1', mode='primary'),
+        WindowSpec(id='p2', title='P2', mode='primary'),
+    ])
+    committed = []
+    e.set_primary('p1')
+    e._on_presentation_stage('p1', 'presenting')
+
+    e.set_primary('p2', on_present=lambda: committed.append('p2'))
+
+    assert committed == []
+    assert e.is_open('p1')
+    e._on_presentation_stage('p2', 'presenting')
+    assert committed == ['p2']
+    assert not e.is_open('p1')
+    assert host._widgets['p2'].active
+
+
+def test_engine_cancelled_primary_context_callback_is_inert():
+    e, _host = _make_engine([
+        WindowSpec(id='p1', title='P1', mode='primary'),
+        WindowSpec(id='p2', title='P2', mode='primary'),
+        WindowSpec(id='p3', title='P3', mode='primary'),
+    ])
+    committed = []
+    e.set_primary('p1')
+    e._on_presentation_stage('p1', 'presenting')
+
+    e.set_primary('p2', on_present=lambda: committed.append('p2'))
+    e.set_primary('p3', on_present=lambda: committed.append('p3'))
+    e._on_presentation_stage('p2', 'presenting')
+    e._on_presentation_stage('p3', 'presenting')
+
+    assert committed == ['p3']
 
 
 def test_engine_primary_bind_failure_preserves_current_window():

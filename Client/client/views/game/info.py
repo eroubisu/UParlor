@@ -45,3 +45,10 @@ class RoomInfoPanel(Panel):
             f"状态    {state}",
         ]
         self.update("\n".join(lines))
+
+    def reset_cursor(self) -> None:
+        super().reset_cursor()
+        self._refresh()
+
+    def reflow_content(self) -> None:
+        self._refresh()

@@ -1,9 +1,9 @@
-"""游戏棋盘面板 — 3 分区架构（info / board / controls）
+"""游戏棋盘面板 — 2 分区架构（board / controls）
 
 布局：
-  Static#board-info       ← 固定顶部 (height: auto)
-  VerticalScroll.tab#t0   ← 中间可滚动 (height: 1fr)
+    VerticalScroll.tab#t0   ← 棋盘 (height: 1fr)
     Static.content#board-main
+    Divider                 ← 棋盘与操作区的结构分隔线
   Static#board-controls   ← 固定底部 (height: auto)
 """
 
@@ -52,16 +52,13 @@ class GameBoardPanel(Panel):
     GameBoardPanel {{
         layout: vertical;
     }}
-    GameBoardPanel > #board-info {{
-        height: auto;
-        padding: 0;
-    }}
     GameBoardPanel > .tab {{
         height: 1fr;
     }}
     GameBoardPanel > #board-controls {{
-        height: auto;
+        height: 9;
         padding: 0;
+        scrollbar-size-vertical: 1;
     }}
     """
 
@@ -73,13 +70,17 @@ class GameBoardPanel(Panel):
         self._set_timer = None
         self._section_sigs: dict[str, str] = {}
         self._showing_doc = False
+        self._rendered_game_type = ""
 
     def compose_content(self) -> ComposeResult:
-        yield Static("", id="board-info", classes="full-width", markup=True)
         with VerticalScroll(classes="tab", id="t0"):
             yield Static("", id="board-main", classes="content full-width", markup=True)
         yield Divider(style=COLOR_BORDER)
-        yield Static("", id="board-controls", classes="full-width", markup=True)
+        with VerticalScroll(id="board-controls"):
+            yield Static(
+                "", id="board-controls-content",
+                classes="full-width", markup=True,
+            )
 
     def bind_state(self, st, send_command=None, set_timer=None) -> None:
         if self._state is not None:
@@ -126,7 +127,6 @@ class GameBoardPanel(Panel):
             return
         rd = self._game_state.room_data if self._game_state else {}
         if not rd:
-            self._update_section('board-info', None)
             self._update_section('board-main', f"{M_DIM}等待游戏数据…{M_END}")
             self._update_section('board-controls', None)
             return
@@ -134,10 +134,17 @@ class GameBoardPanel(Panel):
         room_state = rd.get('room_state', '')
         renderer = get_renderer(game_type) if game_type else None
         if not renderer:
-            self._update_section('board-info', None)
             self._update_section('board-main', f"{M_DIM}未知游戏类型: {game_type}{M_END}")
             self._update_section('board-controls', None)
             return
+        if game_type != self._rendered_game_type:
+            self._rendered_game_type = game_type
+            self._section_sigs.clear()
+            self._update_section('board-controls-content', None)
+
+        self.query_one(
+            "#board-controls", VerticalScroll,
+        ).styles.height = renderer.controls_height
 
         board_width = _widget_width(self, 't0')
         board_height = _widget_height(self, 't0')
@@ -154,9 +161,10 @@ class GameBoardPanel(Panel):
 
         sections = renderer.render_board(rd, interaction, board_width, board_height)
 
-        self._update_section('board-info', sections.get('info'))
         self._update_section('board-main', sections.get('board'))
-        self._update_section('board-controls', sections.get('controls'))
+        controls = sections.get('controls')
+        if controls is not None or room_state != 'playing':
+            self._update_section('board-controls-content', controls)
 
         hint = getattr(renderer, 'scroll_hint', -1)
         if hint >= 0:
@@ -176,7 +184,7 @@ class GameBoardPanel(Panel):
             return
         if content is None:
             widget.update("")
-            widget.display = False
+            widget.display = widget_id == "board-controls-content"
         else:
             widget.display = True
             widget.update(content)
@@ -187,8 +195,7 @@ class GameBoardPanel(Panel):
         self._section_sigs.clear()
         self.border_title = "帮助"
         try:
-            self.query_one("#board-info", Static).display = False
-            self.query_one("#board-controls", Static).display = False
+            self.query_one("#board-controls", VerticalScroll).display = False
         except Exception:
             pass
         try:
@@ -209,8 +216,7 @@ class GameBoardPanel(Panel):
         self._section_sigs.clear()
         from textual.containers import VerticalScroll
         try:
-            self.query_one("#board-info", Static).display = True
-            self.query_one("#board-controls", Static).display = True
+            self.query_one("#board-controls", VerticalScroll).display = True
         except Exception:
             pass
         try:

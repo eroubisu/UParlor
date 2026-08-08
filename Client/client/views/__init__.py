@@ -8,7 +8,8 @@ from .social import (
 )
 from .game import GameSelectWindow, WaitingWindow, GameWindow
 from .system import (
-    TutorialWindow, TutorialPanel, DocsWindow, RootMenuWindow, SettingsWindow,
+    TutorialWindow, TutorialPanel, DocsWindow, RecordsWindow, RootMenuWindow,
+    SettingsWindow,
 )
 from .companion.window import CompanionWindow
 from .companion.creation import CompanionCreationWindow
@@ -19,7 +20,8 @@ __all__ = [
     'LobbyWindow', 'ChatWindow', 'ProfileWindow', 'ChatStyleWindow',
     'OnlineWindow', 'NotificationWindow',
     'GameSelectWindow', 'WaitingWindow', 'GameWindow',
-    'TutorialWindow', 'TutorialPanel', 'DocsWindow', 'RootMenuWindow',
+    'TutorialWindow', 'TutorialPanel', 'DocsWindow', 'RecordsWindow',
+    'RootMenuWindow',
     'SettingsWindow',
     'CompanionWindow', 'CompanionCreationWindow',
     'SessionOfflineDialog',

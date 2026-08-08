@@ -15,15 +15,12 @@ class LogPanel(Panel):
         match event:
             case 'add_line':
                 text, kw = args
-                if kw.get('update_last'):
-                    self.replace_last(text)
-                else:
-                    self.append(text)
+                del kw
+                self.update(text)
             case 'clear':
                 self.update("")
 
     def bind_state(self, st) -> None:
         st.cmd.add_listener(self._on_state)
-        # 恢复已有内容
         if st.cmd.lines:
-            self.update("\n".join(st.cmd.lines))
+            self.update(st.cmd.lines[-1])

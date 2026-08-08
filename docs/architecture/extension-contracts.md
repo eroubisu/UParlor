@@ -72,12 +72,20 @@ state.
   it outside the viewport. After the first content pass establishes scrollbar layout, the engine
   reflows width-sensitive content once more and moves the complete window into the viewport. Primary
   and floating replacements both keep the previous window visible and active until presentation commit.
+  Every primary window is an absolute sibling canvas, so mounting or measuring another primary cannot
+  consume layout space, resize it, or move it. Command refreshes address only the active target window;
+  hidden game and waiting-room controls are never rewritten during a primary transition.
   Views must not override `show`/`hide`, manipulate the `visible` class, repeat cursor preparation, or
   make an unmeasured intermediate frame visible.
 - Opening is a transaction: binding and off-screen measurement have no `on_open`, listener, unread,
   focus, or input side effects. Presentation commit atomically updates the overlay/primary owner,
   activation, input primitives, lifecycle hook, and public `open` event. A newer request cancels any
   uncommitted request in the same window mode, and callbacks from the cancelled presentation are inert.
+- A network-driven primary transition carries every field needed by the target's first frame in one
+  payload, including its State snapshot, location/path, commands, and transition notice. Target-only
+  controls may be prepared off-screen; the complete target is moved on-screen before the old primary is
+  hidden, while global navigation context, visible indicators, and the notice log change in that same
+  presentation commit. Follow-up messages may confirm context but must not complete the first frame.
 - Window activation and presentation are distinct: activation selects the interaction target, while
   presentation ends only after the final measured frame is revealed. A window whose first complete
   frame depends on asynchronous data overrides the presentation readiness gate and resumes presentation
@@ -90,6 +98,10 @@ state.
   the reader was already at the bottom. Width-sensitive rendering uses the same policy so configured
   scrollbar space is reserved before the scrollbar appears; views must not define scrollbar-width
   constants or parallel stable-width calculations.
+- Scrollbar appearance and disappearance are dynamic layout transitions owned by `ScrollPolicy`.
+  After Textual commits the new scrollbar layout, every width-sensitive surface reflows against its
+  new measured width. Chat views and other consumers must not schedule their own compensating redraws
+  or freeze one scrollbar state to avoid the transition.
 - Views change scrollbar reservation through `Panel.set_scrollbar_visible()`; they do not assign
   Textual scrollbar sizes directly. A scrollbar belongs only to its own scroll surface: independent
   previews and fixed regions use their measured content width and do not reserve a neighboring tab's

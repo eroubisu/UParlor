@@ -5,7 +5,9 @@ from __future__ import annotations
 from rich.text import Text
 from rich.console import RenderableType
 
-from ...protocol.renderer import register_renderer
+from ...protocol.renderer import (
+    GameStatusContent, make_status_table, register_renderer,
+)
 from ...config import (
     NF_ARROW_D, NF_ARROW_U, NF_BAN, NF_EXCHANGE, NF_MOON, NF_OFFLINE,
     NF_ONLINE, NF_REPEAT, NF_CARDS, NF_STAR, NF_SUN, NF_WARNING,
@@ -18,6 +20,7 @@ _HEAD = 'bold #e0e0e0'
 _DIM = '#808080'
 _SCORE = '#b0b0b0'
 _ACTIVE = 'bold #d0d0d0'
+_STATUS_BASE_HEIGHT = 7
 
 # 牌面颜色（游戏内容可使用彩色）
 _COLOR_MAP = {
@@ -190,6 +193,7 @@ class UnoRenderer:
 
     game_type = 'uno'
     icon = NF_CARDS
+    controls_height = 7
     glyphs = frozenset({
         NF_ARROW_D, NF_ARROW_U, NF_BAN, NF_EXCHANGE, NF_MOON, NF_OFFLINE,
         NF_ONLINE, NF_REPEAT, NF_CARDS, NF_STAR, NF_SUN, NF_WARNING,
@@ -200,14 +204,106 @@ class UnoRenderer:
     def render_doc(self, text: str) -> RenderableType:
         return _render_doc_with_cards(text, _DOC_COMMANDS)
 
+    def status_height(self, room_data: dict) -> int:
+        return _STATUS_BASE_HEIGHT + len(room_data.get('players', []))
+
+    def render_status(
+        self, room_data: dict, interaction: dict | None = None,
+    ) -> GameStatusContent:
+        if room_data.get('room_state') not in ('playing', 'finished'):
+            return GameStatusContent(None)
+        players = room_data.get('players', [])
+        side = room_data.get('side', 'light')
+        direction = room_data.get('direction', 1)
+        current = room_data.get('current_player', '')
+        hand_counts = room_data.get('hand_counts', {})
+        deck_remaining = room_data.get('deck_remaining', 0)
+        top_card = room_data.get('top_card')
+        chosen_color = room_data.get('chosen_color')
+        my_turn = interaction.get('my_turn', False) if interaction else False
+
+        header = make_status_table()
+        side_label = _SIDE_LABEL.get(side, side)
+        direction_label, direction_style = _DIR_LABEL.get(
+            direction, ('?', _DIM),
+        )
+        header.add_row(
+            f'[{_HEAD}]{side_label}[/]  [{direction_style}]{direction_label}[/]',
+            f'[{_DIM}]牌堆: {deck_remaining}[/]',
+        )
+
+        status = make_status_table()
+        if my_turn:
+            turn = f'[bold #e0c040]{NF_STAR} 你的回合[/]'
+        elif current:
+            turn = f'[{_DIM}]等待 {current}[/]'
+        else:
+            turn = ''
+
+        colors = (
+            ('red', 'yellow', 'green', 'blue')
+            if side == 'light'
+            else ('pink', 'teal', 'purple', 'orange')
+        )
+        played = set(room_data.get('played_colors', []))
+        played_display = f'[{_DIM}]已出: [/]'
+        for color in colors:
+            color_hex = _COLOR_MAP.get(color, '#808080')
+            style = color_hex if color in played else f'dim {color_hex}'
+            block = '██' if color in played else '░░'
+            played_display += f'[{style}]{block}[/]'
+        status.add_row(turn, played_display)
+
+        prompts: list[str] = []
+        pending_draw = room_data.get('pending_draw', 0)
+        if pending_draw > 0:
+            warning = f'[bold #e06060]{NF_WARNING} 摸牌 +{pending_draw}[/]'
+            if room_data.get('draw_stacking'):
+                warning += '[#e06060]（可叠）[/]'
+            prompts.append(warning)
+        if draw_until_color := room_data.get('draw_until_color'):
+            color_hex = _COLOR_MAP.get(draw_until_color, '#808080')
+            prompts.append(
+                f'[bold #e06060]{NF_WARNING} 摸至[/] '
+                f'[bold {color_hex}]██[/][bold #e06060]色[/]'
+            )
+        if room_data.get('challengeable'):
+            prompts.append(
+                f'[bold #e0c040]{NF_WARNING} 可挑战 Wild[/]'
+            )
+        if (
+            top_card and chosen_color is None
+            and top_card.get('value') == 'wild'
+        ):
+            prompts.append(f'[bold #e0c040]{NF_WARNING} 请选择颜色[/]')
+        if room_data.get('draw_play'):
+            prompts.append(f'[bold #e0c040]{NF_WARNING} 出牌或跳过[/]')
+        for prompt in prompts[:2]:
+            status.add_row(prompt, '')
+        for _ in range(2 - len(prompts)):
+            status.add_row('', '')
+
+        for player in players:
+            count = hand_counts.get(player, 0)
+            marker = '>' if player == current else ' '
+            left = (
+                f'[{_DIM}]{marker}[/] '
+                f'[{_ACTIVE if player == current else _SCORE}]{player}[/]'
+            )
+            right = f'[{_DIM}]{count} 张[/]'
+            if count == 1:
+                right += '  [bold #e0c040]UNO![/]'
+            status.add_row(left, right)
+        return GameStatusContent(status, header)
+
     def render_board(self, room_data: dict, interaction: dict | None = None,
                      board_width: int = 80, board_height: int = 30) -> dict[str, RenderableType | None]:
         state = room_data.get('room_state', 'lobby')
         if state == 'waiting':
-            return {'info': None, 'board': self._render_waiting(room_data), 'controls': None}
+            return {'board': self._render_waiting(room_data), 'controls': None}
         if state in ('playing', 'finished'):
             return self._render_game(room_data, interaction, board_width)
-        return {'info': None, 'board': self._render_lobby(room_data), 'controls': None}
+        return {'board': self._render_lobby(room_data), 'controls': None}
 
     def _render_lobby(self, data: dict) -> RenderableType:
         doc = data.get('doc')
@@ -251,90 +347,16 @@ class UnoRenderer:
 
     def _render_game(self, data: dict, interaction: dict | None = None,
                      board_width: int = 80) -> dict[str, RenderableType | None]:
-        players = data.get('players', [])
-        side = data.get('side', 'light')
-        direction = data.get('direction', 1)
-        current = data.get('current_player', '')
-        hand_counts = data.get('hand_counts', {})
         top_card = data.get('top_card')
         chosen_color = data.get('chosen_color')
-        pending_draw = data.get('pending_draw', 0)
-        draw_until_color = data.get('draw_until_color')
-        challengeable = data.get('challengeable', False)
-        deck_remaining = data.get('deck_remaining', 0)
         my_cards = data.get('my_cards', [])
         playable = data.get('playable', [])
         state = data.get('room_state', 'playing')
 
-        # ── info 区：头信息 + 状态提示 ──
-        info = Text()
-        _GAP = '  '
-        side_label = _SIDE_LABEL.get(side, side)
-        dir_text, dir_style = _DIR_LABEL.get(direction, ('?', _DIM))
-        _sl_w = cell_width(side_label)
-        info.append(f'  {side_label}' + ' ' * max(0, 8 - _sl_w), style=_HEAD)
-        info.append(f'{_GAP}{dir_text}', style=dir_style)
-        info.append(f'{_GAP}牌堆:{deck_remaining:<3d}', style=_DIM)
-        my_turn = interaction.get('my_turn', False) if interaction else False
-        if my_turn:
-            turn_text = f'{NF_STAR} 你的回合'
-            turn_style = 'bold #e0c040'
-        elif current:
-            turn_text = f'等待 {current}'
-            turn_style = _DIM
-        else:
-            turn_text = ''
-            turn_style = _DIM
-        _tw = cell_width(turn_text)
-        turn_text += ' ' * max(0, 14 - _tw)
-        info.append(f'{_GAP}{turn_text}', style=turn_style)
-        all_colors = ('red', 'yellow', 'green', 'blue') if side == 'light' else ('pink', 'teal', 'purple', 'orange')
-        played_set = set(data.get('played_colors', []))
-        info.append(f'{_GAP}已出:', style=_DIM)
-        for c in all_colors:
-            c_hex = _COLOR_MAP.get(c, '#808080')
-            if c in played_set:
-                info.append('██', style=c_hex)
-            else:
-                info.append('░░', style=f'dim {c_hex}')
-        info.append('\n')
-        if pending_draw > 0:
-            info.append(f'  {NF_WARNING} 累积摸牌 {pending_draw} 张', style='bold #e06060')
-            if data.get('draw_stacking'):
-                info.append('（可叠加同类 Draw 牌）', style='#e06060')
-            info.append('\n')
-        if draw_until_color:
-            duc_hex = _COLOR_MAP.get(draw_until_color, '#808080')
-            info.append(f'  {NF_WARNING} 持续摸牌直到摸到 ', style='bold #e06060')
-            info.append('██', style=f'bold {duc_hex}')
-            info.append('\n')
-        if challengeable:
-            info.append(f'  {NF_WARNING} 上家打出 Wild，可以挑战！', style='bold #e0c040')
-            info.append('\n')
-        if top_card and chosen_color is None and top_card.get('value') == 'wild':
-            info.append(f'  {NF_WARNING} 首张为 Wild，请选择颜色', style='bold #e0c040')
-            info.append('\n')
-        if data.get('draw_play'):
-            info.append(f'  {NF_WARNING} 摸到的牌可以打出，选择出牌或跳过', style='bold #e0c040')
-            info.append('\n')
-
-        # ── board 区：弃牌堆 + 玩家列表 + 结算 ──
+        # ── board 区：弃牌堆 + 结算 ──
         board = Text()
         if top_card:
             _render_top_card(board, top_card, chosen_color)
-            board.append('\n')
-
-        max_name_len = max([cell_width(p) for p in players] + [0])
-        for p in players:
-            count = hand_counts.get(p, 0)
-            prefix = '> ' if p == current else '  '
-            board.append(prefix, style=_DIM)
-            style = _ACTIVE if p == current else _SCORE
-            board.append(fit_cells(p, max_name_len), style=style)
-            count = hand_counts.get(p, 0)
-            board.append(f'  [{count}张]', style=_DIM)
-            if count == 1:
-                board.append('  UNO!', style='bold #e0c040')
             board.append('\n')
 
         if state == 'finished':
@@ -361,7 +383,7 @@ class UnoRenderer:
         cards_per_row = max(1, (board_width - 2 + card_gap) // (card_total + card_gap))
 
         if my_cards:
-            active = interaction is not None
+            active = bool(interaction and interaction.get('active', True))
             hand_cursor = interaction.get('hand_cursor', 0) if active else -1
             selected = interaction.get('selected', -1) if active else -1
             row = interaction.get('row', 0) if active else -1
@@ -382,7 +404,11 @@ class UnoRenderer:
         if interaction and interaction.get('buttons'):
             buttons = interaction['buttons']
             btn_cursor = interaction.get('btn_cursor', 0)
-            btn_active = interaction.get('row', 0) == 1
+            btn_active = bool(
+                interaction.get('active', True)
+                and interaction.get('my_turn', False)
+                and interaction.get('row', 0) == 1
+            )
             color_mode = interaction.get('color_mode', False)
             has_selection = interaction.get('selected', -1) >= 0
             my_turn_btn = interaction.get('my_turn', True)
@@ -394,7 +420,6 @@ class UnoRenderer:
         self.scroll_hint = _focus_line
         has_controls = bool(my_cards) or (interaction and interaction.get('buttons'))
         return {
-            'info': info,
             'board': board,
             'controls': controls if has_controls else None,
         }
@@ -517,6 +542,5 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
         w = max(8, cell_width(label) + 2)
         text.append('╰' + '─' * w + '╯', style=b_style)
         text.append(' ')
-    text.append('\n')
 
 register_renderer(UnoRenderer())

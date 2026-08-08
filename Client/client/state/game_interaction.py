@@ -42,7 +42,9 @@ class GameInteractionState(BaseState):
         data.update(fields)
         self.replace(game_type, data)
 
-    def reset(self, game_type: str | None = None) -> None:
+    def reset(
+        self, game_type: str | None = None, *, notify: bool = True,
+    ) -> None:
         keys = [game_type] if game_type else list(
             set(self._states) | set(self._generations))
         changed = False
@@ -53,7 +55,7 @@ class GameInteractionState(BaseState):
             self._active_game = ''
         elif self._active_game == game_type:
             self._active_game = ''
-        if changed:
+        if changed and notify:
             self._notify('reset', game_type)
 
     def generation(self, game_type: str) -> int:

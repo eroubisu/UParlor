@@ -1,10 +1,13 @@
 """Unicode terminal layout and built-in glyph contract tests."""
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
-from client.config import NERD_FONT_BASELINE, NERD_GLYPHS
+from client.config import GAME_GLYPHS, NERD_FONT_BASELINE, NERD_GLYPHS
+from client.screen import GameScreen
 from client.protocol.renderer import RENDERER_REGISTRY, register_renderer
 from client.window_engine.text import (
     cell_width,
@@ -51,6 +54,27 @@ def test_fit_cells_uses_rendered_width_and_safe_cropping():
     assert fit_cells("🇨🇳A", 2, crop=True) == "🇨🇳"
 
 
+def test_global_terminal_size_requires_88_by_32():
+    warning = Mock()
+    screen = SimpleNamespace(
+        _terminal_too_small=False,
+        query_one=lambda *_args: warning,
+    )
+
+    GameScreen._update_terminal_size(screen, 88, 32)
+    assert screen._terminal_too_small is False
+    assert warning.display is False
+
+    GameScreen._update_terminal_size(screen, 87, 32)
+    assert screen._terminal_too_small is True
+    assert warning.display is True
+    assert "至少 88 × 32" in warning.update.call_args.args[0]
+
+    GameScreen._update_terminal_size(screen, 88, 31)
+    assert screen._terminal_too_small is True
+    assert "当前 88 × 31" in warning.update.call_args.args[0]
+
+
 def test_nerd_font_registry_is_single_cell_private_use():
     assert NERD_FONT_BASELINE.startswith("3")
     for glyph in NERD_GLYPHS:
@@ -76,12 +100,30 @@ def test_renderer_registration_rejects_colored_emoji():
         game_type = "bad"
         icon = "🥇"
         glyphs = frozenset({"🥇"})
+        def status_height(self, room_data):
+            return 1
+        controls_height = 1
 
         def render_board(self, room_data):
             return {"info": None, "board": None, "controls": None}
 
     with pytest.raises(ValueError, match="emoji presentation"):
         register_renderer(BadRenderer())
+
+
+def test_renderer_registration_requires_game_specific_controls_height():
+    class MissingHeightRenderer:
+        game_type = "missing-height"
+        icon = next(iter(GAME_GLYPHS))
+        glyphs = frozenset({icon})
+        def status_height(self, room_data):
+            return 1
+
+        def render_board(self, room_data):
+            return {"info": None, "board": None, "controls": None}
+
+    with pytest.raises(ValueError, match="controls_height"):
+        register_renderer(MissingHeightRenderer())
 
 
 def test_emoji_presentation_detection():

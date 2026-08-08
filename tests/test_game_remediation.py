@@ -9,11 +9,20 @@ import threading
 from unittest.mock import Mock
 
 import pytest
+from rich.console import Console
+from rich.text import Text
+from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
 
 from client.games.ludo.handler import LudoHandler
+from client.games.ludo.renderer import LudoRenderer
 from client.games.uno.handler import UnoHandler
-from client.net.dispatch.game import _on_room_leave, _on_room_update
-from client.net.messages import RoomLeave, RoomUpdate
+from client.games.uno.renderer import UnoRenderer, _render_hand_row
+from client.net.dispatch.game import (
+    _on_game_quit, _on_room_leave, _on_room_update,
+)
+from client.net.messages import GameQuit, RoomLeave, RoomUpdate
+from client.protocol.commands import parse_game_tabs
 from client.protocol.handler import (
     GameHandlerContext,
     get_handler,
@@ -21,12 +30,16 @@ from client.protocol.handler import (
 from client.screen import GameScreen
 from client.state import ModuleStateManager
 from client.views.game.board import GameBoardPanel
+from client.views.game.controls import RoomControlsPanel
+from client.views.game.status import GameStatusPanel
+from client.views.game.window import GameWindow
 from server.games.ludo.engine import LudoBotScheduler, LudoEngine
+from server.games.ludo.board import Board, PieceState
 from server.games.ludo.room import LudoRoom
 from server.games.uno.engine import UnoBotScheduler, UnoEngine
 from server.games.uno.room import UnoRoom
 from server.core.result_dispatcher import dispatch_game_result
-from server.msg_types import GAME
+from server.msg_types import GAME, ROOM_UPDATE
 from server.player.manager import PlayerManager
 from server.player.schema import get_default_user_template
 
@@ -70,6 +83,628 @@ def _ludo_handler() -> LudoHandler:
     handler = get_handler('ludo')
     assert isinstance(handler, LudoHandler)
     return handler
+
+
+def _render_text(renderable, width: int = 80) -> str:
+    console = Console(width=width, record=True, color_system=None)
+    console.print(renderable)
+    return console.export_text()
+
+
+def test_ludo_yellow_same_color_jump_has_intermediate_animation_frames():
+    board = Board(['yellow'])
+    piece = board.get_piece('yellow', 0)
+    piece.state = PieceState.TRACK
+    piece.track_pos = 20
+
+    path = board.compute_path('yellow', 0, 1)
+    positions = [
+        frame.get('track_pos') for frame in path
+        if frame.get('state') == 'track'
+    ]
+
+    assert positions == [21, 22, 23, 24, 25]
+
+
+def test_ludo_layout_has_three_line_controls_and_players_in_status():
+    class BoardApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameBoardPanel(id="game-board")
+
+    async def verify_panel() -> None:
+        app = BoardApp()
+        async with app.run_test(size=(88, 38)) as pilot:
+            panel = app.query_one(GameBoardPanel)
+            panel.bind_state(ModuleStateManager())
+            panel._state.game_board.room_data = {
+                "game_type": "ludo",
+                "room_state": "playing",
+            }
+            panel._refresh()
+            await pilot.pause()
+            assert panel.query_one("#board-controls").region.height == 3
+
+    asyncio.run(verify_panel())
+
+    sections = LudoRenderer().render_board({
+        "room_state": "playing",
+        "player_colors": {"alice": "red", "bob": "blue"},
+        "current_player": "alice",
+        "dice": 3,
+        "board": {},
+    }, {"my_turn": True, "viewer_color": "red"})
+
+    status = LudoRenderer().render_status({
+        "room_state": "playing",
+        "player_colors": {"alice": "red", "bob": "blue"},
+        "current_player": "alice",
+        "dice": 3,
+        "board": {
+            "red": [
+                {"state": "airport"},
+                {"state": "track"},
+                {"state": "runway"},
+                {"state": "finished"},
+            ],
+        },
+    }, {"my_turn": True})
+    status_text = _render_text(status.body, width=34)
+    assert "alice" in status_text
+    assert "bob" in status_text
+    assert "机场1 赛道1 跑道1 完成1" in status_text
+    assert "alice" not in sections["board"].plain
+
+
+def test_ludo_roll_keeps_controls_visible_while_request_is_pending():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    state.game_interaction.replace("ludo", {
+        "playing": True,
+        "my_turn": True,
+        "active": True,
+        "buttons": [{"label": "掷骰子", "command": "/roll"}],
+        "btn_cursor": 0,
+    })
+    commands = []
+
+    _ludo_handler().on_nav("enter", _ctx(state, commands=commands))
+
+    interaction = state.game_interaction.snapshot("ludo")
+    assert commands == ["/roll"]
+    assert interaction["buttons"] == [
+        {"label": "掷骰子", "command": "/roll"},
+    ]
+    assert interaction["active"] is False
+
+
+@pytest.mark.parametrize(
+    ("game_type", "expected_status_height", "controls_height"),
+    [("ludo", 5, 3), ("uno", 17, 7)],
+)
+def test_game_window_uses_each_games_declared_layout_at_88_by_32(
+    game_type, expected_status_height, controls_height,
+):
+    class GameApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameWindow(id="game-window")
+
+    async def verify() -> None:
+        app = GameApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            window = app.query_one(GameWindow)
+            window.add_class("visible")
+            state = ModuleStateManager()
+            window.bind_state(state)
+            state.game_board.update_room({
+                "game_type": game_type,
+                "room_state": "playing",
+                "players": [f"player-{index}" for index in range(10)],
+                "player_colors": {
+                    "player-0": "red",
+                    "player-1": "blue",
+                },
+                "current_player": "player-0",
+                "hand_counts": {
+                    f"player-{index}": 7 for index in range(10)
+                },
+                "board": {},
+            })
+            await pilot.pause()
+
+            status = window.query_one(GameStatusPanel)
+            board = window.query_one(GameBoardPanel)
+            board_view = board.query_one("#t0", VerticalScroll)
+            controls = board.query_one("#board-controls", VerticalScroll)
+            assert status.region.height == expected_status_height
+            assert status.border_title == "状态"
+            assert controls.region.height == controls_height
+            if game_type == "ludo":
+                assert board_view.region.height >= 19
+                assert board_view.content_region.width >= 38
+                assert not board_view.show_vertical_scrollbar
+                assert not board_view.show_horizontal_scrollbar
+                status_view = status.query_one("#t0", VerticalScroll)
+                assert not status_view.show_vertical_scrollbar
+            else:
+                assert status.query_one("#game-status-header").display
+                assert status.query_one("#game-status-divider").display
+
+    asyncio.run(verify())
+
+
+def test_game_window_first_frame_has_room_operations():
+    class GameApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameWindow(id="game-window")
+
+    async def verify() -> None:
+        app = GameApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            window = app.query_one(GameWindow)
+            state = ModuleStateManager()
+            window.bind_state(state)
+            controls = window.query_one(RoomControlsPanel)
+            controls.prepare_context(parse_game_tabs([
+                {"name": "play", "label": "出牌"},
+                {"name": "back", "label": "返回"},
+                {"name": "help", "label": "帮助"},
+            ]))
+            state.game_board.update_room({
+                "game_type": "uno",
+                "room_state": "playing",
+                "players": ["alice", "bob"],
+            }, notify=False)
+            window.show()
+            await pilot.pause()
+            await pilot.pause()
+
+            rendered = "\n".join(
+                str(row.content)
+                for row in controls.query(".control-row")
+            )
+            assert "返回" in rendered
+            assert "帮助" in rendered
+            assert "暂无可用操作" not in rendered
+
+    asyncio.run(verify())
+
+
+def test_uno_action_keeps_controls_visible_while_request_is_pending():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    state.game_board.room_data = {
+        "my_cards": [{"color": "red", "value": "5"}],
+        "playable": [0],
+    }
+    state.game_interaction.replace("uno", {
+        "playing": True,
+        "my_turn": True,
+        "active": True,
+        "row": 1,
+        "buttons": [{"label": "摸牌", "command": "/draw"}],
+        "btn_cursor": 0,
+        "hand_cursor": 0,
+        "selected": -1,
+        "cards_per_row": 8,
+        "color_mode": False,
+    })
+    commands = []
+
+    _uno_handler().on_nav("enter", _ctx(state, commands=commands))
+
+    interaction = state.game_interaction.snapshot("uno")
+    assert commands == ["/draw"]
+    assert interaction["buttons"] == [
+        {"label": "摸牌", "command": "/draw"},
+    ]
+    assert interaction["active"] is False
+
+
+def test_uno_status_uses_yellow_text_and_edge_aligned_rows():
+    status = UnoRenderer().render_status({
+        "room_state": "playing",
+        "players": ["alice", "bob"],
+        "current_player": "alice",
+        "hand_counts": {"alice": 3, "bob": 1},
+        "deck_remaining": 42,
+    }, {"my_turn": True})
+
+    assert status.header is not None
+    text = _render_text(status.body, width=36)
+    lines = text.splitlines()
+    assert "你的回合" in lines[0]
+    assert "已出:" in lines[0]
+    assert lines[3].lstrip().startswith("> alice")
+    assert lines[3].rstrip().endswith("3 张")
+    assert lines[4].rstrip().endswith("1 张  UNO!")
+
+
+def test_uno_status_reserves_all_prompt_rows():
+    renderer = UnoRenderer()
+
+    assert renderer.status_height({"players": ["alice", "bob"]}) == 9
+    assert renderer.status_height({
+        "players": [f"player-{index}" for index in range(10)],
+    }) == 17
+    assert renderer.status_height({
+        "players": [f"player-{index}" for index in range(10)],
+        "pending_draw": 4,
+        "challengeable": True,
+    }) == 17
+
+
+def test_game_to_waiting_transition_keeps_old_frame_until_single_target():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    state.game_board.room_data = {
+        "game_type": "uno",
+        "room_state": "playing",
+    }
+    state.game_interaction.replace("uno", {
+        "playing": True,
+        "buttons": [{"label": "摸牌", "command": "/draw"}],
+    })
+    board_events = []
+    interaction_events = []
+    state.game_board.add_listener(
+        lambda event, *args: board_events.append(event),
+    )
+    state.game_interaction.add_listener(
+        lambda event, *args: interaction_events.append(event),
+    )
+
+    class Screen:
+        def __init__(self):
+            self.targets = []
+            self.prepared = []
+            self.locations = []
+            self.on_present = None
+
+        def _prepare_main_window(self, target, commands):
+            self.prepared.append((target, commands))
+
+        def _switch_main_window(self, target, on_present=None):
+            self.targets.append(target)
+            assert self.locations == []
+            self.on_present = on_present
+
+        def _update_location(self, location, location_path=None):
+            self.locations.append((location, location_path))
+
+        def _commit_main_window_context(
+            self, _commands, location, location_path, _tile_name='',
+        ):
+            self._update_location(location, location_path)
+
+        def query_one(self, _selector):
+            raise LookupError
+
+    screen = Screen()
+    _on_game_quit(GameQuit(location="room"), Mock(), screen, state)
+    _on_room_update(RoomUpdate({
+        "game_type": "uno",
+        "room_state": "waiting",
+        "players": ["alice", "bot"],
+    }, message="你放弃了游戏。", location="uno#1234",
+        location_path="大厅 / UNO / #1234",
+        commands=[{"name": "ready"}]), Mock(), screen, state)
+
+    assert screen.targets == ["waiting"]
+    assert screen.prepared == [
+        ("waiting", [{"name": "ready"}]),
+    ]
+    assert screen.locations == []
+    assert state.cmd.lines == []
+    screen.on_present()
+    assert screen.locations == [
+        ("uno#1234", "大厅 / UNO / #1234"),
+    ]
+    assert state.cmd.lines[-1].endswith("你放弃了游戏。")
+    assert board_events == []
+    assert interaction_events == []
+    assert state.game_board.room_data["room_state"] == "waiting"
+    assert state.game_interaction.snapshot("uno") is None
+
+
+def test_waiting_to_lobby_transition_clears_silently_once():
+    state = ModuleStateManager()
+    state.game_board.room_data = {
+        "game_type": "ludo",
+        "room_state": "waiting",
+    }
+    events = []
+    state.game_board.add_listener(lambda event, *args: events.append(event))
+
+    screen = Mock()
+    _on_room_leave(
+        RoomLeave(location="lobby", location_path="大厅"),
+        Mock(), screen, state,
+    )
+
+    screen._prepare_main_window.assert_called_once_with("lobby", [])
+    screen._switch_main_window.assert_called_once()
+    target = screen._switch_main_window.call_args.args[0]
+    on_present = screen._switch_main_window.call_args.kwargs["on_present"]
+    assert target == "lobby"
+    on_present()
+    screen._commit_main_window_context.assert_called_once_with(
+        [], "lobby", "大厅",
+    )
+    assert events == []
+    assert state.game_board.room_data == {}
+
+
+def test_room_commands_update_only_the_active_window_controls():
+    active_controls = Mock()
+    active_window = Mock()
+    active_window.query_one.return_value = active_controls
+    hidden_window = Mock()
+
+    screen = Mock()
+    screen.state = ModuleStateManager()
+    screen.engine.active_window.return_value = active_window
+    screen.engine.get_window.return_value = hidden_window
+
+    GameScreen._update_room_controls(screen)
+
+    active_window.query_one.assert_called_once()
+    active_controls.update_commands.assert_called_once()
+    hidden_window.query_one.assert_not_called()
+
+
+def test_uno_controls_fit_seven_lines_without_scrollbar():
+    class BoardApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameBoardPanel(id="game-board")
+
+    async def verify() -> None:
+        app = BoardApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            panel = app.query_one(GameBoardPanel)
+            state = ModuleStateManager()
+            state.chat.set_player_name("alice")
+            panel.bind_state(state)
+            state.game_interaction.replace("uno", {
+                "playing": True,
+                "my_turn": True,
+                "active": True,
+                "row": 0,
+                "hand_cursor": 0,
+                "selected": -1,
+                "buttons": [
+                    {"label": "出牌", "command": "_play_selected"},
+                    {"label": "摸牌", "command": "/draw"},
+                ],
+                "btn_cursor": 0,
+                "cards_per_row": 8,
+                "color_mode": False,
+            })
+            state.game_board.update_room({
+                "game_type": "uno",
+                "room_state": "playing",
+                "current_player": "alice",
+                "my_cards": [{"color": "red", "value": "5"}],
+                "playable": [0],
+            })
+            await pilot.pause()
+
+            controls = panel.query_one("#board-controls", VerticalScroll)
+            assert controls.region.height == 7
+            assert not controls.show_vertical_scrollbar
+
+    asyncio.run(verify())
+
+
+def test_uno_status_reserves_two_prompt_lines_without_scrollbar():
+    class GameApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameWindow(id="game-window")
+
+    async def verify() -> None:
+        app = GameApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            window = app.query_one(GameWindow)
+            window.add_class("visible")
+            state = ModuleStateManager()
+            window.bind_state(state)
+            state.game_board.update_room({
+                "game_type": "uno",
+                "room_state": "playing",
+                "players": [f"player-{index}" for index in range(10)],
+                "current_player": "player-0",
+                "hand_counts": {
+                    f"player-{index}": 7 for index in range(10)
+                },
+                "pending_draw": 4,
+                "challengeable": True,
+            })
+            await pilot.pause()
+
+            status = window.query_one(GameStatusPanel)
+            status_view = status.query_one("#t0", VerticalScroll)
+            chat = window.query_one("#game-chat")
+            assert status.region.height == 17
+            assert window.query_one("#game-right").region.width == 40
+            assert window.query_one(GameBoardPanel).region.width == 48
+            assert not status_view.show_vertical_scrollbar
+            assert chat.region.height == 6
+            assert window.query_one("#room-controls").region.height == 6
+
+    asyncio.run(verify())
+
+
+def test_uno_status_fits_maximum_legal_content_width():
+    status = UnoRenderer().render_status({
+        "room_state": "playing",
+        "players": ["ABCDEFGHIJKL"] + [
+            f"player-{index}" for index in range(1, 10)
+        ],
+        "current_player": "ABCDEFGHIJKL",
+        "hand_counts": {
+            "ABCDEFGHIJKL": 1,
+            **{f"player-{index}": 99 for index in range(1, 10)},
+        },
+        "deck_remaining": 999,
+        "pending_draw": 99,
+        "draw_stacking": True,
+        "challengeable": True,
+    }, {"my_turn": True})
+
+    rendered = _render_text(status.body, width=38)
+    assert "摸牌 +99（可叠）" in rendered
+    assert "可挑战 Wild" in rendered
+    assert "ABCDEFGHIJKL" in rendered
+    assert "…" not in rendered
+
+
+def test_uno_focus_skips_unplayable_cards_and_disables_other_turn():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    handler = _uno_handler()
+    ctx = _ctx(state)
+    room_data = {
+        "game_type": "uno",
+        "room_state": "playing",
+        "current_player": "alice",
+        "my_cards": [{"value": str(index)} for index in range(5)],
+        "playable": [1, 4],
+    }
+    state.game_board.room_data = room_data
+    handler.on_room_update(room_data, ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 1
+
+    handler.on_nav("right", ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 4
+    handler.on_nav("right", ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 4
+
+    other_turn = dict(room_data, current_player="bob")
+    state.game_board.room_data = other_turn
+    handler.on_room_update(other_turn, ctx)
+    interaction = state.game_interaction.snapshot("uno")
+    assert interaction["row"] == -1
+    assert interaction["selected"] == -1
+    before = interaction
+    handler.on_nav("right", ctx)
+    assert state.game_interaction.snapshot("uno") == before
+
+
+def test_uno_selected_card_can_be_replaced_after_returning_from_play_button():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    handler = _uno_handler()
+    ctx = _ctx(state)
+    room_data = {
+        "game_type": "uno",
+        "room_state": "playing",
+        "current_player": "alice",
+        "my_cards": [
+            {"color": "red", "value": "1"},
+            {"color": "blue", "value": "2"},
+            {"color": "red", "value": "3"},
+        ],
+        "playable": [0, 2],
+    }
+    state.game_board.room_data = room_data
+    handler.on_room_update(room_data, ctx)
+
+    handler.on_nav("enter", ctx)
+    interaction = state.game_interaction.snapshot("uno")
+    assert interaction["selected"] == 0
+    assert interaction["row"] == 1
+    assert interaction["btn_cursor"] == 0
+
+    handler.on_nav("up", ctx)
+    handler.on_nav("right", ctx)
+    interaction = state.game_interaction.snapshot("uno")
+    assert interaction["row"] == 0
+    assert interaction["hand_cursor"] == 2
+    assert interaction["selected"] == 0
+
+    handler.on_nav("enter", ctx)
+    interaction = state.game_interaction.snapshot("uno")
+    assert interaction["selected"] == 2
+    assert interaction["row"] == 1
+    assert interaction["btn_cursor"] == 0
+
+
+def test_uno_four_card_states_use_three_border_colors():
+    rendered = Text()
+    _render_hand_row(
+        rendered,
+        [
+            {"color": "red", "value": "1"},
+            {"color": "blue", "value": "2"},
+            {"color": "green", "value": "3"},
+            {"color": "yellow", "value": "4"},
+        ],
+        start_idx=0,
+        playable=[0, 1, 2],
+        cursor=2,
+        selected=0,
+    )
+
+    top_border_styles = {
+        span.start: str(span.style)
+        for span in rendered.spans
+        if span.start in {2, 8, 14, 20}
+    }
+    assert top_border_styles == {
+        2: "bold #ffffff",
+        8: "#a0a0a0",
+        14: "bold #ffffff",
+        20: "#383838",
+    }
+
+
+def test_game_board_preserves_controls_during_transient_empty_render():
+    class BoardApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameBoardPanel(id="game-board")
+
+    async def verify() -> None:
+        app = BoardApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            panel = app.query_one(GameBoardPanel)
+            state = ModuleStateManager()
+            panel.bind_state(state)
+            state.game_interaction.replace("ludo", {
+                "playing": True,
+                "my_turn": True,
+                "active": True,
+                "buttons": [{"label": "掷骰子", "command": "/roll"}],
+                "btn_cursor": 0,
+            })
+            state.game_board.update_room({
+                "game_type": "ludo",
+                "room_state": "playing",
+                "board": {},
+            })
+            await pilot.pause()
+            content = panel.query_one("#board-controls-content")
+            before = str(content.render())
+
+            state.game_interaction.reset("ludo")
+            await pilot.pause()
+            assert str(content.render()) == before
+
+    asyncio.run(verify())
+
+
+def test_game_room_controls_use_six_total_lines():
+    class GameApp(App):
+        def compose(self) -> ComposeResult:
+            yield GameWindow(id="game-window")
+
+    async def verify() -> None:
+        app = GameApp()
+        async with app.run_test(size=(88, 32)) as pilot:
+            window = app.query_one(GameWindow)
+            window.add_class("visible")
+            await pilot.pause()
+            assert window.query_one("#room-controls").region.height == 6
+
+    asyncio.run(verify())
 
 
 def test_ludo_same_room_replay_resets_every_match_field(monkeypatch):
@@ -445,6 +1080,230 @@ def test_bot_finish_dispatches_settlement_to_every_human(
     assert [socket for socket, _data in statuses] == [player_socket]
 
 
+def test_waiting_room_update_carries_complete_first_frame_metadata():
+    class Lobby:
+        def get_player_location(self, _name):
+            return 'uno#room'
+
+        def _get_game_for_location(self, _location):
+            return 'uno'
+
+        def get_location_path(self, location, _name=None):
+            return f'大厅 / UNO / {location}'
+
+        def get_commands_for_location(self, _location, _player_data):
+            return [{'name': 'ready'}]
+
+    sent = []
+
+    class Server:
+        lobby_engine = Lobby()
+        bot_schedulers = {}
+
+        def send_to(self, _socket, message):
+            sent.append(message)
+
+    dispatch_game_result(
+        Server(),
+        {
+            'send_to_caller': [
+                {
+                    'type': ROOM_UPDATE,
+                    'room_data': {
+                        'game_type': 'uno', 'room_state': 'waiting',
+                    },
+                },
+                {'type': 'location_update', 'location': 'uno#room'},
+            ],
+            'refresh_commands': True,
+        },
+        caller_socket=object(),
+        caller_name='alice',
+        caller_data={'name': 'alice'},
+    )
+
+    assert sent == [{
+        'type': ROOM_UPDATE,
+        'room_data': {'game_type': 'uno', 'room_state': 'waiting'},
+        'location': 'uno#room',
+        'location_path': '大厅 / UNO / uno#room',
+        'commands': [{'name': 'ready'}],
+    }]
+
+
+def test_same_primary_room_update_does_not_reopen_window():
+    state = ModuleStateManager()
+    state.game_board.room_data = {
+        'game_type': 'uno',
+        'room_state': 'playing',
+    }
+    screen = Mock()
+    screen.engine.primary_id.return_value = 'game-window'
+    screen.query_one.side_effect = LookupError
+
+    _on_room_update(RoomUpdate({
+        'game_type': 'uno',
+        'room_state': 'playing',
+        'current_player': 'bob',
+    }), Mock(), screen, state)
+
+    screen._prepare_main_window.assert_not_called()
+    screen._switch_main_window.assert_not_called()
+
+
+def test_pending_target_room_update_replaces_staged_context():
+    state = ModuleStateManager()
+    state.game_board.room_data = {
+        'game_type': 'uno',
+        'room_state': 'waiting',
+    }
+    screen = Mock()
+    screen.engine.primary_id.return_value = 'game-window'
+    screen.query_one.side_effect = LookupError
+    commands = [{'name': 'ready', 'label': '准备'}]
+
+    _on_room_update(RoomUpdate({
+        'game_type': 'uno',
+        'room_state': 'waiting',
+        'players': ['alice', 'bob'],
+    }, commands=commands), Mock(), screen, state)
+
+    screen._prepare_main_window.assert_called_once_with('waiting', commands)
+    screen._switch_main_window.assert_called_once()
+
+
+def test_lobby_room_update_carries_complete_first_frame_metadata():
+    class Lobby:
+        def get_player_location(self, _name):
+            return 'lobby'
+
+        def _get_game_for_location(self, _location):
+            return ''
+
+        def get_location_path(self, _location, _name=None):
+            return '大厅'
+
+        def get_commands_for_location(self, _location, _player_data):
+            return [{'name': 'games'}]
+
+    sent = []
+
+    class Server:
+        lobby_engine = Lobby()
+        bot_schedulers = {}
+
+        def send_to(self, _socket, message):
+            sent.append(message)
+
+    dispatch_game_result(
+        Server(),
+        {'send_to_caller': [
+            {'type': GAME, 'text': '离开了房间。'},
+            {
+                'type': ROOM_UPDATE,
+                'room_data': {'game_type': 'uno', 'room_state': 'lobby'},
+            },
+        ]},
+        caller_socket=object(),
+        caller_name='alice',
+        caller_data={'name': 'alice'},
+    )
+
+    assert len(sent) == 1
+    assert sent[0]['message'] == '离开了房间。'
+    assert sent[0]['location'] == 'lobby'
+    assert sent[0]['location_path'] == '大厅'
+    assert sent[0]['commands'] == [{'name': 'games'}]
+
+
+def test_playing_room_update_carries_complete_first_frame_commands():
+    class Lobby:
+        def get_player_location(self, _name):
+            return 'uno#room'
+
+        def _get_game_for_location(self, _location):
+            return 'uno'
+
+        def get_location_path(self, _location, _name=None):
+            return 'UNO > #room 对局中'
+
+        def get_commands_for_location(self, _location, _player_data):
+            return [
+                {'name': 'play'},
+                {'name': 'back', 'label': '返回'},
+                {'name': 'help', 'label': '帮助'},
+            ]
+
+    sent = []
+
+    class Server:
+        lobby_engine = Lobby()
+        bot_schedulers = {}
+
+        def send_to(self, _socket, message):
+            sent.append(message)
+
+    dispatch_game_result(
+        Server(),
+        {'send_to_caller': [{
+            'type': ROOM_UPDATE,
+            'room_data': {'game_type': 'uno', 'room_state': 'playing'},
+        }]},
+        caller_socket=object(),
+        caller_name='alice',
+        caller_data={'name': 'alice'},
+    )
+
+    assert sent[0]['commands'] == [
+        {'name': 'play'},
+        {'name': 'back', 'label': '返回'},
+        {'name': 'help', 'label': '帮助'},
+    ]
+
+
+def test_main_window_context_commit_does_not_overwrite_prepared_controls():
+    screen = Mock()
+    screen.state = ModuleStateManager()
+
+    GameScreen._commit_main_window_context(
+        screen,
+        [{'name': 'back', 'label': '返回'}],
+        'uno#room',
+        'UNO > #room',
+    )
+
+    screen._update_room_controls.assert_not_called()
+    screen._update_location.assert_called_once_with(
+        'uno#room', 'UNO > #room',
+    )
+
+
+def test_main_window_commands_wait_for_target_presentation_prepare():
+    controls = Mock()
+    window = Mock()
+    window.query_one.return_value = controls
+    staged = []
+    window.stage_presentation.side_effect = staged.append
+    screen = Mock()
+    screen.engine.get_window.return_value = window
+
+    GameScreen._prepare_main_window(
+        screen,
+        'game',
+        [
+            {'name': 'play', 'label': '出牌'},
+            {'name': 'back', 'label': '返回'},
+        ],
+    )
+
+    controls.prepare_context.assert_not_called()
+    assert len(staged) == 1
+
+    staged[0]()
+
+    controls.prepare_context.assert_called_once()
+
+
 @pytest.mark.parametrize('player_count', range(2, 11))
 def test_uno_pvp_rewards_are_positive_net_and_conform(player_count):
     rewards = UnoEngine._REWARDS
@@ -655,6 +1514,10 @@ def test_ludo_menu_navigation_and_reset_notify_state():
         'current_player': 'alice',
         'player_colors': {'alice': 'red', 'bob': 'blue'},
         'pending_move': True,
+        'move_previews': {
+            '0': {'path': [{'track_pos': 1}]},
+            '1': {'path': [{'track_pos': 2}]},
+        },
     }
     state.game_board.update_room(room_data)
     handler.on_room_update(room_data, ctx)
@@ -666,8 +1529,14 @@ def test_ludo_menu_navigation_and_reset_notify_state():
         ],
     }, ctx)
 
+    interaction = state.game_interaction.snapshot('ludo')
+    assert list(interaction['move_previews']) == ['0']
+    assert interaction['blink_running'] is True
+
     handler.on_nav('right', ctx)
-    assert state.game_interaction.snapshot('ludo')['btn_cursor'] == 1
+    interaction = state.game_interaction.snapshot('ludo')
+    assert interaction['btn_cursor'] == 1
+    assert list(interaction['move_previews']) == ['1']
 
     handler.on_room_update({'room_state': 'waiting'}, ctx)
     assert state.game_interaction.snapshot('ludo') is None
@@ -690,6 +1559,9 @@ def test_room_dispatch_activates_and_clears_interaction_state():
     class _Screen:
         def get_module(self, _name):
             return None
+
+        def _prepare_main_window(self, _target, _commands):
+            pass
 
         def query_one(self, _selector):
             raise LookupError

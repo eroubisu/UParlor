@@ -30,12 +30,12 @@ def test_app_mount_switches_to_english_input_language(monkeypatch):
     switch.assert_called_once_with()
 
 
-def test_window_engine_registers_16_windows():
+def test_window_engine_registers_17_windows():
     import client.screen  # 触发所有窗口注册
     from client.window_engine.registry import get_registry
     reg = get_registry()
     specs = reg.all_specs()
-    assert len(specs) == 16
+    assert len(specs) == 17
     assert [spec.id for spec in specs].count("companion-window") == 1
     assert all(spec.id != "companion-settings-window" for spec in specs)
     assert "companion-creation-window" in {spec.id for spec in specs}
@@ -44,13 +44,13 @@ def test_window_engine_registers_16_windows():
     assert all(spec.id != "companion-custom-input-window" for spec in specs)
 
 
-def test_root_menu_has_7_selectable_windows_without_shortcuts():
+def test_root_menu_has_8_selectable_windows_without_shortcuts():
     import client.screen
     from client.window_engine.registry import get_registry
     items = get_registry().menu_entries('root')
-    assert len(items) == 7
+    assert len(items) == 8
     assert [spec.title for spec in items] == [
-        "聊天", "在线", "通知", "游戏", "旅伴", "档案", "设置",
+        "聊天", "记录", "在线", "通知", "游戏", "旅伴", "档案", "设置",
     ]
     assert all(spec.menu for spec in items)
 
@@ -70,7 +70,10 @@ def test_hidden_option_window_reflows_after_opening(monkeypatch, tmp_path):
     from textual.app import App, ComposeResult
 
     from client import storage
-    from client.views.system.settings import SettingsPanel, SettingsWindow
+    from client.views.system.settings import (
+        SettingsDetailPanel, SettingsPanel, SettingsWindow,
+    )
+    from client.window_engine import Divider
 
     monkeypatch.setattr(storage, "_FILE", tmp_path / "config.json")
 
@@ -115,6 +118,9 @@ def test_hidden_option_window_reflows_after_opening(monkeypatch, tmp_path):
             assert "旅伴设置" not in content
             assert "屏蔽 Ctrl+C：开" in content
             assert "退出 UParlor" in content
+            detail = app.query_one("#settings-detail", SettingsDetailPanel)
+            assert "重新打开交互教程" in str(
+                detail.query_one(".content").content)
 
             panel.selection.select("ctrl_c")
             panel.nav("enter")
@@ -127,6 +133,9 @@ def test_hidden_option_window_reflows_after_opening(monkeypatch, tmp_path):
             assert panel._confirming_quit
             assert "确认退出 UParlor?" in str(
                 panel.query_one(".content").content)
+            assert panel.query_one(
+                "#panel-confirm-divider", Divider,
+            ).display
 
             panel.nav("down")
             panel.nav("enter")

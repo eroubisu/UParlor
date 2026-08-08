@@ -15,6 +15,7 @@ def _default_state() -> dict:
         'row': 0,
         'selected': -1,
         'buttons': [],
+        'active': True,
         'color_mode': False,
         'my_turn': False,
         'playing': False,
@@ -59,6 +60,7 @@ class UnoHandler:
         if title in _BOARD_MENUS:
             state = self._snapshot(ctx)
             state['playing'] = True
+            state['active'] = True
             state['btn_cursor'] = 0
             if title == '选择颜色':
                 state.update({
@@ -86,17 +88,24 @@ class UnoHandler:
 
     def on_nav(self, direction: str, ctx: GameHandlerContext) -> None:
         state = self._snapshot(ctx)
-        if not state['playing']:
+        if (
+            not state['playing']
+            or not state['active']
+            or not state['my_turn']
+        ):
             return
 
         room_data = ctx.state.game_board.room_data or {}
         n_cards = len(room_data.get('my_cards', []))
+        playable = room_data.get('playable', [])
         buttons = state['buttons']
         row = state['row']
 
         if direction == 'left':
-            if row == 0 and n_cards:
-                state['hand_cursor'] = max(0, state['hand_cursor'] - 1)
+            if row == 0 and playable:
+                state['hand_cursor'] = self._move_card_cursor(
+                    state['hand_cursor'], playable, -1,
+                )
             elif row == 1 and buttons:
                 state['btn_cursor'] = move_option_index(
                     (Option(str(index), item.get("label", ""), data=item)
@@ -105,9 +114,10 @@ class UnoHandler:
                     -1,
                 )
         elif direction == 'right':
-            if row == 0 and n_cards:
-                state['hand_cursor'] = min(
-                    n_cards - 1, state['hand_cursor'] + 1)
+            if row == 0 and playable:
+                state['hand_cursor'] = self._move_card_cursor(
+                    state['hand_cursor'], playable, 1,
+                )
             elif row == 1 and buttons:
                 state['btn_cursor'] = move_option_index(
                     (Option(str(index), item.get("label", ""), data=item)
@@ -116,17 +126,23 @@ class UnoHandler:
                     1,
                 )
         elif direction == 'down' and row == 0:
-            next_cursor = state['hand_cursor'] + state['cards_per_row']
-            if next_cursor < n_cards:
+            next_cursor = self._vertical_card_cursor(
+                state['hand_cursor'], playable,
+                state['cards_per_row'], 1,
+            )
+            if next_cursor is not None:
                 state['hand_cursor'] = next_cursor
             elif buttons:
                 state['row'] = 1
         elif direction == 'up':
-            if row == 1 and n_cards:
+            if row == 1 and playable:
                 state['row'] = 0
             elif row == 0:
-                next_cursor = state['hand_cursor'] - state['cards_per_row']
-                if next_cursor >= 0:
+                next_cursor = self._vertical_card_cursor(
+                    state['hand_cursor'], playable,
+                    state['cards_per_row'], -1,
+                )
+                if next_cursor is not None:
                     state['hand_cursor'] = next_cursor
         elif direction == 'enter':
             self._on_enter(state, room_data, ctx)
@@ -141,9 +157,11 @@ class UnoHandler:
         if state['row'] == 0:
             cursor = state['hand_cursor']
             if cursor in set(room_data.get('playable', [])):
-                state['selected'] = (
-                    -1 if state['selected'] == cursor else cursor)
+                state['selected'] = cursor
                 self._update_play_label(state, room_data)
+                if state['buttons']:
+                    state['row'] = 1
+                    state['btn_cursor'] = 0
                 ctx.state.game_interaction.replace(self.game_type, state)
             return
 
@@ -163,7 +181,8 @@ class UnoHandler:
             ctx.send_command(command)
         else:
             return
-        ctx.state.game_interaction.reset(self.game_type)
+        state['active'] = False
+        ctx.state.game_interaction.replace(self.game_type, state)
 
     def on_room_update(self, room_data: dict,
                        ctx: GameHandlerContext) -> None:
@@ -174,8 +193,12 @@ class UnoHandler:
         state = self._snapshot(ctx)
         my_cards = room_data.get('my_cards', [])
         state['playing'] = True
+        if state['color_mode'] and not state['active']:
+            state['color_mode'] = False
+        state['active'] = True
         state['my_turn'] = (
             room_data.get('current_player', '') == ctx.state.chat.player_name)
+        playable = room_data.get('playable', [])
 
         if not state['color_mode']:
             if state['my_turn']:
@@ -192,16 +215,50 @@ class UnoHandler:
                     {'label': '摸牌', 'command': '/draw'},
                 ]
 
-        if my_cards:
-            state['hand_cursor'] = min(
-                state['hand_cursor'], len(my_cards) - 1)
+        if state['my_turn'] and playable:
+            if state['hand_cursor'] not in playable:
+                state['hand_cursor'] = playable[0]
+            if state['row'] not in (0, 1):
+                state['row'] = 0
+        elif state['my_turn'] and state['buttons']:
+            state['row'] = 1
         else:
+            state['row'] = -1
             state['hand_cursor'] = 0
+            state['selected'] = -1
         if state['selected'] >= len(my_cards):
             state['selected'] = -1
         if state['btn_cursor'] >= len(state['buttons']):
             state['btn_cursor'] = max(0, len(state['buttons']) - 1)
         ctx.state.game_interaction.replace(self.game_type, state)
+
+    @staticmethod
+    def _move_card_cursor(current: int, playable: list[int], delta: int) -> int:
+        if not playable:
+            return current
+        try:
+            position = playable.index(current)
+        except ValueError:
+            return playable[0]
+        return playable[max(0, min(len(playable) - 1, position + delta))]
+
+    @staticmethod
+    def _vertical_card_cursor(
+        current: int, playable: list[int], cards_per_row: int, direction: int,
+    ) -> int | None:
+        current_row = current // cards_per_row
+        candidates = [
+            index for index in playable
+            if (
+                index // cards_per_row > current_row
+                if direction > 0
+                else index // cards_per_row < current_row
+            )
+        ]
+        if not candidates:
+            return None
+        target = current + direction * cards_per_row
+        return min(candidates, key=lambda index: abs(index - target))
 
     def _build_turn_buttons(self, state: dict, room_data: dict) -> None:
         buttons = [

@@ -17,7 +17,9 @@ from __future__ import annotations
 from rich.text import Text
 from rich.console import RenderableType
 
-from ...protocol.renderer import register_renderer, render_doc
+from ...protocol.renderer import (
+    GameStatusContent, make_status_table, register_renderer, render_doc,
+)
 from ...config import (
     NF_ARROW_D, NF_ARROW_L, NF_ARROW_R, NF_ARROW_U, NF_BULLSEYE,
     NF_CARET_D, NF_CARET_U, NF_CROSS, NF_DIAMOND, NF_FLAG, NF_OFFLINE,
@@ -45,9 +47,9 @@ _COLOR_MAP = {
 
 _COLOR_SHAPE = {
     'red':    NF_CARET_U,
-    'yellow': NF_ONLINE,
+    'yellow': 'o',
     'blue':   NF_CARET_D,
-    'green':  NF_DIAMOND,
+    'green':  '◇',
 }
 
 COLOR_SEQ = ['red', 'yellow', 'blue', 'green']
@@ -368,14 +370,20 @@ def _paint_previews(board: Board,
         if _has_viewer(co):
             continue
         y, x = co
-        board.set(y, x, '··', fg='#d0d0d0')
+        board.set(
+            y, x, '··' if blink_on else '  ',
+            fg='#000000', bold=True,
+        )
 
     # 骰子落点（后续还有跳跃/飞行）：明显的圆点标记
     for co in mid_set - dest_set:
         if _has_viewer(co):
             continue
         y, x = co
-        board.set(y, x, f'{NF_BULLSEYE} ', fg='#ffffff', bold=True)
+        board.set(
+            y, x, f'{NF_BULLSEYE} ' if blink_on else '  ',
+            fg='#000000', bold=True,
+        )
 
     for co in dest_set:
         if _has_viewer(co):
@@ -385,11 +393,11 @@ def _paint_previews(board: Board,
         has_enemy = any(c != viewer_color for c, _ in lst)
         if has_enemy:
             text = f'{NF_CROSS} ' if blink_on else f'{NF_STAR} '
-            board.set(y, x, text, fg='#ff4040', bold=True)
+            board.set(y, x, text, fg='#000000', bold=True)
         elif blink_on:
-            board.set(y, x, f'{NF_STAR} ', fg='#ffff00', bold=True)
+            board.set(y, x, f'{NF_STAR} ', fg='#000000', bold=True)
         else:
-            board.set(y, x, '· ', fg='#b0b060')
+            board.set(y, x, '  ', fg='#000000', bold=True)
 
 
 def _paint_pieces(board: Board,
@@ -398,8 +406,7 @@ def _paint_pieces(board: Board,
     for co, lst in cell_pieces.items():
         y, x = co
         if len(lst) > 1:
-            sel = 0 if blink_on else 1
-            color, idx = lst[sel % len(lst)]
+            color, idx = lst[0]
         else:
             color, idx = lst[0]
         shape = _COLOR_SHAPE.get(color, NF_ONLINE)
@@ -429,9 +436,7 @@ def _render_ascii_board(board_data: dict, viewer_color: str | None,
                     viewer_color, blink_on)
     _paint_pieces(board, cell_pieces, blink_on)
 
-    out = board.render()
-    out.append('\n')
-    return out
+    return board.render()
 
 
 # ─────────────────────────── 其余辅助 ───────────────────────────
@@ -457,6 +462,7 @@ def _count_pieces(board_data: dict) -> dict:
 class LudoRenderer:
     game_type = 'ludo'
     icon = NF_PLANE
+    controls_height = 3
     glyphs = frozenset({
         NF_ARROW_D, NF_ARROW_L, NF_ARROW_R, NF_ARROW_U, NF_BULLSEYE,
         NF_CARET_D, NF_CARET_U, NF_CROSS, NF_DIAMOND, NF_FLAG, NF_OFFLINE,
@@ -468,17 +474,63 @@ class LudoRenderer:
     def render_doc(self, text: str) -> RenderableType:
         return render_doc(text, _DOC_COMMANDS)
 
+    def status_height(self, room_data: dict) -> int:
+        player_count = len(room_data.get('player_colors', {}))
+        return max(4, min(7, player_count + 3))
+
+    def render_status(
+        self, room_data: dict, interaction: dict | None = None,
+    ) -> GameStatusContent:
+        if room_data.get('room_state') not in ('playing', 'finished'):
+            return GameStatusContent(None)
+        player_colors = room_data.get('player_colors', {})
+        current = room_data.get('current_player', '')
+        dice = room_data.get('dice', 0)
+        pending_move = room_data.get('pending_move', False)
+        my_turn = interaction.get('my_turn', False) if interaction else False
+
+        status = make_status_table()
+        dice_text = f'骰子: {dice}' if dice > 0 else '骰子: -'
+        if my_turn:
+            prompt = '请选择棋子' if pending_move else '你的回合'
+            turn = f'[bold #e0c040]{NF_STAR} {prompt}[/]'
+        elif current:
+            turn = f'[{_DIM}]等待 {current}[/]'
+        else:
+            turn = ''
+        status.add_row(
+            f'[{_HEAD if dice > 0 else _DIM}]{dice_text}[/]', turn,
+        )
+
+        ordered = [color for color in COLOR_SEQ
+                   if color in player_colors.values()]
+        counts = _count_pieces(room_data.get('board', {}))
+        for color in ordered:
+            owner = next(
+                (name for name, value in player_colors.items()
+                 if value == color),
+                '???',
+            )
+            airport, track, runway, finished = counts[color]
+            marker = '>' if owner == current else ' '
+            status.add_row(
+                f'[{_DIM}]{marker}[/] '
+                f'[bold #000000 on {_COLOR_MAP[color]}] {_COLOR_SHAPE[color]} [/]'
+                f'[{_ACTIVE if owner == current else _SCORE}] {owner}[/]',
+                f'[{_DIM}]机场{airport} 赛道{track} '
+                f'跑道{runway} 完成{finished}[/]',
+            )
+        return GameStatusContent(status)
+
     def render_board(self, room_data: dict, interaction: dict | None = None,
                      board_width: int = 80, board_height: int = 30
                      ) -> dict[str, RenderableType | None]:
         state = room_data.get('room_state', 'lobby')
         if state == 'waiting':
-            return {'info': None, 'board': self._render_waiting(room_data),
-                    'controls': None}
+            return {'board': self._render_waiting(room_data), 'controls': None}
         if state in ('playing', 'finished'):
             return self._render_game(room_data, interaction)
-        return {'info': None, 'board': self._render_lobby(room_data),
-                'controls': None}
+        return {'board': self._render_lobby(room_data), 'controls': None}
 
     def _render_lobby(self, data: dict) -> RenderableType:
         doc = data.get('doc')
@@ -523,60 +575,13 @@ class LudoRenderer:
 
     def _render_game(self, data: dict, interaction: dict | None = None
                      ) -> dict[str, RenderableType | None]:
-        player_colors = data.get('player_colors', {})
-        current = data.get('current_player', '')
-        dice = data.get('dice', 0)
         board_data = data.get('board', {})
         rankings = data.get('rankings', [])
         state = data.get('room_state', 'playing')
-        pending_move = data.get('pending_move', False)
 
         my_turn = interaction.get('my_turn', False) if interaction else False
 
-        info = Text()
-        _GAP = '  '
-        dice_text = f'骰子: {dice}' if dice > 0 else '骰子: -'
-        info.append('  ' + dice_text, style=_HEAD if dice > 0 else _DIM)
-        info.append(_GAP)
-        if my_turn:
-            if pending_move:
-                info.append(f'{NF_STAR} 请选择棋子移动', style='bold #e0c040')
-            else:
-                info.append(f'{NF_STAR} 你的回合 — 掷骰子', style='bold #e0c040')
-        elif current:
-            info.append(f'等待 {current}', style=_DIM)
-        info.append('\n')
-
         board = Text()
-        ordered = [c for c in COLOR_SEQ
-                   if any(mc == c for mc in player_colors.values())]
-        color_to_owner = {
-            c: next((n for n, mc in player_colors.items() if mc == c), None)
-            for c in ordered
-        }
-        max_name_len = max(
-            [cell_width(n or '') for n in color_to_owner.values()] + [0]
-        )
-        piece_counts = _count_pieces(board_data)
-        for c in ordered:
-            owner = color_to_owner[c] or '???'
-            is_cur = (owner == current)
-            prefix = '> ' if is_cur else '  '
-            name_style = _ACTIVE if is_cur else _SCORE
-            board.append(prefix, style=_DIM)
-            board.append(f' {_COLOR_SHAPE[c]} ',
-                         style=f'bold #000000 on {_COLOR_MAP[c]}')
-            board.append(' ')
-            name_padded = owner + ' ' * max(
-                0, max_name_len - cell_width(owner))
-            board.append(name_padded, style=name_style)
-            cnt = piece_counts.get(c, (4, 0, 0, 0))
-            board.append(
-                f'   机场:{cnt[0]} 赛道:{cnt[1]} 跑道:{cnt[2]} 完成:{cnt[3]}',
-                style=_DIM,
-            )
-            board.append('\n')
-        board.append('\n')
 
         viewer_color = interaction.get('viewer_color') if interaction else None
         board.append_text(_render_ascii_board(
@@ -603,7 +608,7 @@ class LudoRenderer:
             _render_button_row(controls, buttons, btn_cursor,
                                btn_active, my_turn)
 
-        return {'info': info, 'board': board, 'controls': controls}
+        return {'board': board, 'controls': controls}
 
 
 def _render_button_row(text: Text, buttons: list[dict], cursor: int,
@@ -643,7 +648,6 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
         w = max(8, cell_width(label) + 2)
         text.append('╰' + '─' * w + '╯', style=b_style)
         text.append(' ')
-    text.append('\n')
 
 
 register_renderer(LudoRenderer())

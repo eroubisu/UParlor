@@ -82,6 +82,15 @@ class Panel(Widget):
     Panel > .tab > .content {{ padding: 0 1 0 2; }}
     Panel > .tab > .content.icon-align {{ padding: 0 0 0 0; }}
     Panel > .tab > .content.full-width {{ padding: 0; }}
+    Panel > #panel-confirm-surface {{
+        display: none;
+        height: auto;
+    }}
+    Panel #panel-confirm-divider {{ height: 1; }}
+    Panel #panel-confirm-options {{
+        height: auto;
+        padding: 0 1 0 2;
+    }}
     """
 
     tabs: list[str] = []
@@ -124,6 +133,13 @@ class Panel(Widget):
                     )
                 yield Divider(style=COLOR_BORDER, id="input-divider")
         yield from self.compose_content()
+        with Vertical(id="panel-confirm-surface"):
+            yield Divider(
+                style=COLOR_BORDER, id="panel-confirm-divider",
+            )
+            yield Static(
+                "", id="panel-confirm-options", markup=True,
+            )
 
     def compose_content(self) -> ComposeResult:
         """子类覆写此方法提供正文区 widget。默认实现：按 tabs 数量生成 VerticalScroll+Static。"""
@@ -156,6 +172,7 @@ class Panel(Widget):
             for t in self.query(".tab"):
                 t.styles.scrollbar_size_vertical = 0
                 t.styles.scrollbar_size_horizontal = 0
+            self._hide_confirm_surface()
 
     # ── 标签 ──
 
@@ -233,6 +250,7 @@ class Panel(Widget):
             scroll,
             lambda: content.update(text),
             self.call_after_refresh,
+            self.reflow_content,
         )
 
     def append(self, text: str, tab: int | None = None) -> None:
@@ -244,6 +262,7 @@ class Panel(Widget):
             vs,
             lambda: content.update(f"{old}\n{text}" if old else text),
             self.call_after_refresh,
+            self.reflow_content,
         )
 
     def replace_last(self, text: str, tab: int | None = None) -> None:
@@ -314,12 +333,18 @@ class Panel(Widget):
                 message, context_id=f"panel-confirmation:{message}",
             )
         self.confirmation.message = message
-        return self.confirmation.render(
+        self.query_one("#panel-confirm-surface", Vertical).display = True
+        options = self.query_one("#panel-confirm-options", Static)
+        options.update(self.confirmation.selection.render(
             self._content_width(),
             idle_prefix=ICON_INDENT,
             selected_style=f"bold {COLOR_FG_PRIMARY}",
             idle_style=color,
-        )
+        ))
+        return message
+
+    def _hide_confirm_surface(self) -> None:
+        self.query_one("#panel-confirm-surface", Vertical).display = False
 
     def _nav_confirm(self, action: str, on_yes, on_dismiss=None) -> bool:
         if not self.confirmation.is_open:
@@ -328,8 +353,10 @@ class Panel(Widget):
             return False
         result = self.confirmation.handle(action)
         if result == ConfirmMenu.YES_ID:
+            self._hide_confirm_surface()
             on_yes()
         elif result == ConfirmMenu.NO_ID and on_dismiss:
+            self._hide_confirm_surface()
             on_dismiss()
         return True
 

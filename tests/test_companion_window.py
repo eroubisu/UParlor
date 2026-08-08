@@ -45,6 +45,7 @@ class _FakeController:
         self.enabled = False
         self.proactive = True
         self.input_callback = None
+        self.records = []
 
     def set_on_proactive(self, callback):
         self.input_callback = callback
@@ -78,6 +79,12 @@ class _FakeController:
 
     def clear_visible_history(self):
         return True
+
+    def restore_visible_history(self):
+        return False
+
+    def add_record(self, text):
+        self.records.append(text)
 
     async def validate_api(self, provider_name, api_key):
         assert provider_name == "gemini"
@@ -194,7 +201,8 @@ def test_companion_defaults_to_chat_and_blocks_unconfigured_input(
         app = _CompanionApp()
         async with app.run_test() as pilot:
             panel = app.query_one(CompanionPanel)
-            panel.bind_controller(_FakeController())
+            controller = _FakeController()
+            panel.bind_controller(controller)
             await pilot.pause()
 
             assert panel._active == 0
@@ -371,6 +379,60 @@ def test_consecutive_messages_keep_independent_reply_slots():
     asyncio.run(verify())
 
 
+def test_pending_reply_frame_is_visible_before_ai_text_arrives():
+    async def verify():
+        app = _CompanionApp()
+        async with app.run_test() as pilot:
+            panel = app.query_one(CompanionPanel)
+            controller = _FakeController()
+            panel._selected_character_name = lambda: "引路人"
+            panel.bind_controller(controller)
+            panel._chat_lines = ["刚发送", ""]
+            panel._chat_meta = [
+                ("user", "10:00:00", ""),
+                ("assistant", "10:00:01", ""),
+            ]
+
+            panel._flush_chat()
+            await pilot.pause()
+            content = str(panel.query_one("#t0 .content").content)
+
+            assert content.count("引路人") == 1
+            assert "开心" not in content
+
+    asyncio.run(verify())
+
+
+def test_up_restores_hidden_history_even_with_visible_messages():
+    class _RestoreController(_FakeController):
+        def __init__(self):
+            super().__init__()
+            self.restored = False
+
+        def restore_visible_history(self):
+            self.restored = True
+            return True
+
+        def visible_history(self):
+            return [{"role": "user", "content": "更早消息"}]
+
+    async def verify():
+        app = _CompanionApp()
+        async with app.run_test():
+            panel = app.query_one(CompanionPanel)
+            controller = _RestoreController()
+            panel.bind_controller(controller)
+            panel._chat_lines = ["当前消息"]
+            panel._chat_meta = [("user", "10:00:00", "")]
+
+            panel.nav("up")
+
+            assert controller.restored
+            assert panel._chat_lines == ["更早消息"]
+
+    asyncio.run(verify())
+
+
 def test_chat_blocks_have_one_blank_line_without_empty_slot_gaps():
     async def verify():
         app = _CompanionApp()
@@ -398,6 +460,29 @@ def test_chat_blocks_have_one_blank_line_without_empty_slot_gaps():
     asyncio.run(verify())
 
 
+def test_companion_history_title_only_shows_companion_name():
+    async def verify():
+        app = _CompanionApp()
+        async with app.run_test():
+            panel = app.query_one(CompanionPanel)
+            panel._selected_character_name = lambda: "引路人"
+            panel.bind_controller(_FakeController())
+            panel._chat_lines = ["第一句", "第二句"]
+            panel._chat_meta = [
+                ("assistant", "10:00:00", "joyful"),
+                ("assistant", "10:01:00", "calm"),
+            ]
+
+            panel._flush_chat()
+            content = str(panel.query_one("#t0 .content").content)
+
+            assert "引路人" in content
+            assert "开心" not in content
+            assert "平静" not in content
+
+    asyncio.run(verify())
+
+
 @pytest.mark.usefixtures("isolated_companion_home")
 def test_companion_settings_key_edit_uses_input_and_validates_before_save(
 ):
@@ -407,7 +492,8 @@ def test_companion_settings_key_edit_uses_input_and_validates_before_save(
         app = _CompanionApp()
         async with app.run_test() as pilot:
             panel = app.query_one(CompanionPanel)
-            panel.bind_controller(_FakeController())
+            controller = _FakeController()
+            panel.bind_controller(controller)
             panel.open_settings()
             panel.selection.select("api_key")
             panel.nav("enter")
@@ -429,7 +515,9 @@ def test_companion_settings_key_edit_uses_input_and_validates_before_save(
             config = cfg.load_global_config()
             assert config["api_key"] == "test-secret"
             assert config["model"] == ""
-            assert "验证成功" in panel._status
+            assert panel._status == ""
+            assert controller.records[-1] == (
+                "旅伴 API Key 验证成功并已保存。")
 
             panel.selection.select("model")
             panel.nav("enter")
@@ -448,7 +536,8 @@ def test_escape_cancels_edit_and_bubbles_to_screen_input_mode():
         app = _CompanionApp()
         async with app.run_test() as pilot:
             panel = app.query_one(CompanionPanel)
-            panel.bind_controller(_FakeController())
+            controller = _FakeController()
+            panel.bind_controller(controller)
             panel.open_settings()
             panel.selection.select("api_key")
             assert panel.enter_insert()
@@ -587,7 +676,8 @@ def test_selected_companion_can_be_deleted_after_confirmation():
         app = _CompanionApp()
         async with app.run_test() as pilot:
             panel = app.query_one(CompanionPanel)
-            panel.bind_controller(_FakeController())
+            controller = _FakeController()
+            panel.bind_controller(controller)
             panel.open_settings()
             panel.selection.select("character")
             panel.nav("enter")
@@ -602,13 +692,14 @@ def test_selected_companion_can_be_deleted_after_confirmation():
             await pilot.pause()
 
             assert not cfg.char_dir("guide").exists()
-            assert "旅伴已删除" in panel._status
+            assert panel._status == ""
+            assert controller.records[-1] == "旅伴已删除。"
 
     asyncio.run(verify())
 
 
 @pytest.mark.usefixtures("isolated_companion_home")
-def test_companion_chat_history_can_be_cleared_after_confirmation():
+def test_companion_chat_history_clears_without_confirmation_and_records_it():
     cfg.set_current_player("alice")
 
     class _Controller(_FakeController):
@@ -630,18 +721,14 @@ def test_companion_chat_history_can_be_cleared_after_confirmation():
 
             assert panel.selection.select("clear_history")
             panel.nav("enter")
-            assert panel._settings_menu == "clear_history_confirm"
-            assert "确认清空聊天记录" in str(
-                panel.query_one("#t1 .content").content)
-
-            panel.nav("enter")
             await pilot.pause()
 
             assert controller.cleared
             assert panel._chat_lines == []
             assert panel._chat_meta == []
             assert panel._settings_menu == ""
-            assert "聊天记录已清空" in panel._status
+            assert controller.records == ["旅伴聊天记录已清空。"]
+            assert "聊天记录已清空" not in panel._status
 
     asyncio.run(verify())
 

@@ -16,7 +16,7 @@ class CmdState(BaseState):
 
     def add_line(self, text: str, **kw):
         from datetime import datetime
-        ts = datetime.now().strftime('%H:%M')
+        ts = datetime.now().strftime('%H:%M:%S')
         stamped = f'{M_DIM}{ts}{M_END} {text}'
         if kw.get('update_last') and self.lines:
             self.lines[-1] = stamped

@@ -20,7 +20,13 @@ class Window(Widget):
     Window.visible {
         display: block;
     }
+    Window.-primary {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+    }
     Window.-layout-pending {
+        position: absolute;
         offset: -100vw -100vh;
     }
     Window.-popup {
@@ -42,9 +48,18 @@ class Window(Widget):
         self._active = True
         self._presentation_timeout_revision = -1
         self._presentation_observer: Callable[[str], None] | None = None
+        self._staged_presentation: Callable[[], None] | None = None
 
     def set_presentation_observer(self, observer: Callable[[str], None]) -> None:
         self._presentation_observer = observer
+
+    def stage_presentation(self, prepare: Callable[[], None]) -> None:
+        """Stage target-only content for the next measured presentation."""
+        self._staged_presentation = prepare
+
+    def cancel_staged_presentation(self) -> None:
+        """Discard target-only content when presentation cannot proceed."""
+        self._staged_presentation = None
 
     def on_mount(self) -> None:
         self._default_focus_pos = self._focus_pos
@@ -137,6 +152,10 @@ class Window(Widget):
         """Prepare measured content while the newly opened window stays hidden."""
         if revision != self._show_revision or not self.has_class("visible"):
             return
+        staged = self._staged_presentation
+        self._staged_presentation = None
+        if staged is not None:
+            staged()
         for p in self._panels.values():
             p.reset_cursor()
         self._focus_to_primary()
@@ -154,8 +173,10 @@ class Window(Widget):
         if not self.presentation_ready():
             self._schedule_presentation_timeout(revision)
             return
-        self._report_presentation("presenting")
+        # Put the complete target frame on-screen before the engine hides the
+        # previous primary. Both class mutations still commit in this turn.
         self.remove_class("-layout-pending")
+        self._report_presentation("presenting")
         self._report_presentation("presented")
 
     def presentation_ready(self) -> bool:
@@ -194,6 +215,7 @@ class Window(Widget):
 
     def hide(self) -> None:
         self._show_revision += 1
+        self.cancel_staged_presentation()
         for panel in self._panels.values():
             if hasattr(panel, "leave_insert"):
                 panel.leave_insert(preserve=True)

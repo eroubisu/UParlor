@@ -100,6 +100,7 @@ class AIService:
         self._display_from = 0
         self._compressing: bool = False
         self._cached_static_prompt: str = ""
+        self._pending_mood_primary = ""
 
     # ── 角色切换 ──
 
@@ -205,7 +206,7 @@ class AIService:
     def character(self) -> Character | None:
         return self._character
 
-    def visible_history(self) -> list[dict[str, str]]:
+    def visible_history(self) -> list[dict[str, Any]]:
         """Return the persisted conversation segment shown in the chat UI."""
         history = self._recent[self._display_from:]
         visible = []
@@ -220,6 +221,8 @@ class AIService:
             }
             if item.get("time"):
                 entry["time"] = str(item["time"])
+            if item.get("mood"):
+                entry["mood"] = dict(item["mood"])
             visible.append(entry)
         return visible
 
@@ -227,6 +230,14 @@ class AIService:
         """Hide the current chat projection without deleting companion memory."""
         self._display_from = len(self._recent)
         self._save_all()
+
+    def restore_visible_history(self) -> bool:
+        """Restore hidden history when the reader scrolls above a cleared view."""
+        if self._display_from <= 0:
+            return False
+        self._display_from = 0
+        self._save_all()
+        return True
 
     def discard_proactive_reply(self, text: str) -> bool:
         """Remove a proactive reply that was superseded before UI delivery."""
@@ -260,6 +271,17 @@ class AIService:
                 "intensity": round(self._mood.intensity * 100),
                 "source": self._mood.source,
             },
+        }
+
+    def _mood_snapshot(self) -> dict:
+        to_dict = getattr(self._mood, "to_dict", None)
+        if callable(to_dict):
+            return dict(to_dict())
+        return {
+            "primary": getattr(self._mood, "primary", "calm"),
+            "secondary": getattr(self._mood, "secondary", ""),
+            "intensity": getattr(self._mood, "intensity", 0.3),
+            "source": getattr(self._mood, "source", ""),
         }
 
     @property
@@ -377,31 +399,30 @@ class AIService:
                 use_tools=True,
             ):
                 full_reply += chunk
-                yield chunk
         except Exception as e:
             generation_succeeded = False
             from .provider import redact_sensitive_text
             safe_error = redact_sensitive_text(e, self.api_key)
             err = f"[AI 出错: {safe_error}]"
-            yield err
             full_reply = err
             from . import llm_log
             llm_log.record("error", kind_inner="chat", message=safe_error)
         finally:
             if not self._active:
                 return
+            if full_reply and generation_succeeded:
+                await self._evaluate_interaction(user_text, full_reply)
             if full_reply:
                 self._recent.append({
                     "role": "assistant",
                     "content": full_reply,
                     "time": datetime.now().strftime("%H:%M:%S"),
+                    "mood": self._mood_snapshot(),
                 })
             else:
                 if self._recent and self._recent[-1].get("role") == "user":
                     self._recent.pop()
             self._save_recent()
-            if full_reply and generation_succeeded:
-                await self._evaluate_interaction(user_text, full_reply)
             # LLM 日志 (UPARLOR_LLM_LOG=1 启用)
             from . import llm_log
             if llm_log.is_enabled():
@@ -417,6 +438,8 @@ class AIService:
                     await self._compress()
                 except Exception:
                     _log.debug("compress failed after chat", exc_info=True)
+        if full_reply:
+            yield full_reply
 
     # ── 消息组装 ──
 
@@ -560,12 +583,33 @@ class AIService:
     def _apply_state_evaluation(self, data: dict):
         mood_data = data.get("mood", {})
         if mood_data.get("primary"):
-            self._mood.set_mood(
-                mood_data["primary"],
-                mood_data.get("intensity", 0.5),
-                mood_data.get("secondary", ""),
-                mood_data.get("source", ""),
-            )
+            primary = mood_data["primary"]
+            target = max(0.0, min(1.0, mood_data.get("intensity", 0.5)))
+            if primary == self._mood.primary:
+                self._pending_mood_primary = ""
+                intensity = max(
+                    self._mood.intensity - 0.15,
+                    min(self._mood.intensity + 0.15, target),
+                )
+                self._mood.set_mood(
+                    primary,
+                    intensity,
+                    mood_data.get("secondary", ""),
+                    mood_data.get("source", ""),
+                )
+            elif (
+                target >= 0.85
+                or getattr(self, "_pending_mood_primary", "") == primary
+            ):
+                self._pending_mood_primary = ""
+                self._mood.set_mood(
+                    primary,
+                    min(target, 0.4),
+                    mood_data.get("secondary", ""),
+                    mood_data.get("source", ""),
+                )
+            else:
+                self._pending_mood_primary = primary
         cog_data = data.get("cognitive", {})
         if any(cog_data.values()):
             self._cognitive.update(cog_data)
@@ -696,7 +740,6 @@ class AIService:
                 use_tools=True,
             ):
                 full_reply += chunk
-                yield chunk
         except asyncio.CancelledError:
             cancelled = True
             raise
@@ -712,20 +755,23 @@ class AIService:
             if not self._active:
                 return
             if full_reply and not cancelled:
+                await self._evaluate_interaction(reason, full_reply)
                 self._recent.append({
                     "role": "assistant",
                     "content": full_reply,
                     "time": datetime.now().strftime("%H:%M:%S"),
                     "origin": "proactive",
+                    "mood": self._mood_snapshot(),
                 })
                 self._save_recent()
-                await self._evaluate_interaction(reason, full_reply)
             from . import llm_log
             if llm_log.is_enabled():
                 llm_log.record(
                     "proactive", model=self.model,
                     reason=reason, output=full_reply,
                 )
+        if full_reply and not cancelled:
+            yield full_reply
 
     # ── 退出 ──
 

@@ -18,6 +18,7 @@ from textual.widgets import Input, Static
 from ...companion import CompanionController
 from ...companion import config as cfg
 from ...companion.character import list_characters
+from ...companion.mood import MOODS
 from ...companion.provider import PROVIDER_NAMES
 from ...chat_style import render_chat_groups
 from ...config import (
@@ -76,7 +77,7 @@ class CompanionPanel(Panel):
         self._reply_buffers: dict[int, str] = {}
         self._chat_worker_running = False
         self._chat_lines: list[str] = []
-        self._chat_meta: list[tuple[str, str]] = []
+        self._chat_meta: list[tuple[str, str, str]] = []
         self._settings_menu = ""
         self._editing = ""
         self._pending_key = ""
@@ -120,6 +121,10 @@ class CompanionPanel(Panel):
         self.border_title = self._render_tabs()
         self._render_current_tab()
 
+    def _add_record(self, text: str) -> None:
+        if self._controller is not None:
+            self._controller.add_record(text)
+
     def on_panel_focus(self) -> None:
         self._render_current_tab()
 
@@ -152,6 +157,14 @@ class CompanionPanel(Panel):
             return
         if self._active == 0:
             if action in ("up", "down"):
+                if (
+                    action == "up"
+                    and self._controller
+                    and self._controller.restore_visible_history()
+                ):
+                    self._restore_chat_history()
+                    self._render_chat()
+                    return
                 super().nav(action)
             return
         if self._active == 2:
@@ -190,7 +203,11 @@ class CompanionPanel(Panel):
             for item in history
         ]
         self._chat_meta = [
-            (item["role"], item.get("time", ""))
+            (
+                item["role"],
+                item.get("time", ""),
+                str(item.get("mood", {}).get("primary", "")),
+            )
             for item in history
         ]
 
@@ -383,11 +400,6 @@ class CompanionPanel(Panel):
                 ("delete_confirmed", f"删除 {name}"),
                 ("back", "取消"),
             ]
-        if self._settings_menu == "clear_history_confirm":
-            return [
-                ("clear_history_confirmed", "确认清空聊天记录"),
-                ("back", "取消"),
-            ]
         return []
 
     def _render_settings_menu(self) -> None:
@@ -439,7 +451,11 @@ class CompanionPanel(Panel):
             controller.set_background_proactive(not current)
             self._render_settings()
         elif key == "clear_history":
-            self._open_menu("clear_history_confirm")
+            if controller.clear_visible_history():
+                self._chat_lines.clear()
+                self._chat_meta.clear()
+                controller.add_record("旅伴聊天记录已清空。")
+            self._render_settings()
 
     def _open_menu(self, menu: str) -> None:
         self._settings_menu = menu
@@ -458,15 +474,6 @@ class CompanionPanel(Panel):
             else:
                 self._render_settings()
             return
-        if self._settings_menu == "clear_history_confirm":
-            controller = self._controller
-            if controller and controller.clear_visible_history():
-                self._chat_lines.clear()
-                self._chat_meta.clear()
-                self._status = "聊天记录已清空。"
-            self._settings_menu = ""
-            self._render_settings()
-            return
         if self._settings_menu == "provider":
             if value != self._draft_provider:
                 self._draft_provider = value
@@ -481,7 +488,8 @@ class CompanionPanel(Panel):
             if controller:
                 controller.set_model(value)
             self._settings_menu = ""
-            self._status = "模型已保存。"
+            self._status = ""
+            self._add_record("旅伴模型已保存。")
             self._render_settings()
         elif self._settings_menu == "character":
             if value == "create":
@@ -501,7 +509,8 @@ class CompanionPanel(Panel):
                 controller.load_character(self._character_action_id)
                 self._restore_chat_history()
             self._settings_menu = ""
-            self._status = "当前旅伴已切换。"
+            self._status = ""
+            self._add_record("当前旅伴已切换。")
             self.border_title = self._render_tabs()
             self._render_settings()
         elif self._settings_menu == "delete_confirm":
@@ -511,7 +520,8 @@ class CompanionPanel(Panel):
                 self._restore_chat_history()
             self._character_action_id = ""
             self._settings_menu = ""
-            self._status = "旅伴已删除。"
+            self._status = ""
+            self._add_record("旅伴已删除。")
             self.border_title = self._render_tabs()
             self._render_settings()
 
@@ -628,7 +638,8 @@ class CompanionPanel(Panel):
         controller.apply_api_config(provider_name, key, model)
         self._pending_key = ""
         self._models = models
-        self._status = "API Key 验证成功并已保存。"
+        self._status = ""
+        self._add_record("旅伴 API Key 验证成功并已保存。")
         self._render_settings()
 
     def _open_model_menu(self) -> None:
@@ -692,7 +703,9 @@ class CompanionPanel(Panel):
 
     def _append_user(self, text: str) -> None:
         self._chat_lines.append(text)
-        self._chat_meta.append(("user", datetime.now().strftime("%H:%M:%S")))
+        self._chat_meta.append((
+            "user", datetime.now().strftime("%H:%M:%S"), "",
+        ))
         self._flush_chat()
 
     def _enqueue_chat(self, text: str) -> None:
@@ -700,7 +713,7 @@ class CompanionPanel(Panel):
         slot = len(self._chat_lines)
         self._chat_lines.append("")
         self._chat_meta.append((
-            "assistant", datetime.now().strftime("%H:%M:%S")))
+            "assistant", datetime.now().strftime("%H:%M:%S"), ""))
         self._reply_buffers[slot] = ""
         self._chat_queue.append((text, slot))
         self._streaming = True
@@ -722,6 +735,13 @@ class CompanionPanel(Panel):
 
     def _end_ai(self, slot: int) -> None:
         self._reply_buffers.pop(slot, None)
+        controller = self._controller
+        if controller and slot < len(self._chat_meta):
+            role, time_text, _ = self._chat_meta[slot]
+            mood = controller.public_status().get("mood", {})
+            self._chat_meta[slot] = (
+                role, time_text, str(mood.get("primary", "未知")),
+            )
         self._flush_chat()
         if self._active == 2:
             self._render_status()
@@ -745,17 +765,21 @@ class CompanionPanel(Panel):
         companion_key = f"companion:{companion_name}"
         companion_sender = {
             "name": companion_key,
-            "labels": [
-                companion_name,
-                str(mood.get("primary", "未知")),
-            ],
+            "labels": [companion_name],
             "style": player_sender.get("style", {}),
         }
         entries = []
         for index, content in enumerate(self._chat_lines):
-            if not content or index >= len(self._chat_meta):
+            if index >= len(self._chat_meta):
                 continue
-            role, time_text = self._chat_meta[index]
+            meta = self._chat_meta[index]
+            role, time_text = meta[:2]
+            if not content and role != "assistant":
+                continue
+            message_mood = (
+                meta[2] if len(meta) > 2 and meta[2]
+                else str(mood.get("primary", "未知"))
+            )
             sender_name = player_name if role == "user" else companion_key
             if role == "user":
                 text = content
@@ -772,14 +796,24 @@ class CompanionPanel(Panel):
                 text=text,
                 time=time_text,
                 role=role,
+                mood=message_mood,
             ))
+        senders = {player_name: player_sender}
+        for entry in entries:
+            if entry.role != "assistant":
+                continue
+            mood_label = MOODS.get(entry.mood, entry.mood or "未知")
+            sender_key = f"{companion_key}:{mood_label}"
+            entry.sender_name = sender_key
+            senders[sender_key] = {
+                **companion_sender,
+                "name": sender_key,
+                "labels": [companion_name],
+            }
         self.update(
             render_chat_groups(
                 entries,
-                {
-                    player_name: player_sender,
-                    companion_key: companion_sender,
-                },
+                senders,
                 self._content_width(0),
                 line_formatter=self._format_companion_frame_line,
             ),
@@ -827,7 +861,11 @@ class CompanionPanel(Panel):
     def _add_proactive(self, text: str) -> None:
         self._chat_lines.append(text)
         self._chat_meta.append((
-            "assistant", datetime.now().strftime("%H:%M:%S")))
+            "assistant",
+            datetime.now().strftime("%H:%M:%S"),
+            str(self._controller.public_status().get("mood", {}).get(
+                "primary", "未知")) if self._controller else "未知",
+        ))
         self._flush_chat()
 
 

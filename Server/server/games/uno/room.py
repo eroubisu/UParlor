@@ -239,7 +239,7 @@ class UnoRoom:
         card = hand[card_idx]
         playable = self.get_playable_indices(player)
         if card_idx not in playable:
-            return False, '这张牌不能打'
+            return False, ''
 
         # Wild 牌需要选颜色
         if card.is_wild and not chosen_color:

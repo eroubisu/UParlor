@@ -12,9 +12,11 @@ def _default_state() -> dict:
     return {
         'btn_cursor': 0,
         'buttons': [],
+        'active': True,
         'my_turn': False,
         'playing': False,
         'viewer_color': None,
+        'all_move_previews': {},
         'move_previews': {},
         'valid_moves': [],
         'last_move_seq': 0,
@@ -70,9 +72,26 @@ class LudoHandler:
         items = data.get('items', [])
         if title in _BOARD_MENUS:
             state = self._snapshot(ctx)
+            state['active'] = True
             state['buttons'] = items
             state['btn_cursor'] = 0
+            self._select_preview(state)
+            start_blink = bool(
+                state['move_previews'] and not state['blink_running'])
+            if start_blink:
+                state['blink_running'] = True
+                state['blink_on'] = True
+                state['blink_token'] += 1
             ctx.state.game_interaction.replace(self.game_type, state)
+            if start_blink:
+                interaction = ctx.state.game_interaction
+                generation = interaction.generation(self.game_type)
+                token = state['blink_token']
+                ctx.set_timer(
+                    self._BLINK_STEP,
+                    lambda: self._tick_blink(
+                        interaction, generation, token, ctx.set_timer),
+                )
             return True
         ctx.show_select_menu(
             title=title,
@@ -83,7 +102,7 @@ class LudoHandler:
 
     def on_nav(self, direction: str, ctx: GameHandlerContext) -> None:
         state = self._snapshot(ctx)
-        if not state['playing']:
+        if not state['playing'] or not state['active']:
             return
         buttons = state['buttons']
         if direction == 'left' and buttons:
@@ -103,6 +122,8 @@ class LudoHandler:
         elif direction == 'enter':
             self._on_enter(state, ctx)
             return
+        if direction in ('left', 'right'):
+            self._select_preview(state)
         ctx.state.game_interaction.replace(self.game_type, state)
 
     def _on_enter(self, state: dict, ctx: GameHandlerContext) -> None:
@@ -113,10 +134,7 @@ class LudoHandler:
             command = buttons[state['btn_cursor']].get('command', '')
             if command:
                 ctx.send_command(command)
-                state['buttons'] = [
-                    {'label': '掷骰子', 'command': '/roll'},
-                ]
-                state['btn_cursor'] = 0
+                state['active'] = False
                 ctx.state.game_interaction.replace(self.game_type, state)
                 return
         ctx.send_command('/roll')
@@ -183,15 +201,9 @@ class LudoHandler:
                          player_name: str, set_timer) -> None:
         state['my_turn'] = (
             room_data.get('current_player', '') == player_name)
-        state['move_previews'] = room_data.get('move_previews', {}) or {}
+        state['active'] = True
+        state['all_move_previews'] = room_data.get('move_previews', {}) or {}
         state['valid_moves'] = room_data.get('valid_moves', []) or []
-
-        start_blink = bool(
-            state['move_previews'] and not state['blink_running'])
-        if start_blink:
-            state['blink_running'] = True
-            state['blink_on'] = True
-            state['blink_token'] += 1
 
         pending = room_data.get('pending_move', False)
         showing_pieces = (
@@ -205,6 +217,14 @@ class LudoHandler:
             state['btn_cursor'] = 0
         elif state['btn_cursor'] >= len(state['buttons']):
             state['btn_cursor'] = max(0, len(state['buttons']) - 1)
+        self._select_preview(state)
+
+        start_blink = bool(
+            state['move_previews'] and not state['blink_running'])
+        if start_blink:
+            state['blink_running'] = True
+            state['blink_on'] = True
+            state['blink_token'] += 1
 
         interaction.replace(self.game_type, state)
         if start_blink:
@@ -215,6 +235,21 @@ class LudoHandler:
                 lambda: self._tick_blink(
                     interaction, generation, token, set_timer),
             )
+
+    @staticmethod
+    def _select_preview(state: dict) -> None:
+        previews = state.get('all_move_previews', {}) or {}
+        buttons = state.get('buttons', [])
+        cursor = state.get('btn_cursor', 0)
+        if not buttons or not (0 <= cursor < len(buttons)):
+            state['move_previews'] = {}
+            return
+        command = buttons[cursor].get('command', '')
+        _, separator, piece_index = command.partition('/move ')
+        preview = previews.get(piece_index) if separator else None
+        state['move_previews'] = (
+            {piece_index: preview} if preview is not None else {}
+        )
 
     @staticmethod
     def _set_anim_override(state: dict) -> None:

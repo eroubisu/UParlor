@@ -81,6 +81,13 @@ class RoomControlsPanel(Panel):
         self._items = items
         self._redraw()
 
+    def prepare_context(self, tabs: list[tuple[str, list]]) -> None:
+        """Replace commands while preparing a newly entered location."""
+        self._stack.clear()
+        self._confirming = ''
+        self.confirmation.close()
+        self.update_commands(tabs)
+
     def _is_selectable(self, item: dict) -> bool:
         return item.get('type', 'option') not in ('text', 'separator')
 

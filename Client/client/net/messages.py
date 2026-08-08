@@ -53,6 +53,9 @@ class GameInviteResult:
 class RoomUpdate:
     room_data: dict | None = None
     message: str | None = None
+    location: str | None = None
+    location_path: str | None = None
+    commands: list | None = None
 
 @dataclass
 class RoomLeave:
@@ -164,7 +167,11 @@ _PARSERS = {
     'game_invite':    lambda m: GameInvite(raw=m),
     'game_invite_result': lambda m: GameInviteResult(
         game=m.get('game', ''), from_name=m.get('from', ''), status=m.get('status', '')),
-    'room_update':    lambda m: RoomUpdate(room_data=m.get('room_data'), message=m.get('message')),
+    'room_update':    lambda m: RoomUpdate(
+        room_data=m.get('room_data'), message=m.get('message'),
+        location=m.get('location'), location_path=m.get('location_path'),
+        commands=m.get('commands'),
+    ),
     'room_leave':     lambda m: RoomLeave(location=m.get('location'), location_path=m.get('location_path'),
                                             commands=m.get('commands', [])),
     'game_quit':      lambda m: GameQuit(location=m.get('location')),

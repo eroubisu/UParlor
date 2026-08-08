@@ -22,10 +22,12 @@ class GameBoardState(BaseState):
         self.rooms = rooms
         self._notify('set_rooms', rooms)
 
-    def update_room(self, room_data: dict):
+    def update_room(self, room_data: dict, *, notify: bool = True):
         self.room_data = room_data
-        self._notify('update_room', room_data)
+        if notify:
+            self._notify('update_room', room_data)
 
-    def clear(self):
+    def clear(self, *, notify: bool = True):
         self.room_data = {}
-        self._notify('clear')
+        if notify:
+            self._notify('clear')

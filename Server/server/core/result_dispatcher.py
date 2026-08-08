@@ -152,6 +152,69 @@ def inject_location_path(msg, lobby_engine, player_data=None):
                 msg['commands'] = lobby_engine.get_commands_for_location(loc, player_data)
 
 
+def inject_room_transition(msg, lobby_engine, player_name, player_data=None):
+    """Attach everything needed for a complete exit-transition frame."""
+    if not isinstance(msg, dict) or msg.get('type') != ROOM_UPDATE:
+        return
+    room_data = msg.get('room_data') or {}
+    if (
+        room_data.get('room_state') not in (
+            'waiting', 'playing', 'finished', 'lobby',
+        )
+        or not player_name
+    ):
+        return
+    location = lobby_engine.get_player_location(player_name)
+    if not location:
+        return
+    msg['location'] = location
+    msg['location_path'] = lobby_engine.get_location_path(
+        location, player_name,
+    )
+    msg['commands'] = lobby_engine.get_commands_for_location(
+        location, player_data,
+    )
+
+
+def _coalesce_exit_transition_messages(messages):
+    """Build one complete room-transition message for each recipient."""
+    coalesced = []
+    for message in messages:
+        room_data = message.get('room_data', {}) if isinstance(message, dict) else {}
+        is_exit_snapshot = (
+            isinstance(message, dict)
+            and message.get('type') == ROOM_UPDATE
+            and room_data.get('room_state') in ('waiting', 'lobby')
+        )
+        if (
+            is_exit_snapshot
+            and coalesced
+            and isinstance(coalesced[-1], dict)
+            and coalesced[-1].get('type') == GAME
+        ):
+            notice = coalesced.pop()
+            message = dict(message)
+            message.setdefault('message', notice.get('text', ''))
+        coalesced.append(message)
+    has_room_transition = any(
+        isinstance(message, dict)
+        and message.get('type') == ROOM_UPDATE
+        and (message.get('room_data') or {}).get('room_state') in (
+            'waiting', 'playing', 'finished', 'lobby',
+        )
+        for message in coalesced
+    )
+    if has_room_transition:
+        coalesced = [
+            message for message in coalesced
+            if not (
+                isinstance(message, dict)
+                and message.get('type') == LOCATION_UPDATE
+            )
+        ]
+    return coalesced, has_room_transition
+
+
 def resolve_location(lobby_engine, name, result):
     """从 result 或 lobby 获取当前位置和面包屑"""
     loc = result.get('location') if isinstance(result, dict) else None
@@ -210,18 +273,27 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
     lobby = server.lobby_engine
 
     # 1. send_to_caller
+    caller_has_room_transition = False
     if caller_socket:
-        for msg in result.get('send_to_caller', []):
+        caller_messages, caller_has_room_transition = (
+            _coalesce_exit_transition_messages(
+            result.get('send_to_caller', []),
+            )
+        )
+        for msg in caller_messages:
             msg = wrap_game_event(msg, game_type)
             inject_location_path(msg, lobby, caller_data)
+            inject_room_transition(msg, lobby, caller_name, caller_data)
             server.send_to(caller_socket, msg)
 
     # 2. send_to_players
     for target, messages in result.get('send_to_players', {}).items():
         target_data = server._get_player_data(target)
-        for msg in messages:
+        target_messages, _ = _coalesce_exit_transition_messages(messages)
+        for msg in target_messages:
             msg = wrap_game_event(msg, game_type)
             inject_location_path(msg, lobby, target_data)
+            inject_room_transition(msg, lobby, target, target_data)
             server.send_to_player(target, msg)
 
     # 3. 位置变更：自动向 caller 发送 location_update / room_leave
@@ -249,7 +321,7 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
                 _send_status_to_player(server, target, target_data)
 
     # 6. refresh_commands: 仅为 caller 重新下发指令列表
-    if result.get('refresh_commands'):
+    if result.get('refresh_commands') and not caller_has_room_transition:
         if caller_name and caller_socket:
             _refresh_caller_commands(server, caller_socket, caller_name, caller_data)
 

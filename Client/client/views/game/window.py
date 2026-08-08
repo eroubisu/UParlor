@@ -12,6 +12,7 @@ from ..lobby.log import LogPanel
 from ..chat.content import ChatContentPanel
 from .board import GameBoardPanel
 from .controls import RoomControlsPanel
+from .status import GameStatusPanel
 
 
 class GameWindow(Window):
@@ -21,6 +22,8 @@ class GameWindow(Window):
     GameWindow {
         width: 1fr;
         height: 1fr;
+        min-width: 88;
+        min-height: 31;
     }
     GameWindow > #game-log {
         dock: top;
@@ -36,24 +39,27 @@ class GameWindow(Window):
         width: 1fr;
     }
     GameWindow > #game-body > #game-right {
-        width: 36;
+        width: 40;
         height: 1fr;
+    }
+    GameWindow > #game-body > #game-right > #game-status {
+        width: 1fr;
     }
     GameWindow > #game-body > #game-right > #game-chat {
         height: 3fr;
         width: 1fr;
-        min-height: 8;
+        min-height: 2;
     }
     GameWindow > #game-body > #game-right > #room-controls {
-        height: 1fr;
+        height: 6;
         width: 1fr;
-        min-height: 6;
     }
     """
 
     # 同 waiting_window 的多行布局：左栏跨行，右栏分上下两行
     focus_grid = [
         ["game-log"],
+        ["game-board", "game-status"],
         ["game-board", "game-chat"],
         ["game-board", "room-controls"],
     ]
@@ -76,6 +82,7 @@ class GameWindow(Window):
         with Horizontal(id="game-body"):
             yield GameBoardPanel(id="game-board")
             with Vertical(id="game-right"):
+                yield GameStatusPanel(id="game-status")
                 yield ChatContentPanel(id="game-chat")
                 yield RoomControlsPanel(id="room-controls")
 
@@ -89,6 +96,7 @@ class GameWindow(Window):
             st, send_command=send_fn,
             set_timer=self.app.set_timer if hasattr(self.app, 'set_timer') else None,
         )
+        self.query_one("#game-status", GameStatusPanel).bind_state(st)
         cp = self.query_one("#game-chat", ChatContentPanel)
         cp.bind_state(st)
         cp.show_conversation("room")

@@ -263,7 +263,7 @@ class CompanionController:
         service.rebind_state(snapshot_state(self._state, self._player))
         service.observe_event(summary)
 
-    def visible_history(self) -> list[dict[str, str]]:
+    def visible_history(self) -> list[dict[str, Any]]:
         service = self.get_service()
         if service is None or not service.char_id:
             return []
@@ -275,6 +275,15 @@ class CompanionController:
             return False
         service.clear_visible_history()
         return True
+
+    def restore_visible_history(self) -> bool:
+        service = self.get_service()
+        if service is None or not service.char_id:
+            return False
+        return service.restore_visible_history()
+
+    def add_record(self, text: str) -> None:
+        self._state.cmd.add_line(text)
 
     def player_chat_sender(self) -> dict:
         return self._state.chat.sender(self._player)
@@ -525,6 +534,8 @@ class CompanionController:
                 ):
                     continue
                 try:
+                    service.rebind_state(
+                        snapshot_state(self._state, self._player))
                     reason = service.tick()
                 except Exception:
                     _log.debug("tick failed", exc_info=True)

@@ -103,7 +103,7 @@ def look_self(state: Any, **_kw) -> str:
     return " | ".join(parts) if parts else "（暂无玩家资料）"
 
 
-def _format_msgs(msgs: list, limit: int) -> str:
+def _format_msgs(msgs: list, limit: int, *, context: str = "") -> str:
     if not msgs:
         return "（无消息）"
     msgs = msgs[-limit:]
@@ -117,19 +117,30 @@ def _format_msgs(msgs: list, limit: int) -> str:
             name, text, t = m[0], m[1], m[2]
             prefix = f"[{t}] " if t else ""
             lines.append(f"{prefix}{name}: {text}")
-    return "\n".join(lines) if lines else "（无消息）"
+    if not lines:
+        return "（无消息）"
+    body = "\n".join(lines)
+    return f"{context}\n{body}" if context else body
 
 
 def look_world_chat(state: Any, count: int = _DEFAULT_LIMIT, **_kw) -> str:
     n = max(1, min(int(count or _DEFAULT_LIMIT), _MAX_LIMIT))
     msgs = _safe_get(state, "chat", "world_messages", default=[]) or []
-    return _format_msgs(msgs, n)
+    return _format_msgs(
+        msgs,
+        n,
+        context="以下是世界频道中玩家彼此的消息，不是对旅伴说的话：",
+    )
 
 
 def look_room_chat(state: Any, count: int = _DEFAULT_LIMIT, **_kw) -> str:
     n = max(1, min(int(count or _DEFAULT_LIMIT), _MAX_LIMIT))
     msgs = _safe_get(state, "chat", "room_messages", default=[]) or []
-    return _format_msgs(msgs, n)
+    return _format_msgs(
+        msgs,
+        n,
+        context="以下是房间频道中玩家彼此的消息，不是对旅伴说的话：",
+    )
 
 
 def look_online(state: Any, **_kw) -> str:
@@ -187,10 +198,18 @@ def look_messages(state: Any, scope: str = "dm", peer: str = "",
 
     if scope == "world":
         msgs = _safe_get(state, "chat", "world_messages", default=[]) or []
-        return _format_msgs(msgs, n)
+        return _format_msgs(
+            msgs,
+            n,
+            context="以下是世界频道中玩家彼此的消息，不是对旅伴说的话：",
+        )
     if scope == "room":
         msgs = _safe_get(state, "chat", "room_messages", default=[]) or []
-        return _format_msgs(msgs, n)
+        return _format_msgs(
+            msgs,
+            n,
+            context="以下是房间频道中玩家彼此的消息，不是对旅伴说的话：",
+        )
     if scope == "dm":
         conversations = _safe_get(
             state, "chat", "dm_entries", default={}) or {}
@@ -205,7 +224,11 @@ def look_messages(state: Any, scope: str = "dm", peer: str = "",
         ]
         if not messages:
             return "（无符合条件的私聊记录）"
-        return _format_msgs(messages, n)
+        return _format_msgs(
+            messages,
+            n,
+            context="以下是玩家与其他人的私聊，不是对旅伴说的话：",
+        )
     return f"（未知 scope: {scope}）"
 
 

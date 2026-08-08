@@ -19,10 +19,45 @@ from client.state import ModuleStateManager
 from client.state.chat import ChatEntry
 from client.views.chat.content import ChatContentPanel
 from client.views.chat.window import ChatWindow
+from client.views.system.records import (
+    RecordsPanel, RecordsWindow, _INITIAL_RECORD_LIMIT,
+)
 from server.handlers.chat import handle_chat, handle_private_chat
 from server.msg_types import SYSTEM
 from server.storage.chat_log import ChatLogManager
 from server.storage.dm_log import DMLogManager
+
+
+def test_records_use_second_precision_and_open_with_latest_sixteen():
+    state = ModuleStateManager()
+    for index in range(20):
+        state.cmd.add_line(f"entry-{index}")
+
+    assert state.cmd.lines[-1].split("[/]", 1)[0].count(":") == 2
+    assert state.cmd.lines[-_INITIAL_RECORD_LIMIT:][0].endswith("entry-4")
+    assert state.cmd.lines[-1].endswith("entry-19")
+
+
+def test_records_window_binds_latest_entries():
+    class RecordsApp(App):
+        def compose(self) -> ComposeResult:
+            yield RecordsWindow(id="records-window")
+
+    async def verify() -> None:
+        state = ModuleStateManager()
+        for index in range(20):
+            state.cmd.add_line(f"entry-{index}")
+        app = RecordsApp()
+        async with app.run_test():
+            window = app.query_one(RecordsWindow)
+            window.bind_state(state)
+            content = str(
+                app.query_one(RecordsPanel).query_one(".content").content)
+            assert "entry-3" not in content
+            assert "entry-4" in content
+            assert "entry-19" in content
+
+    asyncio.run(verify())
 
 
 def test_private_dispatch_updates_state_without_local_files(monkeypatch, tmp_path):

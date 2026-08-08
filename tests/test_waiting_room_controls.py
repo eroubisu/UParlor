@@ -98,13 +98,15 @@ def test_native_separator_tracks_panel_resize():
                 ],
             )])
             await pilot.pause()
-            separator = panel.query_one(PanelSeparator)
+            separator = panel.query_one(
+                "#control-items Divider", PanelSeparator)
             first_width = separator.region.width
 
             await pilot.resize_terminal(80, 20)
             await pilot.pause()
 
-            assert panel.query_one(PanelSeparator) is separator
+            assert panel.query_one(
+                "#control-items Divider", PanelSeparator) is separator
             assert separator.region.width > first_width
             assert separator.region.height == 1
 

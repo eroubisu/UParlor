@@ -39,8 +39,11 @@ def sync_server_version(ver: str, project_dir: str):
             r'^(CLIENT_VERSION\s*=\s*)".*?"', rf'\1"{ver}"',
             src, count=1, flags=re.MULTILINE,
         )
-        with open(server_cfg, "w", encoding="utf-8") as f:
-            f.write(src)
+        with open(server_cfg, "r", encoding="utf-8") as f:
+            current = f.read()
+        if src != current:
+            with open(server_cfg, "w", encoding="utf-8") as f:
+                f.write(src)
 
 
 def run(cmd, check=True):
