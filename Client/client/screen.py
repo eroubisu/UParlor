@@ -33,6 +33,7 @@ from .config import (
 
 from .screen_modes import InputModeMixin
 from .screen_nav import NavigationMixin
+from .window_engine.text import plain_text
 
 # 模块名 → widget ID
 _MODULE_IDS = {
@@ -55,6 +56,7 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         self.logged_in = False
         self.current_location = "lobby"
         self.state = ModuleStateManager()
+        self.state.cmd.add_listener(self._on_cmd_for_remote)
         from .companion import CompanionController
         if CompanionController._instance is not None:
             CompanionController.instance(self.state)
@@ -151,6 +153,9 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         old_state.unbind_all()
         old_state.game_interaction.reset()
         self.state = ModuleStateManager()
+        listener = getattr(self, "_on_cmd_for_remote", None)
+        if listener is not None:
+            self.state.cmd.add_listener(listener)
         from .companion import CompanionController
         if CompanionController._instance is not None:
             CompanionController.instance(self.state)
@@ -189,6 +194,18 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             self.state.notify.add_companion_unread()
         self.state.cmd.add_line("旅伴发来一条消息。")
         self.update_badges()
+
+    def _on_cmd_for_remote(self, event: str, *args) -> None:
+        """把记录面板（cmd）的行同步给网页手柄。"""
+        if event != "add_line":
+            return
+        try:
+            remote = self.app.remote
+        except Exception:
+            return
+        text = plain_text(args[0]) if args else ""
+        kw = args[1] if len(args) > 1 else {}
+        remote.record(text, update_last=bool(kw.get("update_last")))
 
     # ── 位置/命令（net/dispatch 调用）──
 
@@ -310,6 +327,10 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         if is_exit_key(event.key):
             if self.engine.close_top():
                 return
+            if self.mode == 'login':
+                panel = self.get_module('login')
+                if panel is not None and panel.return_to_username():
+                    return
             if self.mode == 'tutorial':
                 panel = self.query_one('#tutorial-panel')
                 if panel._page == _TUT_TOTAL - 1:

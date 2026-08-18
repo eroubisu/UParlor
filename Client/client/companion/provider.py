@@ -226,9 +226,7 @@ class GoogleProvider(AIProvider):
         """流式生成 + 多轮工具调用循环"""
         from google.genai import types
         system, contents = _to_gemini_contents(messages)
-        schemas = [*(tools or [])]
-        if final_tool:
-            schemas.append(final_tool)
+        schemas = _schemas_with_final_tool(tools, final_tool)
         gemini_tools = _to_gemini_tools(schemas) if schemas else None
         tool_config = None
         if final_tool:
@@ -256,16 +254,13 @@ class GoogleProvider(AIProvider):
             last_usage = 0
 
             async for chunk in response:
-                usage = chunk.usage_metadata
-                if usage and usage.total_token_count:
-                    last_usage = usage.total_token_count
-                if not chunk.candidates:
-                    continue
-                for part in chunk.candidates[0].content.parts or []:
-                    if part.text and not final_tool:
-                        yield part.text
-                    elif part.function_call:
-                        function_calls.append(part.function_call)
+                usage, texts, calls = _read_gemini_tool_chunk(
+                    chunk, final_tool is not None,
+                )
+                last_usage = usage or last_usage
+                for text in texts:
+                    yield text
+                function_calls.extend(calls)
 
             if last_usage:
                 yield f"\x00TOKENS:{last_usage}"  # 特殊标记传递 token 数
@@ -275,36 +270,19 @@ class GoogleProvider(AIProvider):
                     raise ValueError("旅伴没有按要求提交结构化回复")
                 return
 
-            final_calls = [
-                fc for fc in function_calls
-                if final_tool and fc.name == final_tool["name"]
-            ]
-            if final_calls:
-                if len(function_calls) != 1:
-                    raise ValueError("旅伴一次提交了多个最终回复或混合工具调用")
+            final_call = _find_final_tool_call(
+                function_calls, final_tool, lambda call: call.name,
+            )
+            if final_call:
                 yield ToolCall(
-                    final_calls[0].name,
-                    dict(final_calls[0].args or {}),
+                    final_call.name,
+                    dict(final_call.args or {}),
                 )
                 return
 
-            model_parts = []
-            response_parts = []
-            for fc in function_calls:
-                if not tools or not any(
-                    schema["name"] == fc.name for schema in tools
-                ):
-                    raise ValueError(f"旅伴调用了未知工具: {fc.name}")
-                model_parts.append(types.Part(function_call=fc))
-                result = execute_tool(fc.name, dict(fc.args or {}))
-                response_parts.append(types.Part(
-                    function_response=types.FunctionResponse(
-                        name=fc.name,
-                        response={"output": result},
-                    )
-                ))
-            contents.append(types.Content(role="model", parts=model_parts))
-            contents.append(types.Content(role="user", parts=response_parts))
+            _append_gemini_tool_results(
+                contents, function_calls, tools, execute_tool, types,
+            )
         raise ValueError("旅伴在工具调用上超过轮次限制")
 
     async def validate_key(self, api_key: str, **kwargs) -> tuple[bool, str]:
@@ -423,9 +401,7 @@ class OpenAIProvider(AIProvider):
     ) -> AsyncIterator[str | ToolCall]:
         """流式生成 + 多轮工具调用循环"""
         oai_messages = _to_openai_messages(messages)
-        schemas = [*(tools or [])]
-        if final_tool:
-            schemas.append(final_tool)
+        schemas = _schemas_with_final_tool(tools, final_tool)
         oai_tools = _to_openai_tools(schemas) if schemas else None
 
         for _round in range(max_rounds + 1):
@@ -447,80 +423,32 @@ class OpenAIProvider(AIProvider):
             assistant_content = ""
 
             async for chunk in response:
-                if chunk.usage and chunk.usage.total_tokens:
-                    yield f"\x00TOKENS:{chunk.usage.total_tokens}"
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                if delta.content and not final_tool:
-                    assistant_content += delta.content
-                    yield delta.content
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in pending_tc:
-                            pending_tc[idx] = {"name": "", "args_buf": "", "id": tc.id or ""}
-                        if tc.function and tc.function.name:
-                            pending_tc[idx]["name"] = tc.function.name
-                        if tc.function and tc.function.arguments:
-                            pending_tc[idx]["args_buf"] += tc.function.arguments
-                        if tc.id:
-                            pending_tc[idx]["id"] = tc.id
+                tokens, content = _read_openai_tool_chunk(chunk, pending_tc)
+                if tokens:
+                    yield f"\x00TOKENS:{tokens}"
+                if content and not final_tool:
+                    assistant_content += content
+                    yield content
 
             if not pending_tc:
                 if final_tool:
                     raise ValueError("旅伴没有按要求提交结构化回复")
                 return
 
-            final_calls = [
-                info for info in pending_tc.values()
-                if final_tool and info["name"] == final_tool["name"]
-            ]
-            if final_calls:
-                if len(pending_tc) != 1:
-                    raise ValueError("旅伴一次提交了多个最终回复或混合工具调用")
-                info = final_calls[0]
-                try:
-                    args = json.loads(info["args_buf"])
-                except json.JSONDecodeError as exc:
-                    raise ValueError("旅伴提交了无效的回复结构") from exc
-                if not isinstance(args, dict):
-                    raise ValueError("旅伴提交的回复结构不是对象")
-                yield ToolCall(info["name"], args)
+            final_call = _find_final_tool_call(
+                list(pending_tc.values()),
+                final_tool,
+                lambda call: call["name"],
+            )
+            if final_call:
+                args = _parse_final_tool_args(final_call["args_buf"])
+                yield ToolCall(final_call["name"], args)
                 return
 
-            # 构建 assistant message with tool_calls
-            tc_list = []
-            for info in pending_tc.values():
-                if not tools or not any(
-                    schema["name"] == info["name"] for schema in tools
-                ):
-                    raise ValueError(f"旅伴调用了未知工具: {info['name']}")
-                tc_list.append({
-                    "id": info["id"],
-                    "type": "function",
-                    "function": {"name": info["name"], "arguments": info["args_buf"]},
-                })
-            oai_messages.append({
-                "role": "assistant",
-                "content": assistant_content or None,
-                "tool_calls": tc_list,
-            })
-
-            # 执行工具并添加结果
-            for info in pending_tc.values():
-                args = {}
-                if info["args_buf"]:
-                    try:
-                        args = json.loads(info["args_buf"])
-                    except Exception:
-                        pass
-                result = execute_tool(info["name"], args)
-                oai_messages.append({
-                    "role": "tool",
-                    "tool_call_id": info["id"],
-                    "content": result,
-                })
+            _append_openai_tool_results(
+                oai_messages, pending_tc, assistant_content,
+                tools, execute_tool,
+            )
         raise ValueError("旅伴在工具调用上超过轮次限制")
 
     async def validate_key(self, api_key: str, **kwargs) -> tuple[bool, str]:
@@ -554,6 +482,161 @@ class OpenAIProvider(AIProvider):
         return models
 
 # ── Helper functions ──
+
+def _schemas_with_final_tool(
+    tools: list[dict] | None,
+    final_tool: dict | None,
+) -> list[dict]:
+    schemas = [*(tools or [])]
+    if final_tool:
+        schemas.append(final_tool)
+    return schemas
+
+
+def _require_known_tool(name: str, tools: list[dict] | None) -> None:
+    if not tools or not any(schema["name"] == name for schema in tools):
+        raise ValueError(f"旅伴调用了未知工具: {name}")
+
+
+def _find_final_tool_call(calls, final_tool: dict | None, name_of):
+    if not final_tool:
+        return None
+    final_calls = [
+        call for call in calls
+        if name_of(call) == final_tool["name"]
+    ]
+    if not final_calls:
+        return None
+    if len(calls) != 1:
+        raise ValueError("旅伴一次提交了多个最终回复或混合工具调用")
+    return final_calls[0]
+
+
+def _read_gemini_tool_chunk(chunk, suppress_text: bool) -> tuple[int, list, list]:
+    usage = chunk.usage_metadata
+    tokens = usage.total_token_count if usage and usage.total_token_count else 0
+    texts = []
+    calls = []
+    if not chunk.candidates:
+        return tokens, texts, calls
+    for part in chunk.candidates[0].content.parts or []:
+        if part.text and not suppress_text:
+            texts.append(part.text)
+        elif part.function_call:
+            calls.append(part.function_call)
+    return tokens, texts, calls
+
+
+def _append_gemini_tool_results(
+    contents: list,
+    function_calls: list,
+    tools: list[dict] | None,
+    execute_tool,
+    types,
+) -> None:
+    model_parts = []
+    response_parts = []
+    for function_call in function_calls:
+        _require_known_tool(function_call.name, tools)
+        model_parts.append(types.Part(function_call=function_call))
+        result = execute_tool(
+            function_call.name, dict(function_call.args or {}),
+        )
+        response_parts.append(types.Part(
+            function_response=types.FunctionResponse(
+                name=function_call.name,
+                response={"output": result},
+            )
+        ))
+    contents.append(types.Content(role="model", parts=model_parts))
+    contents.append(types.Content(role="user", parts=response_parts))
+
+
+def _accumulate_openai_tool_calls(delta, pending_calls: dict[int, dict]) -> None:
+    for tool_call in delta.tool_calls or []:
+        index = tool_call.index
+        if index not in pending_calls:
+            pending_calls[index] = {
+                "name": "",
+                "args_buf": "",
+                "id": tool_call.id or "",
+            }
+        pending = pending_calls[index]
+        if tool_call.function and tool_call.function.name:
+            pending["name"] = tool_call.function.name
+        if tool_call.function and tool_call.function.arguments:
+            pending["args_buf"] += tool_call.function.arguments
+        if tool_call.id:
+            pending["id"] = tool_call.id
+
+
+def _read_openai_tool_chunk(
+    chunk,
+    pending_calls: dict[int, dict],
+) -> tuple[int, str]:
+    tokens = (
+        chunk.usage.total_tokens
+        if chunk.usage and chunk.usage.total_tokens
+        else 0
+    )
+    if not chunk.choices:
+        return tokens, ""
+    delta = chunk.choices[0].delta
+    _accumulate_openai_tool_calls(delta, pending_calls)
+    return tokens, delta.content or ""
+
+
+def _parse_tool_args(raw_args: str):
+    if not raw_args:
+        return {}
+    try:
+        return json.loads(raw_args)
+    except Exception:
+        return {}
+
+
+def _parse_final_tool_args(raw_args: str) -> dict:
+    try:
+        args = json.loads(raw_args)
+    except json.JSONDecodeError as exc:
+        raise ValueError("旅伴提交了无效的回复结构") from exc
+    if not isinstance(args, dict):
+        raise ValueError("旅伴提交的回复结构不是对象")
+    return args
+
+
+def _append_openai_tool_results(
+    messages: list[dict],
+    pending_calls: dict[int, dict],
+    assistant_content: str,
+    tools: list[dict] | None,
+    execute_tool,
+) -> None:
+    tool_calls = []
+    for pending in pending_calls.values():
+        _require_known_tool(pending["name"], tools)
+        tool_calls.append({
+            "id": pending["id"],
+            "type": "function",
+            "function": {
+                "name": pending["name"],
+                "arguments": pending["args_buf"],
+            },
+        })
+    messages.append({
+        "role": "assistant",
+        "content": assistant_content or None,
+        "tool_calls": tool_calls,
+    })
+    for pending in pending_calls.values():
+        result = execute_tool(
+            pending["name"], _parse_tool_args(pending["args_buf"]),
+        )
+        messages.append({
+            "role": "tool",
+            "tool_call_id": pending["id"],
+            "content": result,
+        })
 
 def _to_gemini_contents(messages: list[dict]) -> tuple[str, list[dict]]:
     """messages → (system_instruction, gemini contents)"""

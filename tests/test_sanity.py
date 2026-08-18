@@ -30,17 +30,18 @@ def test_app_mount_switches_to_english_input_language(monkeypatch):
     switch.assert_called_once_with()
 
 
-def test_window_engine_registers_17_windows():
+def test_window_engine_registers_18_windows():
     import client.screen  # 触发所有窗口注册
     from client.window_engine.registry import get_registry
     reg = get_registry()
     specs = reg.all_specs()
-    assert len(specs) == 17
+    assert len(specs) == 18
     assert [spec.id for spec in specs].count("companion-window") == 1
     assert all(spec.id != "companion-settings-window" for spec in specs)
     assert "companion-creation-window" in {spec.id for spec in specs}
     assert "chat-style-window" in {spec.id for spec in specs}
     assert "root-menu-window" in {spec.id for spec in specs}
+    assert "remote-window" in {spec.id for spec in specs}
     assert all(spec.id != "companion-custom-input-window" for spec in specs)
 
 
@@ -113,7 +114,7 @@ def test_hidden_option_window_reflows_after_opening(monkeypatch, tmp_path):
             content = str(panel.query_one(".content").content)
             assert panel.content_region.width > 1
             assert "打开教程" in content
-            assert content.count("\n") == 3
+            assert content.count("\n") == 4
             assert "打开用户档案" not in content
             assert "旅伴设置" not in content
             assert "屏蔽 Ctrl+C：开" in content

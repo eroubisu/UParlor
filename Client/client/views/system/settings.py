@@ -15,6 +15,7 @@ from ...window_engine import Option, WindowSpec, register_window
 _OPTIONS = [
     ('tutorial', '打开教程'),
     ('docs', '打开文档'),
+    ('ios_remote', 'iOS 连接'),
     ('ctrl_c', '屏蔽 Ctrl+C'),
     ('quit', '退出 UParlor'),
 ]
@@ -22,6 +23,7 @@ _OPTIONS = [
 _DETAILS = {
     'tutorial': '重新打开交互教程。',
     'docs': '查看按键、确认、输入和窗口操作文档。',
+    'ios_remote': '开启后在电脑启动网页服务，iPhone 浏览器打开地址即可作为手柄。',
     'ctrl_c': '开启后，Ctrl+C 不会直接终止客户端。',
     'quit': '结束当前会话并退出 UParlor。',
 }
@@ -41,6 +43,9 @@ class SettingsPanel(Panel):
 
     class QuitRequested(Message):
         """The player confirmed application exit."""
+
+    class RemoteToggled(Message):
+        """请求开启/关闭 iOS 手柄连接。"""
 
     class Highlighted(Message):
         """The highlighted setting changed."""
@@ -76,6 +81,9 @@ class SettingsPanel(Panel):
 
                 set_block_ctrl_c(not get_block_ctrl_c())
                 self._redraw()
+            elif selected.id == "ios_remote":
+                self.post_message(self.RemoteToggled())
+                self._redraw()
             elif selected.id == "quit":
                 self._confirming_quit = True
                 self.update(self._render_confirm("确认退出 UParlor?"))
@@ -101,6 +109,7 @@ class SettingsPanel(Panel):
         labels["ctrl_c"] = (
             f"屏蔽 Ctrl+C：{'开' if get_block_ctrl_c() else '关'}"
         )
+        labels["ios_remote"] = f"iOS 连接：{self._remote_label()}"
         self.set_options(
             (
                 Option(option_id, labels[option_id])
@@ -111,6 +120,23 @@ class SettingsPanel(Panel):
         self.update(self.render_options())
         if self.selection.selected_id:
             self.post_message(self.Highlighted(self.selection.selected_id))
+
+    def _remote_label(self) -> str:
+        remote = getattr(self.app, "remote", None)
+        if remote is None:
+            return "关"
+        state = remote.state
+        if state == "off":
+            return "关"
+        if state == "listening":
+            return "等待连接"
+        if state == "connected":
+            return "已连接"
+        return "开"
+
+    def refresh_remote_label(self) -> None:
+        """remote 状态变化时由宿主调用的刷新入口。"""
+        self._redraw()
 
 
 class SettingsDetailPanel(Panel):
@@ -164,6 +190,14 @@ class SettingsWindow(Window):
         self.query_one(
             "#settings-detail", SettingsDetailPanel,
         ).show_setting(event.target)
+
+    def refresh_remote_label(self) -> None:
+        try:
+            self.query_one(
+                "#settings-panel", SettingsPanel,
+            ).refresh_remote_label()
+        except Exception:
+            pass
 
 
 register_window(SettingsWindow)

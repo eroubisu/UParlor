@@ -221,48 +221,69 @@ class UnoRoom:
 
         return [i for i, c in enumerate(hand) if can_play(c, top, self.chosen_color)]
 
+    def _play_card_error(self, player: str, card_idx: int) -> str | None:
+        if self.state != 'playing':
+            return '游戏未在进行中'
+        if player != self.current_player():
+            return '不是你的回合'
+        hand = self.hands[player]
+        if card_idx < 0 or card_idx >= len(hand):
+            return '无效的牌索引'
+        if card_idx not in self.get_playable_indices(player):
+            return ''
+        return None
+
+    def _chosen_color_error(
+        self,
+        card: UnoCard,
+        chosen_color: str | None,
+    ) -> str | None:
+        if card.is_wild and not chosen_color:
+            return 'need_color'
+        valid_colors = LIGHT_COLORS if self.side == 'light' else DARK_COLORS
+        if chosen_color and chosen_color not in valid_colors:
+            return '无效的颜色'
+        return None
+
+    def _record_challenge_state(
+        self,
+        player: str,
+        hand: list[UnoCard],
+        card_idx: int,
+    ) -> None:
+        card = hand[card_idx]
+        self.challengeable = False
+        if not (
+            self.challenge_enabled
+            and card.value in ('wild_draw2', 'wild_draw_color')
+        ):
+            return
+        top = self.discard_pile[-1] if self.discard_pile else None
+        effective_color = self.chosen_color or (top.color if top else None)
+        self.last_wild_had_match = any(
+            not other.is_wild and other.color == effective_color
+            for index, other in enumerate(hand) if index != card_idx
+        )
+        self.challengeable = True
+        self.last_wild_player = player
+
     def play_card(self, player: str, card_idx: int,
                   chosen_color: str | None = None) -> tuple[bool, str]:
         """出牌
 
         Returns: (success, message)
         """
-        if self.state != 'playing':
-            return False, '游戏未在进行中'
-        if player != self.current_player():
-            return False, '不是你的回合'
+        error = self._play_card_error(player, card_idx)
+        if error is not None:
+            return False, error
 
         hand = self.hands[player]
-        if card_idx < 0 or card_idx >= len(hand):
-            return False, '无效的牌索引'
-
         card = hand[card_idx]
-        playable = self.get_playable_indices(player)
-        if card_idx not in playable:
-            return False, ''
+        color_error = self._chosen_color_error(card, chosen_color)
+        if color_error is not None:
+            return False, color_error
 
-        # Wild 牌需要选颜色
-        if card.is_wild and not chosen_color:
-            return False, 'need_color'
-
-        # 验证选色合法
-        valid_colors = LIGHT_COLORS if self.side == 'light' else DARK_COLORS
-        if chosen_color and chosen_color not in valid_colors:
-            return False, '无效的颜色'
-
-        # 记录挑战信息（Wild Draw 类）
-        self.challengeable = False
-        if self.challenge_enabled and card.value in ('wild_draw2', 'wild_draw_color'):
-            top = self.discard_pile[-1] if self.discard_pile else None
-            eff_color = self.chosen_color or (top.color if top else None)
-            # 检查出牌者是否有匹配色的非 Wild 牌
-            has_match = any(
-                not c.is_wild and c.color == eff_color
-                for i, c in enumerate(hand) if i != card_idx
-            )
-            self.challengeable = True
-            self.last_wild_player = player
-            self.last_wild_had_match = has_match
+        self._record_challenge_state(player, hand, card_idx)
 
         # 出牌
         self.draw_play_card = None
@@ -583,24 +604,17 @@ class UnoRoom:
 
     # ── 数据导出 ──
 
-    def get_game_data(self, viewer: str) -> dict:
-        """获取游戏数据（viewer 视角）"""
-        top = self.discard_pile[-1] if self.discard_pile else None
-        hand_counts = {p: len(h) for p, h in self.hands.items()}
+    def _played_colors(self) -> list[str]:
+        color_order = LIGHT_COLORS if self.side == 'light' else DARK_COLORS
+        seen = {
+            card.color for card in self.discard_pile if not card.is_wild
+        }
+        return [color for color in color_order if color in seen]
 
-        # 可出的牌
-        playable = self.get_playable_indices(viewer) if viewer in self.hands else []
-
-        # 已出过的颜色（从弃牌堆提取，排除 wild）
-        side = self.side
-        if side == 'light':
-            color_order = [c for c in LIGHT_COLORS if c != 'wild']
-        else:
-            color_order = [c for c in DARK_COLORS if c != 'wild']
-        seen = {c.color for c in self.discard_pile if not c.is_wild}
-        played_colors = [c for c in color_order if c in seen]
-
-        data = {
+    def _public_game_data(self) -> dict:
+        current_player = self.current_player() if self.state == 'playing' else ''
+        deck_remaining = self.deck.remaining if self.deck else 0
+        return {
             'game_type': 'uno',
             'room_id': self.room_id,
             'room_state': self.state,
@@ -608,29 +622,39 @@ class UnoRoom:
             'host': self.host,
             'side': self.side,
             'direction': self.direction,
-            'current_player': self.current_player() if self.state == 'playing' else '',
-            'hand_counts': hand_counts,
+            'current_player': current_player,
+            'hand_counts': {
+                player: len(hand) for player, hand in self.hands.items()
+            },
             'chosen_color': self.chosen_color,
             'pending_draw': self.pending_draw,
             'draw_stacking': self.draw_stacking,
             'draw_until_color': self.draw_until_color,
             'challengeable': self.challengeable,
-            'deck_remaining': self.deck.remaining if self.deck else 0,
+            'deck_remaining': deck_remaining,
             'uno_called': list(self.uno_called),
             'max_players': self.max_players,
-            'played_colors': played_colors,
+            'played_colors': self._played_colors(),
             'ready': sorted(self.ready),
             'bots': sorted(self.bots),
         }
+
+    def _add_viewer_game_data(self, data: dict, viewer: str) -> None:
+        if viewer not in self.hands:
+            return
+        data['my_cards'] = [card.to_dict() for card in self.hands[viewer]]
+        data['playable'] = self.get_playable_indices(viewer)
+        if self.draw_play_card is not None and viewer == self.current_player():
+            data['draw_play'] = True
+
+    def get_game_data(self, viewer: str) -> dict:
+        """获取游戏数据（viewer 视角）"""
+        top = self.discard_pile[-1] if self.discard_pile else None
+        data = self._public_game_data()
         if top:
             data['top_card'] = top.to_dict()
 
-        # 只给 viewer 看自己的手牌
-        if viewer in self.hands:
-            data['my_cards'] = [c.to_dict() for c in self.hands[viewer]]
-            data['playable'] = playable
-            if self.draw_play_card is not None and viewer == self.current_player():
-                data['draw_play'] = True
+        self._add_viewer_game_data(data, viewer)
 
         if self.state == 'finished':
             data['winner'] = self.winner

@@ -40,6 +40,11 @@ Invoke-Checked "Repository policy" {
 Invoke-Checked "Python syntax" {
     & $python -m compileall -q Client\client Server\server tests tools
 }
+Invoke-Checked "Ruff name and dead-local safety" {
+    & $python -m ruff check Client\client Server\server tests tools `
+        --select F821,F822,F823,F841 `
+        --output-format concise
+}
 if (-not $SkipTests) {
     Invoke-Checked "Pytest" { & $python -m pytest -q }
 }

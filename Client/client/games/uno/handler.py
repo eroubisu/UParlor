@@ -88,67 +88,79 @@ class UnoHandler:
 
     def on_nav(self, direction: str, ctx: GameHandlerContext) -> None:
         state = self._snapshot(ctx)
-        if (
-            not state['playing']
-            or not state['active']
-            or not state['my_turn']
-        ):
+        if not self._can_navigate(state):
             return
 
         room_data = ctx.state.game_board.room_data or {}
-        n_cards = len(room_data.get('my_cards', []))
         playable = room_data.get('playable', [])
-        buttons = state['buttons']
-        row = state['row']
-
-        if direction == 'left':
-            if row == 0 and playable:
-                state['hand_cursor'] = self._move_card_cursor(
-                    state['hand_cursor'], playable, -1,
-                )
-            elif row == 1 and buttons:
-                state['btn_cursor'] = move_option_index(
-                    (Option(str(index), item.get("label", ""), data=item)
-                     for index, item in enumerate(buttons)),
-                    state['btn_cursor'],
-                    -1,
-                )
-        elif direction == 'right':
-            if row == 0 and playable:
-                state['hand_cursor'] = self._move_card_cursor(
-                    state['hand_cursor'], playable, 1,
-                )
-            elif row == 1 and buttons:
-                state['btn_cursor'] = move_option_index(
-                    (Option(str(index), item.get("label", ""), data=item)
-                     for index, item in enumerate(buttons)),
-                    state['btn_cursor'],
-                    1,
-                )
-        elif direction == 'down' and row == 0:
-            next_cursor = self._vertical_card_cursor(
-                state['hand_cursor'], playable,
-                state['cards_per_row'], 1,
+        if direction in ('left', 'right'):
+            self._move_horizontal(
+                state, playable, -1 if direction == 'left' else 1,
             )
-            if next_cursor is not None:
-                state['hand_cursor'] = next_cursor
-            elif buttons:
-                state['row'] = 1
+        elif direction == 'down':
+            self._move_down(state, playable)
         elif direction == 'up':
-            if row == 1 and playable:
-                state['row'] = 0
-            elif row == 0:
-                next_cursor = self._vertical_card_cursor(
-                    state['hand_cursor'], playable,
-                    state['cards_per_row'], -1,
-                )
-                if next_cursor is not None:
-                    state['hand_cursor'] = next_cursor
+            self._move_up(state, playable)
         elif direction == 'enter':
             self._on_enter(state, room_data, ctx)
             return
 
         ctx.state.game_interaction.replace(self.game_type, state)
+
+    @staticmethod
+    def _can_navigate(state: dict) -> bool:
+        return bool(
+            state['playing'] and state['active'] and state['my_turn']
+        )
+
+    @staticmethod
+    def _button_options(buttons: list[dict]):
+        return (
+            Option(str(index), item.get('label', ''), data=item)
+            for index, item in enumerate(buttons)
+        )
+
+    def _move_horizontal(
+        self,
+        state: dict,
+        playable: list[int],
+        delta: int,
+    ) -> None:
+        if state['row'] == 0 and playable:
+            state['hand_cursor'] = self._move_card_cursor(
+                state['hand_cursor'], playable, delta,
+            )
+        elif state['row'] == 1 and state['buttons']:
+            state['btn_cursor'] = move_option_index(
+                self._button_options(state['buttons']),
+                state['btn_cursor'],
+                delta,
+            )
+
+    def _move_down(self, state: dict, playable: list[int]) -> None:
+        if state['row'] != 0:
+            return
+        next_cursor = self._vertical_card_cursor(
+            state['hand_cursor'], playable,
+            state['cards_per_row'], 1,
+        )
+        if next_cursor is not None:
+            state['hand_cursor'] = next_cursor
+        elif state['buttons']:
+            state['row'] = 1
+
+    def _move_up(self, state: dict, playable: list[int]) -> None:
+        if state['row'] == 1 and playable:
+            state['row'] = 0
+            return
+        if state['row'] != 0:
+            return
+        next_cursor = self._vertical_card_cursor(
+            state['hand_cursor'], playable,
+            state['cards_per_row'], -1,
+        )
+        if next_cursor is not None:
+            state['hand_cursor'] = next_cursor
 
     def _on_enter(self, state: dict, room_data: dict,
                   ctx: GameHandlerContext) -> None:

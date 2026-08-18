@@ -11,7 +11,10 @@
 from __future__ import annotations
 
 from .widgets.panel import PlayerSelected
+from .views.system.remote import RemotePanel
 from .views.system.tutorial import TutorialPanel
+from .config import M_DIM, M_END
+from .window_engine.text import plain_text
 
 
 class NavigationMixin:
@@ -120,3 +123,35 @@ class NavigationMixin:
         """登录页面请求打开教程/文档"""
         event.stop()
         self._dispatch_open(event.target)
+
+    # ── iOS 手柄（uremote）──
+
+    def on_settings_panel_remote_toggled(self, event) -> None:
+        """设置面板切换 iOS 连接开关"""
+        event.stop()
+        self._toggle_remote()
+
+    def on_remote_panel_back_requested(
+        self, event: RemotePanel.BackRequested,
+    ) -> None:
+        """关闭连接浮窗，但保持网页手柄服务。"""
+        event.stop()
+        self.engine.close("remote-window")
+
+    def _toggle_remote(self) -> None:
+        remote = self.app.remote
+        if remote.state == "off":
+            try:
+                remote.enable()
+            except Exception as exc:
+                self.state.cmd.add_line(
+                    f"{M_DIM}iOS 连接开启失败: {exc}{M_END}"
+                )
+                return
+            # 用最近的记录面板行填充（转纯文本）
+            for line in self.state.cmd.lines[-10:]:
+                remote.record(plain_text(line))
+            self.engine.open("remote-window")
+        else:
+            remote.disable()
+            self.engine.close("remote-window")

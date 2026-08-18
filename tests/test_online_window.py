@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from rich.console import Console
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
@@ -37,6 +39,15 @@ class _OnlineApp(App):
     def compose(self) -> ComposeResult:
         yield Static("BACKGROUND", id="background")
         yield OnlineWindow(id="online-window")
+
+
+def _panel_text(panel: StatusPanel) -> str:
+    output = StringIO()
+    console = Console(
+        file=output, width=80, color_system=None,
+    )
+    console.print(panel.query_one("#t0 .content", Static).content)
+    return output.getvalue()
 
 
 def test_all_players_navigation_scrolls_monotonically_without_jitter():
@@ -189,6 +200,72 @@ def test_online_window_ignores_stale_profile_card_response():
             assert window.has_class("-layout-pending")
             detail = app.query_one("#online-detail", StatusPanel)
             assert detail._card_data == {}
+
+    asyncio.run(verify())
+
+
+def test_status_card_preserves_player_fields_and_tab_titles():
+    async def verify() -> None:
+        app = _OnlineApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            panel = app.query_one("#online-detail", StatusPanel)
+            panel.render_card({
+                "name": "alice",
+                "title": "远行者",
+                "level": 7,
+                "exp": 35,
+                "exp_to_next": 100,
+                "gold": 88,
+                "friends_count": 4,
+                "created_at": "2025-03-04T12:30:00",
+                "game_rank": {"name": "白银"},
+            }, is_self=True)
+            await pilot.pause()
+
+            text = _panel_text(panel)
+            assert panel.tabs == ["信息", "操作"]
+            assert "信息" in str(panel.border_title)
+            assert "操作" in str(panel.border_title)
+            assert panel.border_subtitle == "alice"
+            for expected in (
+                "远行者", "等级", "7", "35/100", "金币", "88",
+                "好友", "4", "注册", "2025-03-04", "段位", "白银",
+            ):
+                assert expected in text
+
+    asyncio.run(verify())
+
+
+def test_status_card_preserves_friend_actions_and_bot_summary():
+    async def verify() -> None:
+        app = _OnlineApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            panel = app.query_one("#online-detail", StatusPanel)
+            panel.render_card({
+                "name": "bob",
+                "level": 2,
+            }, friends=["bob"])
+            await pilot.pause()
+
+            assert panel._viewed_name == "bob"
+            assert panel.tabs == ["信息", "操作"]
+            assert [action["label"] for action in panel._actions] == [
+                "私聊", "删除好友",
+            ]
+            assert panel.border_subtitle == "bob"
+
+            panel.render_card({
+                "name": "陪练机器人",
+                "is_bot": True,
+                "title": "UNO 练习对手",
+            })
+            await pilot.pause()
+
+            assert panel.tabs == []
+            assert panel.border_title == "陪练机器人"
+            assert panel.border_subtitle == ""
+            assert "UNO 练习对手" in _panel_text(panel)
+            assert not panel.query_one("#t1").display
 
     asyncio.run(verify())
 

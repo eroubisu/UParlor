@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from .board import (
-    Board, COLORS, COLOR_NAMES, PIECES_PER_COLOR,
+    Board, COLOR_NAMES, PIECES_PER_COLOR,
     PieceState, MoveResult,
 )
 

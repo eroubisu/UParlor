@@ -44,8 +44,19 @@ class AuthMixin:
             return
 
         name = text
+        err = validate_username(name)
+        if err:
+            self.send_to(client_socket, {
+                'type': LOGIN_PROMPT,
+                'text': f'用户名格式错误：{err}',
+            })
+            return
+
         if not PlayerManager.player_exists(name):
-            self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '该用户名不存在。'})
+            self.send_to(client_socket, {
+                'type': LOGIN_PROMPT,
+                'text': '用户名错误或不存在，请检查后重试',
+            })
             return
 
         with self.lock:
@@ -156,7 +167,7 @@ class AuthMixin:
                     'text': f'密码错误次数过多，请 {LOGIN_COOLDOWN} 秒后重试。',
                 })
             else:
-                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '密码错误，请重试：'})
+                self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '密码错误，请重试'})
 
     def _activate_player(self, client_socket, name, player_data) -> bool:
         """原子认领账号；大厅锁始终先于 server.lock。"""

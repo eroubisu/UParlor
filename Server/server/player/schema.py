@@ -22,6 +22,15 @@ DEFAULT_CARD_FIELDS = ['level', 'gold', 'games', 'created']
 DEFAULT_NAME_COLOR = '#ffffff'
 DEFAULT_MOTTO_COLOR = '#b3b3b3'
 DEFAULT_BORDER_COLOR = '#5a5a5a'
+_REMOVED_INVENTORY_ITEMS = frozenset({
+    'healing_herb', 'teleport_stone', 'enchanted_ring',
+    'iron_ore', 'dragon_scale', 'raw_fish', 'rare_fish',
+    'iron_sword', 'steel_sword', 'leather_armor', 'iron_armor',
+    'iron_helmet', 'leather_boots', 'iron_boots', 'wooden_shield',
+    'iron_shield', 'leather_gloves', 'traveler_cloak',
+    'silver_necklace', 'jade_earring', 'strength_ring',
+    'leather_belt', 'lucky_charm', 'fishing_rod',
+})
 
 
 # ── 游戏玩家默认数据注册 ──
@@ -86,16 +95,7 @@ def get_default_user_template(name="", password_hash=""):
 
 # ── 数据完整性 ──
 
-def ensure_user_schema(user_data):
-    """确保用户数据包含所有必需属性。Returns: (data, changes)"""
-    if not user_data:
-        return None, []
-
-    template = get_default_user_template()
-    changes = []
-
-    # ── 历史数据迁移 ──
-
+def _migrate_legacy_fields(user_data: dict, changes: list[str]) -> None:
     if 'rename_cards' in user_data and 'inventory' not in user_data:
         user_data['inventory'] = {'rename_card': user_data.pop('rename_cards', 2)}
         changes.append("迁移: rename_cards -> inventory.rename_card")
@@ -107,75 +107,100 @@ def ensure_user_schema(user_data):
         user_data.pop('title', None)
         changes.append("删除: 旧字段 title")
 
-    _name_to_id = {info['name']: tid for tid, info in TITLE_LIBRARY.items()}
+
+def _migrate_titles(user_data: dict, changes: list[str]) -> None:
+    name_to_id = {info['name']: tid for tid, info in TITLE_LIBRARY.items()}
     titles = user_data.get('titles')
-    if titles:
-        for key in ('owned', 'displayed'):
-            lst = titles.get(key, [])
-            migrated = []
-            for t in lst:
-                if t in _name_to_id:
-                    migrated.append(_name_to_id[t])
-                    changes.append(f"迁移头衔: '{t}' -> '{_name_to_id[t]}'")
-                else:
-                    migrated.append(t)
-            titles[key] = migrated
+    if not titles:
+        return
+    for key in ('owned', 'displayed'):
+        migrated = []
+        for title in titles.get(key, []):
+            if title in name_to_id:
+                migrated.append(name_to_id[title])
+                changes.append(
+                    f"迁移头衔: '{title}' -> '{name_to_id[title]}'")
+            else:
+                migrated.append(title)
+        titles[key] = migrated
 
+
+def _migrate_games(user_data: dict, changes: list[str]) -> None:
     games_data = user_data.get('games', {})
-    if isinstance(games_data, dict) and games_data:
-        for game_id in list(games_data.keys()):
-            game_sub = games_data.pop(game_id)
-            if isinstance(game_sub, dict):
-                if 'gold' in game_sub:
-                    user_data['gold'] = user_data.get('gold', 0) + game_sub.pop('gold', 0)
-                    changes.append(f"迁移: games.{game_id}.gold -> gold")
-                if game_id not in user_data and game_sub:
-                    user_data[game_id] = game_sub
-                    changes.append(f"迁移: games.{game_id} -> {game_id}")
-        if not games_data:
-            user_data.pop('games', None)
-            changes.append("删除: 空的 games 字段")
+    if not isinstance(games_data, dict) or not games_data:
+        return
+    for game_id in list(games_data.keys()):
+        game_data = games_data.pop(game_id)
+        if not isinstance(game_data, dict):
+            continue
+        if 'gold' in game_data:
+            user_data['gold'] = (
+                user_data.get('gold', 0) + game_data.pop('gold', 0)
+            )
+            changes.append(f"迁移: games.{game_id}.gold -> gold")
+        if game_id not in user_data and game_data:
+            user_data[game_id] = game_data
+            changes.append(f"迁移: games.{game_id} -> {game_id}")
+    if not games_data:
+        user_data.pop('games', None)
+        changes.append("删除: 空的 games 字段")
 
-    # ── 删除废弃字段 ──
+
+def _remove_deprecated_fields(user_data: dict, changes: list[str]) -> None:
     for field in ('attributes', 'equipment'):
         if field in user_data:
             user_data.pop(field)
             changes.append(f"删除: 废弃字段 {field}")
 
-    # ── 迁移品质格式库存 {item_id: {"0": count}} → {item_id: count} ──
+
+def _migrate_inventory(user_data: dict, changes: list[str]) -> None:
     inv = user_data.get('inventory')
-    if isinstance(inv, dict):
-        for iid in list(inv.keys()):
-            val = inv[iid]
-            if isinstance(val, dict):
-                total = sum(v for v in val.values() if isinstance(v, int))
-                inv[iid] = total
-                changes.append(f"迁移库存: {iid} 品质格式 -> 简单计数")
-            # 删除已移除的物品
-            if iid in ('healing_herb', 'teleport_stone', 'enchanted_ring',
-                        'iron_ore', 'dragon_scale', 'raw_fish', 'rare_fish',
-                        'iron_sword', 'steel_sword', 'leather_armor', 'iron_armor',
-                        'iron_helmet', 'leather_boots', 'iron_boots', 'wooden_shield',
-                        'iron_shield', 'leather_gloves', 'traveler_cloak',
-                        'silver_necklace', 'jade_earring', 'strength_ring',
-                        'leather_belt', 'lucky_charm', 'fishing_rod'):
-                inv.pop(iid, None)
-                changes.append(f"删除: 已移除物品 {iid}")
+    if not isinstance(inv, dict):
+        return
+    for item_id in list(inv.keys()):
+        value = inv[item_id]
+        if isinstance(value, dict):
+            inv[item_id] = sum(
+                count for count in value.values()
+                if isinstance(count, int)
+            )
+            changes.append(
+                f"迁移库存: {item_id} 品质格式 -> 简单计数")
+        if item_id in _REMOVED_INVENTORY_ITEMS:
+            inv.pop(item_id, None)
+            changes.append(f"删除: 已移除物品 {item_id}")
 
-    # ── 递归补全缺失字段 ──
 
-    def merge_dict(target, source, path=""):
-        for key, default_value in source.items():
-            current_path = f"{path}.{key}" if path else key
-            if key in ('name', 'password_hash', 'created_at'):
-                continue
-            if key not in target:
-                target[key] = copy.deepcopy(default_value)
-                changes.append(f"添加: {current_path}")
-            elif isinstance(default_value, dict) and isinstance(target[key], dict):
-                merge_dict(target[key], default_value, current_path)
+def _merge_defaults(
+    target: dict,
+    source: dict,
+    changes: list[str],
+    path: str = "",
+) -> None:
+    for key, default_value in source.items():
+        current_path = f"{path}.{key}" if path else key
+        if key in ('name', 'password_hash', 'created_at'):
+            continue
+        if key not in target:
+            target[key] = copy.deepcopy(default_value)
+            changes.append(f"添加: {current_path}")
+        elif isinstance(default_value, dict) and isinstance(target[key], dict):
+            _merge_defaults(target[key], default_value, changes, current_path)
 
-    merge_dict(user_data, template)
+
+def ensure_user_schema(user_data):
+    """确保用户数据包含所有必需属性。Returns: (data, changes)"""
+    if not user_data:
+        return None, []
+
+    changes = []
+    _migrate_legacy_fields(user_data, changes)
+    _migrate_titles(user_data, changes)
+    _migrate_games(user_data, changes)
+    _remove_deprecated_fields(user_data, changes)
+    _migrate_inventory(user_data, changes)
+    _merge_defaults(user_data, get_default_user_template(), changes)
+
     titles = user_data.get('titles', {})
     validated_style = validate_chat_style(
         user_data.get('chat_style'),

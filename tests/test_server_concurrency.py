@@ -222,9 +222,11 @@ def test_displaced_login_username_prompt_resets_hidden_input_state():
     input_widget = _Input()
     panel = object.__new__(LoginPanel)
     panel._step = "waiting"
+    panel._waiting_for = "password"
     panel._tab = "login"
     panel._auth_state = None
     panel._submitted = True
+    panel.update = Mock()
     panel.input_session = InputSession(InputSpec(password=True))
     panel.input_session.mount(input_widget)
     panel.activate_input_context = lambda: panel.input_session.replace(
@@ -235,8 +237,35 @@ def test_displaced_login_username_prompt_resets_hidden_input_state():
 
     assert panel._step == "username"
     assert panel._submitted is False
-    assert input_widget.placeholder == "请输入用户名"
+    assert input_widget.placeholder == "当前会话已由其他客户端结束。"
     assert input_widget.password is False
+
+
+def test_login_rejects_invalid_and_unknown_usernames(monkeypatch):
+    client_socket = _FakeSocket()
+    server = _make_auth_server((client_socket,))
+    monkeypatch.setattr(PlayerManager, "player_exists", lambda _name: False)
+
+    server._handle_login(client_socket, "!")
+    assert server.sent[-1][1]["text"].startswith("用户名格式错误：")
+    assert server.clients[client_socket]["state"] == "login"
+
+    server._handle_login(client_socket, "missing")
+    assert server.sent[-1][1]["text"] == "用户名错误或不存在，请检查后重试"
+    assert server.clients[client_socket]["state"] == "login"
+
+
+def test_auth_cancel_returns_password_state_to_username():
+    client_socket = _FakeSocket()
+    server = _make_auth_server((client_socket,))
+    server.clients[client_socket].update(name="alice", state="password")
+
+    server.process_message(client_socket, {"type": "auth_cancel"})
+
+    assert server.clients[client_socket]["name"] is None
+    assert server.clients[client_socket]["state"] == "login"
+    assert server.sent[-1] == (
+        client_socket, {"type": "login_prompt", "text": "请输入用户名："})
 
 
 def test_duplicate_login_takeover_detaches_old_owner(monkeypatch):

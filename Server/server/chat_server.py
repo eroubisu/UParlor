@@ -25,7 +25,7 @@ from .core.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    ALL_USERS, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
+    ALL_USERS, AUTH_CANCEL, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
     LOGIN_PROMPT, LOCATION_UPDATE, ONLINE_USERS, PONG,
 )
 
@@ -285,6 +285,12 @@ class ChatServer(AuthMixin):
         state = client_info['state']
         msg_type = msg.get('type', 'command')
         text = msg.get('text', '').strip()
+
+        if msg_type == AUTH_CANCEL and state in (
+            'password', 'register_password', 'login_conflict',
+        ):
+            self._reset_login(client_socket)
+            return
 
         if msg_type == 'switch_channel':
             channel = msg.get('channel', 1)

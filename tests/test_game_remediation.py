@@ -36,10 +36,13 @@ from client.views.game.window import GameWindow
 from server.games.ludo.engine import LudoBotScheduler, LudoEngine
 from server.games.ludo.board import Board, PieceState
 from server.games.ludo.room import LudoRoom
+from server.games.uno.cards import UnoCard
 from server.games.uno.engine import UnoBotScheduler, UnoEngine
 from server.games.uno.room import UnoRoom
 from server.core.result_dispatcher import dispatch_game_result
-from server.msg_types import GAME, ROOM_UPDATE
+from server.msg_types import (
+    COMMANDS_UPDATE, GAME, LOCATION_UPDATE, ROOM_UPDATE,
+)
 from server.player.manager import PlayerManager
 from server.player.schema import get_default_user_template
 
@@ -319,6 +322,47 @@ def test_uno_status_uses_yellow_text_and_edge_aligned_rows():
     assert lines[4].rstrip().endswith("1 张  UNO!")
 
 
+def test_uno_status_preserves_dark_reverse_header_and_color_order():
+    status = UnoRenderer().render_status({
+        "room_state": "playing",
+        "side": "dark",
+        "direction": -1,
+        "players": ["alice", "bob"],
+        "current_player": "bob",
+        "hand_counts": {"alice": 3, "bob": 1},
+        "deck_remaining": 12,
+        "played_colors": ["teal", "orange"],
+    })
+
+    header = _render_text(status.header, width=38)
+    body = _render_text(status.body, width=38)
+    assert "Dark" in header
+    assert "逆序" in header
+    assert "牌堆: 12" in header
+    assert "等待 bob" in body
+    assert "已出: ░░██░░██" in body
+    assert body.rstrip().endswith("1 张  UNO!")
+
+
+def test_uno_status_keeps_only_first_two_prompts_in_priority_order():
+    status = UnoRenderer().render_status({
+        "room_state": "playing",
+        "pending_draw": 6,
+        "draw_stacking": True,
+        "draw_until_color": "red",
+        "challengeable": True,
+        "top_card": {"value": "wild"},
+        "draw_play": True,
+    })
+
+    body = _render_text(status.body, width=38)
+    assert "摸牌 +6（可叠）" in body
+    assert "摸至 ██色" in body
+    assert "可挑战 Wild" not in body
+    assert "请选择颜色" not in body
+    assert "出牌或跳过" not in body
+
+
 def test_uno_status_reserves_all_prompt_rows():
     renderer = UnoRenderer()
 
@@ -331,6 +375,61 @@ def test_uno_status_reserves_all_prompt_rows():
         "pending_draw": 4,
         "challengeable": True,
     }) == 17
+
+
+def test_uno_game_render_preserves_discard_hand_buttons_and_focus_line():
+    renderer = UnoRenderer()
+    sections = renderer.render_board({
+        "room_state": "playing",
+        "top_card": {"color": "wild", "value": "wild"},
+        "chosen_color": "blue",
+        "my_cards": [
+            {"color": "red", "value": "1"},
+            {"color": "yellow", "value": "2"},
+            {"color": "green", "value": "3"},
+            {"color": "blue", "value": "4"},
+        ],
+        "playable": [0, 3],
+        "message": "请选择操作",
+    }, {
+        "active": True,
+        "my_turn": True,
+        "row": 1,
+        "hand_cursor": 3,
+        "selected": -1,
+        "btn_cursor": 1,
+        "buttons": [
+            {"label": "出牌", "command": "_play_selected"},
+            {"label": "摸牌", "command": "/draw"},
+        ],
+    }, board_width=20)
+
+    board_text = _render_text(sections["board"], width=40)
+    controls_text = _render_text(sections["controls"], width=40)
+    assert "要求跟牌" in board_text
+    assert "指定 ██" in board_text
+    assert "请选择操作" in board_text
+    assert all(value in controls_text for value in ("1", "2", "3", "4"))
+    assert "出牌" in controls_text
+    assert "摸牌" in controls_text
+    assert controls_text.count("╭───╮") == 4
+    assert renderer.scroll_hint == 8
+
+
+def test_uno_finished_render_preserves_winner_scores_and_message_order():
+    sections = UnoRenderer().render_board({
+        "room_state": "finished",
+        "winner": "alice",
+        "scores": {"alice": 0, "bob": 17, "carol": 23},
+        "message": "对局结束",
+    })
+
+    board_text = _render_text(sections["board"])
+    assert sections["controls"] is None
+    assert "alice 获胜！" in board_text
+    assert "alice: 0分" not in board_text
+    assert board_text.index("bob: 17分") < board_text.index("carol: 23分")
+    assert board_text.index("carol: 23分") < board_text.index("对局结束")
 
 
 def test_game_to_waiting_transition_keeps_old_frame_until_single_target():
@@ -628,6 +727,43 @@ def test_uno_selected_card_can_be_replaced_after_returning_from_play_button():
     assert interaction["btn_cursor"] == 0
 
 
+def test_uno_navigation_respects_card_rows_and_button_boundaries():
+    state = ModuleStateManager()
+    state.chat.set_player_name("alice")
+    handler = _uno_handler()
+    ctx = _ctx(state)
+    room_data = {
+        "game_type": "uno",
+        "room_state": "playing",
+        "current_player": "alice",
+        "my_cards": [
+            {"value": str(index)} for index in range(30)
+        ],
+        "playable": [1, 14, 27],
+    }
+    state.game_board.room_data = room_data
+    handler.on_room_update(room_data, ctx)
+
+    handler.on_nav("down", ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 14
+    handler.on_nav("down", ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 27
+    handler.on_nav("down", ctx)
+    interaction = state.game_interaction.snapshot("uno")
+    assert interaction["row"] == 1
+    assert interaction["hand_cursor"] == 27
+
+    handler.on_nav("right", ctx)
+    assert state.game_interaction.snapshot("uno")["btn_cursor"] == 1
+    handler.on_nav("left", ctx)
+    assert state.game_interaction.snapshot("uno")["btn_cursor"] == 0
+
+    handler.on_nav("up", ctx)
+    assert state.game_interaction.snapshot("uno")["row"] == 0
+    handler.on_nav("up", ctx)
+    assert state.game_interaction.snapshot("uno")["hand_cursor"] == 14
+
+
 def test_uno_four_card_states_use_three_border_colors():
     rendered = Text()
     _render_hand_row(
@@ -791,6 +927,74 @@ def test_uno_replay_with_changed_roster_has_no_stale_hand(monkeypatch):
     assert 'carol' not in room.hands
 
 
+def test_uno_wild_draw_records_challenge_snapshot_before_playing_card():
+    room = UnoRoom('room', ['alice', 'bob'])
+    room.state = 'playing'
+    room.discard_pile = [
+        UnoCard('red', '5', 'pink', '5'),
+    ]
+    matching_card = UnoCard('red', '7', 'teal', '7')
+    wild_draw = UnoCard('wild', 'wild_draw2', 'wild', 'wild_draw_color')
+    room.hands = {
+        'alice': [matching_card, wild_draw],
+        'bob': [UnoCard('blue', '3', 'orange', '3')],
+    }
+
+    success, message = room.play_card('alice', 1, 'blue')
+
+    assert success is True
+    assert message == 'alice 打出 W+2，下家需摸 2 张（可挑战/叠加）！'
+    assert room.challengeable is True
+    assert room.last_wild_player == 'alice'
+    assert room.last_wild_had_match is True
+    assert room.chosen_color == 'blue'
+    assert room.pending_draw == 2
+    assert room.pending_draw_type == 'wild_draw2'
+    assert room.current_player() == 'bob'
+    assert room.hands['alice'] == [matching_card]
+    assert room.discard_pile[-1] is wild_draw
+
+
+def test_uno_game_data_separates_public_and_viewer_state():
+    room = UnoRoom('room', ['alice', 'bob'])
+    room.state = 'playing'
+    room.discard_pile = [
+        UnoCard('green', '1', 'teal', '1'),
+        UnoCard('wild', 'wild', 'wild', 'wild'),
+        UnoCard('red', '3', 'pink', '3'),
+    ]
+    room.hands = {
+        'alice': [
+            UnoCard('blue', '2', 'orange', '2'),
+            UnoCard('red', '8', 'purple', '8'),
+        ],
+        'bob': [UnoCard('yellow', '4', 'teal', '4')],
+    }
+    room.draw_play_card = 1
+
+    player_data = room.get_game_data('alice')
+    observer_data = room.get_game_data('observer')
+
+    assert player_data['played_colors'] == ['red', 'green']
+    assert player_data['top_card']['label'] == '红3'
+    assert player_data['hand_counts'] == {'alice': 2, 'bob': 1}
+    assert player_data['playable'] == [1]
+    assert player_data['draw_play'] is True
+    assert [card['label'] for card in player_data['my_cards']] == ['蓝2', '红8']
+    assert 'my_cards' not in observer_data
+    assert 'playable' not in observer_data
+    assert 'draw_play' not in observer_data
+
+    room.state = 'finished'
+    room.winner = 'alice'
+    room.scores = {'alice': 4, 'bob': 4}
+    finished_data = room.get_game_data('alice')
+
+    assert finished_data['current_player'] == ''
+    assert finished_data['winner'] == 'alice'
+    assert finished_data['scores'] == {'alice': 4, 'bob': 4}
+
+
 @pytest.mark.parametrize('engine_type,room_type', [
     (UnoEngine, UnoRoom),
     (LudoEngine, LudoRoom),
@@ -806,6 +1010,136 @@ def test_settlement_requires_finished_room(engine_type, room_type):
 
     assert result['action'].endswith('_message')
     assert player_data == {'exp': 10, 'gold': 10}
+
+
+def test_ludo_three_player_settlement_preserves_rank_rewards_and_messages(
+        monkeypatch):
+    engine = LudoEngine()
+    room = LudoRoom('room', ['alice', 'bob', 'carol'])
+    room.state = 'finished'
+    room.rankings = ['alice', 'bob', 'carol']
+    players = {
+        name: get_default_user_template(name=name)
+        for name in room.players
+    }
+    saved = []
+
+    def save(name, data):
+        saved.append((name, deepcopy(data)))
+
+    monkeypatch.setattr(PlayerManager, 'save_player_data', save)
+
+    class _Lobby:
+        online_players = players
+
+        def __init__(self):
+            self.locations = []
+
+        def set_player_location(self, name, location):
+            self.locations.append((name, location))
+
+        def get_player_location(self, _name):
+            return 'ludo#room'
+
+        def get_commands_for_location(self, _location, _data):
+            return [{'name': 'ready'}]
+
+    lobby = _Lobby()
+    result = engine._handle_game_over(
+        lobby, room, 'alice', players['alice'])
+
+    assert [name for name, _data in saved] == ['alice', 'bob', 'carol']
+    assert [players[name]['exp'] for name in room.players] == [120, 100, 80]
+    assert [players[name]['gold'] for name in room.players] == [130, 110, 90]
+    assert players['alice']['game_stats']['total_wins'] == 1
+    assert players['bob']['game_stats']['total_draws'] == 1
+    assert players['carol']['game_stats']['total_losses'] == 1
+
+    assert '第一名！' in result['send_to_caller'][0]['text']
+    assert '经验 +120  金币 +30' in result['send_to_caller'][0]['text']
+    assert '第二名！' in result['send_to_players']['bob'][0]['text']
+    assert '经验 +100  金币 +10' in result['send_to_players']['bob'][0]['text']
+    assert '第三名！' in result['send_to_players']['carol'][0]['text']
+    assert '经验 +80  金币 -10' in result['send_to_players']['carol'][0]['text']
+    assert [message['type'] for message in result['send_to_players']['bob']] == [
+        GAME, ROOM_UPDATE, LOCATION_UPDATE, COMMANDS_UPDATE,
+    ]
+    assert lobby.locations == [
+        ('alice', 'ludo#room'),
+        ('bob', 'ludo#room'),
+        ('carol', 'ludo#room'),
+    ]
+    assert room.state == 'waiting'
+    assert room.board is None
+    assert room._settled_players == {'alice', 'bob', 'carol'}
+    assert room._result_pending == {'alice', 'bob', 'carol'}
+
+
+def test_uno_three_player_settlement_preserves_rewards_scores_and_messages(
+        monkeypatch):
+    engine = UnoEngine()
+    room = UnoRoom('room', ['alice', 'bob', 'carol'])
+    room.state = 'finished'
+    room.winner = 'alice'
+    room.scores = {'alice': 25, 'bob': 10, 'carol': 0}
+    room.hands = {'alice': [], 'bob': [], 'carol': []}
+    players = {
+        name: get_default_user_template(name=name)
+        for name in room.players
+    }
+    saved = []
+
+    def save(name, data):
+        saved.append((name, deepcopy(data)))
+
+    monkeypatch.setattr(PlayerManager, 'save_player_data', save)
+
+    class _Lobby:
+        online_players = players
+
+        def __init__(self):
+            self.locations = []
+
+        def set_player_location(self, name, location):
+            self.locations.append((name, location))
+
+        def get_player_location(self, _name):
+            return 'uno#room'
+
+        def get_commands_for_location(self, _location, _data):
+            return [{'name': 'ready'}]
+
+    lobby = _Lobby()
+    result = engine._handle_game_over(
+        lobby, room, 'alice', players['alice'])
+
+    assert [name for name, _data in saved] == ['alice', 'bob', 'carol']
+    assert [players[name]['exp'] for name in room.players] == [120, 80, 80]
+    assert [players[name]['gold'] for name in room.players] == [130, 97, 97]
+    assert players['alice']['game_stats']['total_wins'] == 1
+    assert players['bob']['game_stats']['total_losses'] == 1
+    assert players['carol']['game_stats']['total_losses'] == 1
+
+    assert 'alice 获胜！' in result['send_to_caller'][0]['text']
+    assert '赢家得分: 35' in result['send_to_caller'][0]['text']
+    assert '经验 +120  金币 +30' in result['send_to_caller'][0]['text']
+    assert 'alice 获胜！' in result['send_to_players']['bob'][0]['text']
+    assert '经验 +80  金币 -3' in result['send_to_players']['bob'][0]['text']
+    assert set(
+        result['send_to_players']['bob'][1]['room_data']['rank_changes']
+    ) == {'alice', 'bob', 'carol'}
+    assert [message['type'] for message in result['send_to_players']['bob']] == [
+        GAME, ROOM_UPDATE, LOCATION_UPDATE, COMMANDS_UPDATE,
+    ]
+    assert lobby.locations == [
+        ('alice', 'uno#room'),
+        ('bob', 'uno#room'),
+        ('carol', 'uno#room'),
+    ]
+    assert room.state == 'waiting'
+    assert room.hands == {}
+    assert room._settled_players == {'alice', 'bob', 'carol'}
+    assert room._result_pending == {'alice', 'bob', 'carol'}
 
 
 @pytest.mark.parametrize('engine_type,room_type,scheduler_type', [
@@ -1131,6 +1465,92 @@ def test_waiting_room_update_carries_complete_first_frame_metadata():
     }]
 
 
+def test_dispatch_game_result_runs_all_protocol_stages_in_order(monkeypatch):
+    events = []
+
+    class Lobby:
+        _lock = threading.RLock()
+        player_locations = {'alice': 'lobby', 'carol': 'lobby'}
+
+        def get_player_location(self, _name):
+            return 'uno#room'
+
+        def _get_game_for_location(self, _location):
+            return 'uno'
+
+        def get_location_path(self, location, _name=None):
+            return location
+
+        def get_commands_for_location(self, _location, _player_data):
+            return [{'name': 'play'}]
+
+        def get_all_rooms(self):
+            return [{'room_id': 'room'}]
+
+    class Scheduler:
+        def handle_schedule(self, task):
+            events.append(('schedule', task['action']))
+
+    player_data = {
+        'alice': {'name': 'alice'},
+        'bob': {'name': 'bob'},
+    }
+
+    class Server:
+        lobby_engine = Lobby()
+        bot_schedulers = {'uno': Scheduler()}
+        _name_to_socket = {'bob': 'bob-socket'}
+
+        def send_to(self, socket, message):
+            events.append(('send_to', socket, message['type']))
+
+        def send_to_player(self, name, message):
+            events.append(('send_to_player', name, message['type']))
+
+        def send_player_status(self, socket, data):
+            events.append(('status', socket, data['name']))
+
+        def _get_player_data(self, name):
+            return player_data.get(name)
+
+    monkeypatch.setattr(
+        PlayerManager,
+        'save_player_data',
+        lambda name, _data: events.append(('save', name)),
+    )
+    result = {
+        'send_to_caller': [{'type': GAME, 'text': '完成'}],
+        'send_to_players': {
+            'bob': [{'type': 'hand_update', 'cards': []}],
+        },
+        'schedule': [{'game_id': 'uno', 'action': 'bot_play'}],
+        'save': True,
+        'refresh_status': ['alice', 'bob'],
+        'refresh_commands': True,
+        'refresh_room_list': True,
+    }
+
+    dispatch_game_result(
+        Server(),
+        result,
+        caller_socket='alice-socket',
+        caller_name='alice',
+        caller_data=player_data['alice'],
+    )
+
+    assert events == [
+        ('send_to', 'alice-socket', GAME),
+        ('send_to_player', 'bob', 'game_event'),
+        ('schedule', 'bot_play'),
+        ('save', 'alice'),
+        ('status', 'alice-socket', 'alice'),
+        ('status', 'bob-socket', 'bob'),
+        ('send_to', 'alice-socket', COMMANDS_UPDATE),
+        ('send_to_player', 'alice', 'room_list'),
+        ('send_to_player', 'carol', 'room_list'),
+    ]
+
+
 def test_same_primary_room_update_does_not_reopen_window():
     state = ModuleStateManager()
     state.game_board.room_data = {
@@ -1149,6 +1569,66 @@ def test_same_primary_room_update_does_not_reopen_window():
 
     screen._prepare_main_window.assert_not_called()
     screen._switch_main_window.assert_not_called()
+
+
+def test_waiting_room_doc_prefers_chat_and_updates_room(monkeypatch):
+    state = ModuleStateManager()
+    renderer = Mock()
+    rendered_doc = object()
+    renderer.render_doc.return_value = rendered_doc
+    monkeypatch.setattr(
+        'client.protocol.renderer.get_renderer',
+        lambda _game_type: renderer,
+    )
+    chat = Mock()
+    board = Mock()
+    screen = Mock()
+    screen.engine.primary_id.return_value = 'waiting-window'
+    screen.query_one.side_effect = {
+        '#wait-chat': chat,
+        '#game-board': board,
+    }.__getitem__
+    room_data = {
+        'game_type': 'uno',
+        'room_state': 'waiting',
+        'doc': ['帮助内容'],
+    }
+
+    _on_room_update(
+        RoomUpdate(room_data, message='已打开帮助。'),
+        Mock(), screen, state,
+    )
+
+    renderer.render_doc.assert_called_once_with(['帮助内容'])
+    chat.show_doc.assert_called_once_with(rendered_doc)
+    board.show_doc.assert_not_called()
+    assert state.game_board.room_data == room_data
+    assert state.cmd.lines[-1].endswith('已打开帮助。')
+
+
+def test_same_primary_room_update_closes_visible_docs():
+    state = ModuleStateManager()
+    state.game_board.room_data = {'room_state': 'playing'}
+    board = Mock()
+    board._showing_doc = True
+    chat = Mock()
+    chat._showing_doc = True
+    indicator = Mock()
+    screen = Mock()
+    screen.engine.primary_id.return_value = 'game-window'
+    screen.query_one.side_effect = {
+        '#game-board': board,
+        '#wait-chat': chat,
+        '#tile-indicator': indicator,
+    }.__getitem__
+
+    _on_room_update(
+        RoomUpdate({'room_state': 'playing'}),
+        Mock(), screen, state,
+    )
+
+    board.close_doc.assert_called_once_with()
+    chat.close_doc.assert_called_once_with()
 
 
 def test_pending_target_room_update_replaces_staged_context():

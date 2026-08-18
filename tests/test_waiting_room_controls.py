@@ -152,8 +152,6 @@ def test_game_controls_show_labels_without_command_descriptions():
 
 
 def test_select_menu_adds_explicit_return_option():
-    panel = object.__new__(RoomControlsPanel)
-
     items = RoomControlsPanel._with_return_option([
         {"label": "第一项", "command": "/choose first"},
     ])

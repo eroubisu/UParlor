@@ -79,7 +79,6 @@ class PlayerListPanel(Panel):
         self._refresh_list()
 
     def nav(self, action: str) -> None:
-        players = self._get_players()
         selected = self.selection.handle(action)
         if action in ("up", "down"):
             self._refresh_list()

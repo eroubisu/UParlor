@@ -187,7 +187,6 @@ class WindowEngine:
         previous = self.active_window()
         already_active = previous is w and w.has_class("visible")
         old_id = self._primary_id if self._primary_id != spec.id else None
-        old = self._query(old_id) if old_id else None
 
         # Binding is the only fallible preparation step. Keep the current
         # primary intact until the replacement is ready to commit.

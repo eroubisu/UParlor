@@ -420,6 +420,192 @@ def test_deepseek_forces_structured_final_reply_tool():
     asyncio.run(verify())
 
 
+def test_gemini_continues_with_tool_result_before_final_reply():
+    from google.genai import types
+    from client.companion.provider import (
+        COMPANION_REPLY_TOOL,
+        GoogleProvider,
+        ToolCall,
+    )
+
+    class _Response:
+        def __init__(self, function_call):
+            self.function_call = function_call
+
+        async def __aiter__(self):
+            yield SimpleNamespace(
+                usage_metadata=None,
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[
+                    SimpleNamespace(
+                        text=None,
+                        function_call=self.function_call,
+                    ),
+                ]))],
+            )
+
+    class _Models:
+        def __init__(self):
+            self.round = 0
+
+        async def generate_content_stream(self, **kwargs):
+            self.round += 1
+            if self.round == 1:
+                return _Response(types.FunctionCall(
+                    name='look_self', args={},
+                ))
+            contents = kwargs['contents']
+            assert contents[-2].role == 'model'
+            assert contents[-1].role == 'user'
+            response = contents[-1].parts[0].function_response
+            assert response.name == 'look_self'
+            assert response.response == {'output': 'profile'}
+            return _Response(types.FunctionCall(
+                name=COMPANION_REPLY_TOOL['name'],
+                args={'action': '她点头', 'speech': '好。'},
+            ))
+
+    async def verify():
+        models = _Models()
+        provider = GoogleProvider()
+        provider._client = SimpleNamespace(
+            aio=SimpleNamespace(models=models),
+        )
+        tool_calls = []
+
+        def execute_tool(name, args):
+            tool_calls.append((name, args))
+            return 'profile'
+
+        results = [
+            item async for item in provider.stream_with_tools(
+                [{'role': 'user', 'content': '你好'}],
+                model='test-model',
+                max_tokens=128,
+                temperature=0.5,
+                tools=[{
+                    'name': 'look_self',
+                    'description': '查看资料',
+                    'parameters': {'type': 'object', 'properties': {}},
+                }],
+                execute_tool=execute_tool,
+                final_tool=COMPANION_REPLY_TOOL,
+            )
+        ]
+
+        assert models.round == 2
+        assert tool_calls == [('look_self', {})]
+        assert len(results) == 1
+        assert isinstance(results[0], ToolCall)
+        assert results[0].args['speech'] == '好。'
+
+    asyncio.run(verify())
+
+
+def test_deepseek_continues_with_tool_result_before_final_reply():
+    from client.companion.provider import (
+        COMPANION_REPLY_TOOL,
+        OpenAIProvider,
+        ToolCall,
+    )
+
+    class _Response:
+        def __init__(self, name, arguments, call_id):
+            self.name = name
+            self.arguments = arguments
+            self.call_id = call_id
+
+        async def __aiter__(self):
+            yield SimpleNamespace(
+                usage=None,
+                choices=[SimpleNamespace(delta=SimpleNamespace(
+                    content=None,
+                    tool_calls=[SimpleNamespace(
+                        index=0,
+                        id=self.call_id,
+                        function=SimpleNamespace(
+                            name=self.name,
+                            arguments=self.arguments,
+                        ),
+                    )],
+                ))],
+            )
+
+    class _Completions:
+        def __init__(self):
+            self.round = 0
+
+        async def create(self, **kwargs):
+            self.round += 1
+            if self.round == 1:
+                return _Response('look_self', '{}', 'lookup-call')
+            messages = kwargs['messages']
+            assert messages[-2]['role'] == 'assistant'
+            assert messages[-2]['tool_calls'][0]['id'] == 'lookup-call'
+            assert messages[-1] == {
+                'role': 'tool',
+                'tool_call_id': 'lookup-call',
+                'content': 'profile',
+            }
+            return _Response(
+                COMPANION_REPLY_TOOL['name'],
+                '{"action":"她点头","speech":"好。"}',
+                'reply-call',
+            )
+
+    async def verify():
+        completions = _Completions()
+        provider = OpenAIProvider()
+        provider._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=completions),
+        )
+        tool_calls = []
+
+        def execute_tool(name, args):
+            tool_calls.append((name, args))
+            return 'profile'
+
+        results = [
+            item async for item in provider.stream_with_tools(
+                [{'role': 'user', 'content': '你好'}],
+                model='test-model',
+                max_tokens=128,
+                temperature=0.5,
+                tools=[{
+                    'name': 'look_self',
+                    'description': '查看资料',
+                    'parameters': {'type': 'object', 'properties': {}},
+                }],
+                execute_tool=execute_tool,
+                final_tool=COMPANION_REPLY_TOOL,
+            )
+        ]
+
+        assert completions.round == 2
+        assert tool_calls == [('look_self', {})]
+        assert len(results) == 1
+        assert isinstance(results[0], ToolCall)
+        assert results[0].args['speech'] == '好。'
+
+    asyncio.run(verify())
+
+
+def test_final_reply_tool_rejects_mixed_tool_calls():
+    from client.companion.provider import (
+        COMPANION_REPLY_TOOL,
+        _find_final_tool_call,
+    )
+
+    calls = [
+        {'name': 'look_self'},
+        {'name': COMPANION_REPLY_TOOL['name']},
+    ]
+
+    with pytest.raises(ValueError, match='混合工具调用'):
+        _find_final_tool_call(
+            calls, COMPANION_REPLY_TOOL, lambda call: call['name'],
+        )
+
+
 def test_interaction_state_is_evaluated_by_provider():
     from client.companion.service import AIService
 

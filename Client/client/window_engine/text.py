@@ -6,6 +6,7 @@ from typing import Literal
 
 import regex
 from rich.cells import cell_len
+from rich.text import Text
 
 
 Alignment = Literal["left", "center", "right"]
@@ -24,6 +25,14 @@ _EMOJI_PRESENTATION_PATTERN = regex.compile(
 def cell_width(text: str) -> int:
     """Return rendered terminal width in cells."""
     return cell_len(text)
+
+
+def plain_text(markup: str) -> str:
+    """把 Rich markup 转成纯文本；解析失败时原样返回（best-effort）。"""
+    try:
+        return Text.from_markup(markup).plain
+    except Exception:
+        return markup
 
 
 def grapheme_clusters(text: str) -> list[str]:

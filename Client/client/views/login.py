@@ -13,7 +13,7 @@ from ..window_engine import InputSpec, Option
 from ..window_engine import WindowSpec, register_window
 from ..window_specs import bind_state
 from ..config import (
-    M_DIM, M_BOLD, M_CMD, M_END,
+    M_CMD, M_END,
     NF_KEY, NF_USERS, NF_GEAR,
     COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
     DEFAULT_HOST,
@@ -34,6 +34,11 @@ _TAB_LABELS = {
 # 服务端密码提示前缀
 _PASSWORD_PROMPTS = ('请输入密码', '请设置密码')
 _USERNAME_PROMPTS = ('请输入用户名',)
+_PLAIN_STEP_PROMPTS = (
+    '请输入用户名：',
+    '请输入密码：',
+    '请设置密码（至少3个字符）：',
+)
 
 _STEP_USERNAME = 'username'
 _STEP_PASSWORD = 'password'
@@ -70,6 +75,7 @@ class LoginPanel(Panel):
         super().__init__(tabs=tabs, **kw)
         self._tab: str = 'login'
         self._step: str = _STEP_USERNAME
+        self._waiting_for: str = ""
         self._submitted: bool = False
         self._placeholder_override = ""
         self._auth_state = None
@@ -123,8 +129,10 @@ class LoginPanel(Panel):
         self._submitted = True
         if self._step == _STEP_USERNAME:
             self._pending_username = text
+            self._waiting_for = _STEP_USERNAME
             self._step = _STEP_WAITING
         elif self._step == _STEP_PASSWORD:
+            self._waiting_for = _STEP_PASSWORD
             self._step = _STEP_WAITING
         self.activate_input_context()
 
@@ -172,30 +180,62 @@ class LoginPanel(Panel):
 
     def add_message(self, text: str) -> None:
         """net/dispatch 调用 — 显示服务端登录提示并更新状态机"""
+        is_plain_step = text in _PLAIN_STEP_PROMPTS
+        feedback = "" if is_plain_step else text.splitlines()[0]
         # 密码提示
         if any(text.startswith(p) for p in _PASSWORD_PROMPTS):
             self._step = _STEP_PASSWORD
+            self._waiting_for = ""
             self._submitted = False
-            self._placeholder_override = ""
+            self._placeholder_override = feedback
         elif any(prompt in text for prompt in _USERNAME_PROMPTS):
             self._step = _STEP_USERNAME
+            self._waiting_for = ""
             self._submitted = False
-            self._placeholder_override = ""
+            self._placeholder_override = feedback
         elif self._step == _STEP_WAITING:
             self._submitted = False
-            if self.input_session.spec.password:
+            if self._waiting_for == _STEP_PASSWORD:
                 # 密码错误 — 服务端仍在 password 状态，保持密码模式
                 self._step = _STEP_PASSWORD
-                self._placeholder_override = "密码错误"
+                self._placeholder_override = feedback
             else:
                 self._step = _STEP_USERNAME
-                self._placeholder_override = ""
+                self._placeholder_override = feedback
+            self._waiting_for = ""
+        if self._tab in ("login", "register"):
+            self.update(_WELCOME_DOC, tab=_TABS.index(self._tab))
         self.activate_input_context()
+
+    def return_to_username(self) -> bool:
+        """取消密码阶段，并等待服务端恢复用户名输入状态。"""
+        if self._tab not in ("login", "register"):
+            return False
+        if self._step != _STEP_PASSWORD or self._submitted:
+            return False
+        if not self.app.network.send({"type": "auth_cancel"}):
+            return False
+        self._submitted = True
+        self._step = _STEP_WAITING
+        self._waiting_for = _STEP_PASSWORD
+        self._placeholder_override = "正在返回用户名输入..."
+        self.update(_WELCOME_DOC, tab=_TABS.index(self._tab))
+        self.activate_input_context()
+        return True
+
+    def _cancel_pending_auth(self) -> None:
+        """离开认证标签时同步取消服务端的未完成认证状态。"""
+        if (
+            self._tab in ("login", "register")
+            and (self._step != _STEP_USERNAME or self._submitted)
+        ):
+            self.app.network.send({"type": "auth_cancel"})
 
     def reset_session(self) -> None:
         """Restore the login form after the previous account session ends."""
         self._tab = 'login'
         self._step = _STEP_USERNAME
+        self._waiting_for = ""
         self._submitted = False
         self._placeholder_override = ""
         self.switch_tab(0)
@@ -205,50 +245,61 @@ class LoginPanel(Panel):
 
     # ── 导航 ──
 
+    def _nav_auth_conflict(self, action: str) -> None:
+        direction = {'up': -1, 'down': 1}.get(action)
+        if direction is not None:
+            if self.selection.move(direction):
+                self._auth_state.move(direction)
+            return
+        if action != 'enter' or self._submitted:
+            return
+        selected = self.selected_option
+        choice = selected.id if selected is not None else ""
+        if choice:
+            self._submitted = True
+            self._send_auth_conflict_response(choice)
+
+    def _switch_login_tab(self, offset: int) -> None:
+        self._cancel_pending_auth()
+        current_index = _TABS.index(self._tab)
+        target_index = (current_index + offset) % len(_TABS)
+        self._tab = _TABS[target_index]
+        self._step = _STEP_USERNAME
+        self._waiting_for = ""
+        self._submitted = False
+        self._placeholder_override = ""
+        self.switch_tab(target_index)
+        if self._tab in ("login", "register"):
+            self.update(_WELCOME_DOC, tab=target_index)
+        if self._tab == "settings":
+            self._render_settings()
+
+    def _nav_settings(self, action: str) -> bool:
+        direction = {'up': -1, 'down': 1}.get(action)
+        if direction is not None:
+            if self.selection.move(direction):
+                self._render_settings()
+            return True
+        if action != 'enter':
+            return False
+        selected = self.selected_option
+        if selected is not None:
+            self.post_message(self.OpenGuide(selected.id))
+        return True
+
     def nav(self, action: str) -> None:
         if self._auth_state is not None and self._auth_state.active:
-            if action == 'up':
-                if self.selection.move(-1):
-                    self._auth_state.move(-1)
-            elif action == 'down':
-                if self.selection.move(1):
-                    self._auth_state.move(1)
-            elif action == 'enter' and not self._submitted:
-                selected = self.selected_option
-                choice = selected.id if selected is not None else ""
-                if choice:
-                    self._submitted = True
-                    self._send_auth_conflict_response(choice)
+            self._nav_auth_conflict(action)
             return
-        match action:
-            case "tab_next":
-                idx = _TABS.index(self._tab)
-                self._tab = _TABS[(idx + 1) % len(_TABS)]
-                self._step = _STEP_USERNAME
-                self._submitted = False
-                self.switch_tab(_TABS.index(self._tab))
-                if self._tab == "settings":
-                    self._render_settings()
-            case "tab_prev":
-                idx = _TABS.index(self._tab)
-                self._tab = _TABS[(idx - 1) % len(_TABS)]
-                self._step = _STEP_USERNAME
-                self._submitted = False
-                self.switch_tab(_TABS.index(self._tab))
-                if self._tab == "settings":
-                    self._render_settings()
-            case "down" if self._tab == 'settings':
-                if self.selection.move(1):
-                    self._render_settings()
-            case "up" if self._tab == 'settings':
-                if self.selection.move(-1):
-                    self._render_settings()
-            case "enter" if self._tab == 'settings':
-                selected = self.selected_option
-                if selected is not None:
-                    self.post_message(self.OpenGuide(selected.id))
-            case _:
-                super().nav(action)
+        if action == "tab_next":
+            self._switch_login_tab(1)
+            return
+        if action == "tab_prev":
+            self._switch_login_tab(-1)
+            return
+        if self._tab == 'settings' and self._nav_settings(action):
+            return
+        super().nav(action)
 
     def _render_settings(self) -> None:
         self.set_options(

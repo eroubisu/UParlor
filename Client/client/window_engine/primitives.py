@@ -241,7 +241,7 @@ def move_option_index(
     current: int,
     delta: int,
 ) -> int:
-    """Apply the shared non-wrapping option navigation to an index state."""
+    """Apply the shared wrapping option navigation to an index state."""
     selection = SelectList(options, "indexed-options")
     selection.select(str(current))
     selection.move(delta)

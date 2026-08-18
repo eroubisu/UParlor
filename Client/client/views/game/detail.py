@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from ...config import (
-    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_HINT_TAB_ACTIVE,
+    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
     M_DIM, M_BOLD, M_END, M_MUTED, ICON_INDENT,
 )
 from ...widgets.panel import Panel, text_width

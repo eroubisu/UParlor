@@ -9,7 +9,7 @@ from .social import (
 from .game import GameSelectWindow, WaitingWindow, GameWindow
 from .system import (
     TutorialWindow, TutorialPanel, DocsWindow, RecordsWindow, RootMenuWindow,
-    SettingsWindow,
+    SettingsWindow, RemoteWindow,
 )
 from .companion.window import CompanionWindow
 from .companion.creation import CompanionCreationWindow
@@ -22,7 +22,7 @@ __all__ = [
     'GameSelectWindow', 'WaitingWindow', 'GameWindow',
     'TutorialWindow', 'TutorialPanel', 'DocsWindow', 'RecordsWindow',
     'RootMenuWindow',
-    'SettingsWindow',
+    'SettingsWindow', 'RemoteWindow',
     'CompanionWindow', 'CompanionCreationWindow',
     'SessionOfflineDialog',
 ]

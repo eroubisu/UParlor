@@ -261,6 +261,105 @@ def _refresh_caller_commands(server, client_socket, name, player_data):
     server.send_to(client_socket, {'type': COMMANDS_UPDATE, 'commands': cmds})
 
 
+def _prepare_result_message(
+        message, game_type, lobby, player_name, player_data):
+    message = wrap_game_event(message, game_type)
+    inject_location_path(message, lobby, player_data)
+    inject_room_transition(
+        message, lobby, player_name, player_data,
+    )
+    return message
+
+
+def _dispatch_caller_messages(
+        server, result, caller_socket, caller_name, caller_data,
+        game_type, lobby) -> bool:
+    if not caller_socket:
+        return False
+    messages, has_room_transition = _coalesce_exit_transition_messages(
+        result.get('send_to_caller', []),
+    )
+    for message in messages:
+        prepared = _prepare_result_message(
+            message, game_type, lobby, caller_name, caller_data,
+        )
+        server.send_to(caller_socket, prepared)
+    return has_room_transition
+
+
+def _dispatch_player_messages(server, result, game_type, lobby) -> None:
+    for target, messages in result.get('send_to_players', {}).items():
+        target_data = server._get_player_data(target)
+        target_messages, _ = _coalesce_exit_transition_messages(messages)
+        for message in target_messages:
+            prepared = _prepare_result_message(
+                message, game_type, lobby, target, target_data,
+            )
+            server.send_to_player(target, prepared)
+
+
+def _dispatch_result_location(
+        server, result, caller_socket, caller_name, caller_data,
+        action) -> None:
+    if (
+        caller_socket
+        and caller_name
+        and action in ('location_update', 'back_to_game')
+    ):
+        _send_location_change(
+            server, caller_socket, caller_name, caller_data, action, result,
+        )
+
+
+def _dispatch_scheduled_tasks(server, result) -> None:
+    for task in result.get('schedule', []):
+        game_id = task.get('game_id', '')
+        scheduler = server.bot_schedulers.get(game_id)
+        if scheduler and hasattr(scheduler, 'handle_schedule'):
+            scheduler.handle_schedule(task)
+
+
+def _dispatch_result_save(
+        server, result, caller_socket, caller_name, caller_data) -> None:
+    if caller_name and caller_data and result.get('save'):
+        _save_and_status(
+            server,
+            caller_socket,
+            name=caller_name,
+            player_data=caller_data,
+        )
+
+
+def _dispatch_result_status(server, result, caller_name) -> None:
+    if not result.get('refresh_status'):
+        return
+    for target in result['refresh_status']:
+        if target == caller_name:
+            continue
+        target_data = server._get_player_data(target)
+        if target_data:
+            _send_status_to_player(server, target, target_data)
+
+
+def _dispatch_result_commands(
+        server, result, caller_socket, caller_name, caller_data,
+        caller_has_room_transition) -> None:
+    if (
+        result.get('refresh_commands')
+        and not caller_has_room_transition
+        and caller_name
+        and caller_socket
+    ):
+        _refresh_caller_commands(
+            server, caller_socket, caller_name, caller_data,
+        )
+
+
+def _dispatch_result_room_list(server, result) -> None:
+    if result.get('refresh_room_list'):
+        _broadcast_room_list(server)
+
+
 def dispatch_game_result(server, result, caller_socket=None, caller_name=None, caller_data=None):
     """通用游戏结果分发器 — Rich Result Protocol。
 
@@ -273,61 +372,38 @@ def dispatch_game_result(server, result, caller_socket=None, caller_name=None, c
     lobby = server.lobby_engine
 
     # 1. send_to_caller
-    caller_has_room_transition = False
-    if caller_socket:
-        caller_messages, caller_has_room_transition = (
-            _coalesce_exit_transition_messages(
-            result.get('send_to_caller', []),
-            )
-        )
-        for msg in caller_messages:
-            msg = wrap_game_event(msg, game_type)
-            inject_location_path(msg, lobby, caller_data)
-            inject_room_transition(msg, lobby, caller_name, caller_data)
-            server.send_to(caller_socket, msg)
+    caller_has_room_transition = _dispatch_caller_messages(
+        server, result, caller_socket, caller_name, caller_data,
+        game_type, lobby,
+    )
 
     # 2. send_to_players
-    for target, messages in result.get('send_to_players', {}).items():
-        target_data = server._get_player_data(target)
-        target_messages, _ = _coalesce_exit_transition_messages(messages)
-        for msg in target_messages:
-            msg = wrap_game_event(msg, game_type)
-            inject_location_path(msg, lobby, target_data)
-            inject_room_transition(msg, lobby, target, target_data)
-            server.send_to_player(target, msg)
+    _dispatch_player_messages(server, result, game_type, lobby)
 
     # 3. 位置变更：自动向 caller 发送 location_update / room_leave
-    if caller_socket and caller_name and action in ('location_update', 'back_to_game'):
-        _send_location_change(server, caller_socket, caller_name, caller_data, action, result)
+    _dispatch_result_location(
+        server, result, caller_socket, caller_name, caller_data, action,
+    )
 
     # 4. schedule
-    for task in result.get('schedule', []):
-        gid = task.get('game_id', '')
-        sched = server.bot_schedulers.get(gid)
-        if sched and hasattr(sched, 'handle_schedule'):
-            sched.handle_schedule(task)
+    _dispatch_scheduled_tasks(server, result)
 
     # 5. save / status — 仅在 result 显式请求时保存（减少不必要的磁盘 IO）
-    if caller_name and caller_data and result.get('save'):
-        _save_and_status(server, caller_socket, name=caller_name, player_data=caller_data)
+    _dispatch_result_save(
+        server, result, caller_socket, caller_name, caller_data,
+    )
 
     # 5b. refresh_status: 为所有涉及玩家重新下发状态（奖惩变动后）
-    if result.get('refresh_status'):
-        for target in result['refresh_status']:
-            if target == caller_name:
-                continue
-            target_data = server._get_player_data(target)
-            if target_data:
-                _send_status_to_player(server, target, target_data)
+    _dispatch_result_status(server, result, caller_name)
 
     # 6. refresh_commands: 仅为 caller 重新下发指令列表
-    if result.get('refresh_commands') and not caller_has_room_transition:
-        if caller_name and caller_socket:
-            _refresh_caller_commands(server, caller_socket, caller_name, caller_data)
+    _dispatch_result_commands(
+        server, result, caller_socket, caller_name, caller_data,
+        caller_has_room_transition,
+    )
 
     # 7. refresh_room_list: 向所有大厅玩家广播最新房间列表
-    if result.get('refresh_room_list'):
-        _broadcast_room_list(server)
+    _dispatch_result_room_list(server, result)
 
 
 def _broadcast_room_list(server):

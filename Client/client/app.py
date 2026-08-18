@@ -17,7 +17,7 @@ from textual.app import App
 from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import Static
-from textual import work
+from textual import events, work
 
 from .config import (
     PORT, M_DIM, M_END,
@@ -29,6 +29,7 @@ from .config import (
 from .net.connection import NetworkManager
 from .screen import GameScreen
 from .net.dispatch import dispatch_server_message
+from .remote import RemoteController, key_event_args
 
 # 注册游戏渲染器和处理器（导入即注册）
 from . import games as _games  # noqa: F401
@@ -44,6 +45,14 @@ class ServerMsg(Message):
 
 class Disconnected(Message):
     pass
+
+
+class RemoteStateChanged(Message):
+    """iOS 手柄连接状态变化（后台线程 → 主线程）。"""
+
+    def __init__(self, state: str) -> None:
+        super().__init__()
+        self.state = state
 
 
 # ── UParlorApp — 主应用 ──
@@ -82,6 +91,10 @@ class UParlorApp(App):
         self._current_channel = 1
         self._saved_layout: dict | None = None
         self._ping_sent_at: float = 0.0
+        self.remote = RemoteController()
+        self.remote.on_key = self._remote_inject_key
+        self.remote.on_text = self._remote_paste_text
+        self.remote.on_state_change = self._remote_on_state_change
 
     def on_mount(self) -> None:
         from . import ime
@@ -157,6 +170,33 @@ class UParlorApp(App):
     def _on_send_failure(self):
         """发送失败回调 — 通知用户"""
         self.post_message(Disconnected())
+
+    # ── iOS 手柄（uremote）──
+
+    def _remote_inject_key(self, key: str) -> None:
+        """后台线程回调：把校验过的按键注入为 Textual Key 事件。"""
+        key_name, char = key_event_args(key)
+        self.post_message(events.Key(key_name, char))
+
+    def _remote_paste_text(self, text: str) -> None:
+        """后台线程回调：把文本作为 Paste 事件注入（支持中文等任意字符）。"""
+        self.post_message(events.Paste(text))
+
+    def _remote_on_state_change(self, state: str) -> None:
+        """后台线程回调：把状态变化投递回主线程。"""
+        self.post_message(RemoteStateChanged(state))
+
+    def on_remote_state_changed(self, event: RemoteStateChanged) -> None:
+        """主线程：刷新 iOS 连接窗口与设置项开关标签。"""
+        screen = self.screen
+        if not hasattr(screen, "engine"):
+            return
+        window = screen.engine.get_window("remote-window")
+        if window is not None:
+            window.redraw()
+        settings = screen.engine.get_window("settings-window")
+        if settings is not None:
+            settings.refresh_remote_label()
 
     # ── Ping ──
 
@@ -235,6 +275,7 @@ class UParlorApp(App):
         except Exception:
             pass
         self.network.disconnect()
+        self.remote.disable()
         self.exit()
 
     # ── 窗口焦点 ──

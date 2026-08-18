@@ -51,6 +51,53 @@ def _format_date(raw: str) -> str:
     return raw[:10] if len(raw) >= 10 else raw
 
 
+def _make_level_table(data: dict) -> Table:
+    level = data.get('level', 0)
+    exp = data.get('exp', 0)
+    exp_next = data.get('exp_to_next', 0)
+    table = _make_table()
+    if exp_next:
+        table.add_row(
+            "", f"[{COLOR_FG_TERTIARY}]{exp}/{exp_next}[/]")
+    level_value = (
+        f"[{COLOR_FG_PRIMARY}][{level}][/] {_exp_bar(exp, exp_next)}"
+        if exp_next else f"[{COLOR_FG_PRIMARY}]{level}[/]"
+    )
+    table.add_row(
+        f"[{COLOR_FG_TERTIARY}]{NF_LEVEL} 等级[/]",
+        level_value,
+    )
+    return table
+
+
+def _make_attribute_table(data: dict) -> Table:
+    table = _make_table()
+    _row(table, "金币", str(data.get('gold', 0)), NF_COIN)
+    _row(table, "好友", str(data.get('friends_count', 0)), NF_HEART)
+    created = data.get('created_at', '')
+    if created:
+        _row(table, "注册", _format_date(created), NF_CALENDAR)
+    rank = data.get('game_rank')
+    if rank and rank.get('name'):
+        _row(table, "段位", rank['name'], NF_STAR)
+    return table
+
+
+def _make_card_content(data: dict) -> Group:
+    parts = []
+    title = data.get('title', '')
+    if title:
+        parts.extend([
+            f"{ICON_INDENT}[{COLOR_FG_SECONDARY}]{title}[/]",
+            "",
+        ])
+    parts.extend([
+        _make_level_table(data),
+        _make_attribute_table(data),
+    ])
+    return Group(*parts)
+
+
 _ACTIONS_FRIEND = [
     {"label": "私聊", "cmd": "__dm__"},
     {"label": "删除好友", "cmd": "__unfriend__", "confirm": "确认删除好友 {name}?"},
@@ -112,108 +159,86 @@ class StatusPanel(Panel):
             return
         self.render_card(ss.player_data, is_self=True)
 
-    def render_card(self, d: dict | None, is_self: bool = False,
-                     friends: list[str] | None = None) -> None:
-        """渲染任意玩家名片数据"""
-        is_bot = d.get('is_bot', False) if d else False
-        self._card_data = d or {}
+    def _configure_card(
+        self,
+        data: dict | None,
+        is_self: bool,
+        friends: list[str] | None,
+    ) -> bool:
+        is_bot = data.get('is_bot', False) if data else False
+        self._card_data = data or {}
         self._is_other = not is_self and not is_bot
         self._confirming = False
-
         if friends is not None:
             self._friends = friends
         if self._is_other:
-            self._viewed_name = d.get('name', '') if d else ''
-            self._actions = (_ACTIONS_FRIEND
-                            if self._viewed_name in self._friends
-                            else _ACTIONS_STRANGER)
+            self._viewed_name = data.get('name', '') if data else ''
+            self._actions = (
+                _ACTIONS_FRIEND
+                if self._viewed_name in self._friends
+                else _ACTIONS_STRANGER
+            )
             self.tabs = ["信息", "操作"]
         else:
             self._viewed_name = ''
             self._actions = _ACTIONS_SELF
             self.tabs = [] if is_bot else ["信息", "操作"]
-        if not d:
-            self.border_title = self._render_tabs() or self.border_title
-            self.border_subtitle = ""
-            self.query_one("#t0 .content", Static).update(
-                f"{ICON_INDENT}{M_DIM}暂无数据{M_END}")
-            return
+        return is_bot
 
-        # ── 头部 ──
-        name = d.get('name', '???')
+    def _set_card_titles(self, name: str) -> None:
         if self._is_other:
-            # 查看他人：标签页在 border_title，名字在 border_subtitle
             self.border_title = self._render_tabs()
             self.border_subtitle = name
         else:
             self.border_title = self._render_tabs() or name
             self.border_subtitle = name if self.tabs else ""
 
-        # ── 机器人：只显示简介 ──
-        if is_bot:
-            title = d.get('title', '游戏机器人')
-            self.query_one("#t0 .content", Static).update(
-                f"{ICON_INDENT}[{COLOR_FG_SECONDARY}]{title}[/]")
-            if self._active != 0:
-                self.switch_tab(0)
-            try:
-                self.query_one("#t1").display = False
-            except Exception:
-                pass
-            return
+    def _render_empty_card(self) -> None:
+        self.border_title = self._render_tabs() or self.border_title
+        self.border_subtitle = ""
+        self.query_one("#t0 .content", Static).update(
+            f"{ICON_INDENT}{M_DIM}暂无数据{M_END}")
 
-        title = d.get('title', '')
-        header = ""
-        if title:
-            header = f"{ICON_INDENT}[{COLOR_FG_SECONDARY}]{title}[/]"
-
-        # ── 等级区：经验数字与经验进度条 ──
-        level = d.get('level', 0)
-        exp = d.get('exp', 0)
-        exp_next = d.get('exp_to_next', 0)
-
-        lvl_table = _make_table()
-        if exp_next:
-            lvl_table.add_row(
-                "", f"[{COLOR_FG_TERTIARY}]{exp}/{exp_next}[/]")
-        level_value = (
-            f"[{COLOR_FG_PRIMARY}][{level}][/] {_exp_bar(exp, exp_next)}"
-            if exp_next else f"[{COLOR_FG_PRIMARY}]{level}[/]"
-        )
-        lvl_table.add_row(
-            f"[{COLOR_FG_TERTIARY}]{NF_LEVEL} 等级[/]",
-            level_value,
-        )
-
-        # ── 属性表 ──
-        t = _make_table()
-        _row(t, "金币", str(d.get('gold', 0)), NF_COIN)
-        _row(t, "好友", str(d.get('friends_count', 0)), NF_HEART)
-
-        created = d.get('created_at', '')
-        if created:
-            _row(t, "注册", _format_date(created), NF_CALENDAR)
-
-        rank = d.get('game_rank')
-        if rank and rank.get('name'):
-            _row(t, "段位", rank['name'], NF_STAR)
-
-        parts = []
-        if header:
-            parts += [header, ""]
-        parts += [lvl_table, t]
-        self.query_one("#t0 .content", Static).update(Group(*parts))
-        if self._is_other and self._active != 0:
+    def _render_bot_card(self, data: dict) -> None:
+        title = data.get('title', '游戏机器人')
+        self.query_one("#t0 .content", Static).update(
+            f"{ICON_INDENT}[{COLOR_FG_SECONDARY}]{title}[/]")
+        if self._active != 0:
             self.switch_tab(0)
-        # 刷新操作页
+        try:
+            self.query_one("#t1").display = False
+        except Exception:
+            pass
+
+    def _sync_action_tab(self) -> None:
         if self.tabs:
             self._redraw_actions()
-        # 隐藏 t1 tab when viewing self
         try:
             self.query_one("#t1").display = bool(
                 self.tabs and self._active == 1)
         except Exception:
             pass
+
+    def render_card(self, d: dict | None, is_self: bool = False,
+                     friends: list[str] | None = None) -> None:
+        """渲染任意玩家名片数据"""
+        is_bot = self._configure_card(d, is_self, friends)
+        if not d:
+            self._render_empty_card()
+            return
+
+        name = d.get('name', '???')
+        self._set_card_titles(name)
+
+        if is_bot:
+            self._render_bot_card(d)
+            return
+
+        self.query_one("#t0 .content", Static).update(
+            _make_card_content(d))
+        if self._is_other and self._active != 0:
+            self.switch_tab(0)
+        self._sync_action_tab()
 
     def _redraw_actions(self) -> None:
         """重绘操作标签页"""

@@ -841,106 +841,157 @@ class UnoEngine(BaseGameEngine):
 
     # ── 结算 ──
 
-    def _handle_game_over(self, lobby, room, caller, caller_data):
-        if room.state != 'finished':
-            return self._msg(caller, '游戏尚未结束。')
-
+    def _settle_player(
+        self,
+        room,
+        player: str,
+        player_data: dict,
+        has_bots: bool,
+    ) -> bool:
         from copy import deepcopy
         from ...systems.leveling import check_level_up
         from ...player.manager import PlayerManager
+
+        outcome = 'win' if player == room.winner else 'loss'
+        exp, gold = self._REWARDS[outcome]
+        working = deepcopy(player_data)
+        self._apply_game_result(working, outcome)
+        rank_change = self._update_player_rank(
+            working, outcome, has_bots,
+        )
+        if has_bots:
+            gold = int(
+                exp * self._REWARDS.get('gold_ratio_bot', 0.15)
+            )
+        current_exp = working.get('exp', 0)
+        working['exp'] = current_exp + exp
+        check_level_up(working)
+        current_gold = working.get('gold', 0)
+        working['gold'] = max(0, current_gold + gold)
+
+        try:
+            PlayerManager.save_player_data(player, working)
+        except OSError:
+            logger.exception(
+                "UNO 房间 %s 的玩家 %s 结算保存失败，等待重试",
+                room.room_id, player)
+            return False
+
+        room._settlement_results[player] = {
+            'exp': exp,
+            'gold': gold,
+            'rank_change': rank_change,
+        }
+        room._settled_players.add(player)
+        working.pop('password_hash', None)
+        player_data.clear()
+        player_data.update(working)
+        return True
+
+    @staticmethod
+    def _unsettled_humans(room) -> list[str]:
+        unsettled = []
+        for player in room.players:
+            if room.is_bot(player):
+                continue
+            if player not in room._settled_players:
+                unsettled.append(player)
+        return unsettled
+
+    def _build_settlement_messages(self, lobby, room, caller):
+        send_to_players = {}
+        refresh_status = []
+        caller_messages = None
+        location = self._loc(room)
+        rank_changes = {
+            player: result['rank_change']
+            for player, result in room._settlement_results.items()
+        }
+        for player in room.players:
+            settlement = room._settlement_results.get(player)
+            if settlement is None:
+                continue
+            refresh_status.append(player)
+            lobby.set_player_location(player, location)
+            board = room.get_game_data(viewer=player)
+            board['rank_changes'] = rank_changes
+            result_text = self._format_result(
+                player,
+                room,
+                settlement['exp'],
+                settlement['gold'],
+                settlement['rank_change'],
+            )
+            messages = [
+                {'type': GAME, 'text': result_text},
+                {'type': ROOM_UPDATE, 'room_data': board},
+                {'type': LOCATION_UPDATE, 'location': location},
+            ]
+            if player == caller:
+                caller_messages = messages
+            else:
+                send_to_players[player] = messages
+        return caller_messages, send_to_players, refresh_status
+
+    @staticmethod
+    def _finalize_settlement(lobby, room, send_to_players: dict) -> None:
+        room.state = 'waiting'
+        room._settlement_retry_scheduled = False
+        room.hands.clear()
+        room._result_pending = {
+            player for player in room.players if not room.is_bot(player)
+        }
+
+        for player in send_to_players:
+            player_data = lobby.online_players.get(player)
+            if not player_data:
+                continue
+            location = lobby.get_player_location(player)
+            commands = lobby.get_commands_for_location(
+                location, player_data,
+            )
+            send_to_players[player].append({
+                'type': COMMANDS_UPDATE,
+                'commands': commands,
+            })
+
+    def _handle_game_over(self, lobby, room, caller, caller_data):
+        if room.state != 'finished':
+            return self._msg(caller, '游戏尚未结束。')
 
         has_bots = bool(room.bots)
 
         # 先逐玩家提交完整结果。成功玩家立即记入房间阶段状态；后续玩家
         # 保存失败时，重试会跳过已提交玩家，而失败玩家的在线镜像未被修改。
-        for p in room.players:
-            if room.is_bot(p) or p in room._settled_players:
+        for player in room.players:
+            if room.is_bot(player) or player in room._settled_players:
                 continue
-            pd = caller_data if p == caller else lobby.online_players.get(p)
-            if pd is None:
+            player_data = lobby.online_players.get(player)
+            if player == caller:
+                player_data = caller_data
+            if player_data is None:
                 continue
-
-            outcome = 'win' if p == room.winner else 'loss'
-            exp, gold = self._REWARDS[outcome]
-            working = deepcopy(pd)
-            self._apply_game_result(working, outcome)
-            rc = self._update_player_rank(working, outcome, has_bots)
-
-            if has_bots:
-                gold = int(exp * self._REWARDS.get('gold_ratio_bot', 0.15))
-
-            working['exp'] = working.get('exp', 0) + exp
-            check_level_up(working)
-            working['gold'] = max(0, working.get('gold', 0) + gold)
-            settlement = {'exp': exp, 'gold': gold, 'rank_change': rc}
-            try:
-                PlayerManager.save_player_data(p, working)
-            except OSError:
-                logger.exception(
-                    "UNO 房间 %s 的玩家 %s 结算保存失败，等待重试",
-                    room.room_id, p)
+            if not self._settle_player(
+                room,
+                player,
+                player_data,
+                has_bots,
+            ):
                 return self._settlement_retry_result(room, caller)
-            room._settlement_results[p] = settlement
-            room._settled_players.add(p)
-            working.pop('password_hash', None)
-            pd.clear()
-            pd.update(working)
 
-        unsettled = [
-            p for p in room.players
-            if not room.is_bot(p) and p not in room._settled_players
-        ]
+        unsettled = self._unsettled_humans(room)
         if unsettled:
             logger.warning(
                 "UNO 房间 %s 等待玩家数据后重试结算: %s",
                 room.room_id, unsettled)
             return self._settlement_retry_result(room, caller)
 
-        send_to_players = {}
-        refresh_status = []
-        caller_msgs = None
-        rank_changes = {
-            p: result['rank_change']
-            for p, result in room._settlement_results.items()
-        }
-
         # 只有全部持久化阶段完成后才构造通知并切回等待状态。若此阶段异常，
         # 下一次调用仍会复用已记录的结算结果，不会再次发奖。
-        for p in room.players:
-            settlement = room._settlement_results.get(p)
-            if settlement is None:
-                continue
-            pd = caller_data if p == caller else lobby.online_players.get(p)
-            exp = settlement['exp']
-            gold = settlement['gold']
-            rc = settlement['rank_change']
-            refresh_status.append(p)
-            lobby.set_player_location(p, self._loc(room))
-            board = room.get_game_data(viewer=p)
-            board['rank_changes'] = rank_changes
-            result_text = self._format_result(p, room, exp, gold, rc)
-            msgs = [
-                {'type': GAME, 'text': result_text},
-                {'type': ROOM_UPDATE, 'room_data': board},
-                {'type': LOCATION_UPDATE, 'location': self._loc(room)},
-            ]
-            if p == caller:
-                caller_msgs = msgs
-            else:
-                send_to_players[p] = msgs
-
-        room.state = 'waiting'
-        room._settlement_retry_scheduled = False
-        room.hands.clear()
-        room._result_pending = {p for p in room.players if not room.is_bot(p)}
-
-        # 为所有非 caller 玩家追加 commands_update（caller 由 refresh_commands 处理）
-        for p, msgs in send_to_players.items():
-            pd = lobby.online_players.get(p)
-            if pd:
-                loc = lobby.get_player_location(p)
-                cmds = lobby.get_commands_for_location(loc, pd)
-                msgs.append({'type': COMMANDS_UPDATE, 'commands': cmds})
+        caller_msgs, send_to_players, refresh_status = (
+            self._build_settlement_messages(lobby, room, caller)
+        )
+        self._finalize_settlement(lobby, room, send_to_players)
 
         return {
             'action': 'uno_game_over',

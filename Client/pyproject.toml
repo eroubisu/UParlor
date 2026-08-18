@@ -14,10 +14,20 @@ dependencies = [
     "regex>=2024.11",
     "google-genai>=1.0",
     "openai>=1.0",
+    "qrcode>=7.4",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = [
+    "pytest>=8.0",
+    "ruff>=0.15,<0.16",
+]
+audit = [
+    "pylint>=4.0,<5",
+    "pytest-cov>=6.0,<8",
+    "radon>=6.0,<7",
+    "vulture>=2.14,<3",
+]
 
 [project.scripts]
 uparlor = "client.app:main"

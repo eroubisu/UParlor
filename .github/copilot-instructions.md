@@ -3,6 +3,9 @@
 ## Before changing code
 
 - Search for the existing implementation, protocol, constant, and call sites before adding anything.
+- On a resumed, uncertain, or multi-module task, run `python tools/impact.py` against the worktree or
+  the known anchor paths. Use its focused tests, named contract sections, and gate decision instead of
+  rediscovering scope through broad reads. Skip this step for an obvious single-file local change.
 - Read only instructions and contract sections relevant to the files and behavior being changed.
 - Consult [rules.md](./rules.md) only for its named domains, and
   [hardcode-policy.md](./hardcode-policy.md) only when introducing or consolidating literals.
@@ -29,6 +32,8 @@
 - Do not add unrequested behavior, limits, configuration, or performance changes. If a requested fix
   appears to require one, ask the user before changing it.
 - Every new class, protocol, message, helper, or setting must have a real caller.
+- When a repeated defect or contract violation can be recognized deterministically, add the cheapest
+  regression test or repository-policy check in the same task. Do not rely on another prose reminder.
 - Preserve the State SSOT and registry-based game boundaries.
 - Update an existing manual case when its expected behavior changes; add a case only when no existing
   case covers the regression.
@@ -37,6 +42,8 @@
 
 ## Durable user preferences
 
+- Treat tracked repository facts and the current diff as durable memory. Never rely on chat history,
+  agent memory, or an untracked task journal for a decision that future work must preserve.
 - When the user states a durable UParlor preference in chat, record it in the same task instead of
   relying on conversation memory.
 - Put player-facing game preferences in `docs/design/game-design-principles.md`; put enforceable
@@ -46,6 +53,8 @@
 
 ## Workflow guidance
 
+- The user does not review source code or diffs. Inspect them yourself and report behavior, automated
+  evidence, remaining uncertainty, and the one required user action in plain language.
 - End every completed task or decision point with one concrete `下一步` for the user, based on
   `WORKFLOW.md`.
 - If no user action is currently required, say so and name the next recommended repository task.
@@ -75,6 +84,8 @@ Automated tests cover contracts and pure logic. Interactive TUI, multiplayer, re
 
 ## Credit-efficient execution
 
+- Prefer deterministic repository tools and their short output before asking an AI auditor to infer
+  scope or quality. On resume, use `tools/impact.py` once rather than rebuilding a repository map.
 - Do not launch subagents, full-workspace diagnostics, repository-wide searches, or health audits for
   a local change when direct inspection and a focused test can settle it.
 - Keep the UParlor Quality Auditor opt-in. Use it only when the user requests a review/audit, before a

@@ -202,7 +202,6 @@ class Board:
     def get_valid_moves(self, color: str, dice: int) -> list[int]:
         """返回可移动棋子的索引列表。
         掷出 6 时：若机场还有飞机，强制仅返回机场棋子（必须起飞）。"""
-        conf = _COLOR_CONFIG[color]
         if dice == 6:
             airport_idx = [i for i, p in enumerate(self.pieces[color])
                            if p.state == PieceState.AIRPORT]

@@ -149,20 +149,74 @@ def test_wrong_password_changes_password_placeholder():
     input_widget = _Input()
     panel = object.__new__(LoginPanel)
     panel._step = "waiting"
+    panel._waiting_for = "password"
     panel._tab = "login"
     panel._auth_state = None
     panel._submitted = True
+    panel.update = Mock()
     panel.input_session = InputSession(InputSpec(password=True))
     panel.input_session.mount(input_widget)
     panel.activate_input_context = lambda: panel.input_session.replace(
         LoginPanel.input_spec(panel))
 
-    LoginPanel.add_message(panel, "密码错误，请重试：")
+    LoginPanel.add_message(panel, "密码错误，请重试")
 
     assert panel._step == "password"
     assert panel._submitted is False
-    assert input_widget.placeholder == "密码错误"
+    assert input_widget.placeholder == "密码错误，请重试"
     assert input_widget.password is True
+
+
+def test_password_step_can_request_return_to_username():
+    class LoginApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sent = []
+            self.network = SimpleNamespace(
+                send=lambda message: self.sent.append(message) or True,
+            )
+
+        def compose(self) -> ComposeResult:
+            yield LoginWindow(id="login-window")
+
+        def on_mount(self) -> None:
+            self.query_one("#login-window", LoginWindow).show()
+
+    async def verify() -> None:
+        app = LoginApp()
+        async with app.run_test() as pilot:
+            panel = app.query_one("#login-panel", LoginPanel)
+            panel.add_message("请输入用户名：")
+            await pilot.pause()
+            content = str(panel.query_one("#t0 .content").render())
+            assert "请输入用户名" not in content
+
+            panel._step = "waiting"
+            panel._waiting_for = "password"
+            panel.add_message("密码错误，请重试")
+            await pilot.pause()
+            content = str(panel.query_one("#t0 .content").render())
+            input_widget = panel.query_one("#input", Input)
+            assert "密码错误，请重试" not in content
+            assert input_widget.placeholder == "密码错误，请重试"
+            panel._step = "password"
+            panel._waiting_for = ""
+            panel._submitted = False
+
+            assert panel.return_to_username()
+            assert app.sent == [{"type": "auth_cancel"}]
+            assert panel._step == "waiting"
+            assert panel._submitted is True
+
+            app.sent.clear()
+            panel._step = "password"
+            panel._waiting_for = ""
+            panel._submitted = False
+            panel.nav("tab_prev")
+            assert panel._tab == "settings"
+            assert app.sent == [{"type": "auth_cancel"}]
+
+    asyncio.run(verify())
 
 
 def test_sticky_insert_continues_from_username_to_password():
@@ -201,7 +255,6 @@ def test_session_offline_action_waits_for_explicit_choice():
     pushed = []
     network = SimpleNamespace(disconnect=Mock())
     rebuild = Mock()
-    active_window = SimpleNamespace(set_active=Mock())
     app = SimpleNamespace(
         network=network,
         exit=Mock(),
