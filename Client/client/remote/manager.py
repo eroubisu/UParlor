@@ -3,12 +3,15 @@
 职责边界：
 - 线程安全的状态机（off / listening / connected）
 - 在局域网启动一个本地 HTTP 服务，供 iPhone 浏览器打开手柄页面
+- 公网中转时，服务器把浏览器请求转发到这里，由本服务处理并回传响应
 - 页面通过 GET /status 拉取状态与配对码，通过 POST /key、/confirm 交互
 - 校验按键后通过 ``on_key`` 回调交给宿主注入
 """
 
 from __future__ import annotations
 
+import base64
+import http.client
 import http.server
 import json
 import random
@@ -18,6 +21,9 @@ from collections import deque
 
 from .keys import sanitize_text, validate_key
 from .page import INDEX_HTML
+
+PROXY_TIMEOUT = 10.0
+MAX_PROXY_BODY = 512 * 1024
 
 
 def _local_ip() -> str:
@@ -30,6 +36,15 @@ def _local_ip() -> str:
         return "127.0.0.1"
     finally:
         sock.close()
+
+
+def _relay_response(status: int, content_type: str, body: bytes) -> dict:
+    """构造回传给服务器的中转响应（正文用 base64）。"""
+    return {
+        "status": status,
+        "content_type": content_type,
+        "body": base64.b64encode(body).decode("ascii"),
+    }
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -52,6 +67,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if self.path == "/key":
+            if not self._remote.is_paired():
+                self._send_json(
+                    {"ok": False, "error": "not paired"}, status=403,
+                )
+                return
             payload = self._read_json()
             key = payload.get("key")
             if isinstance(key, str) and validate_key(key):
@@ -64,6 +84,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     {"ok": False, "error": "invalid key"}, status=400,
                 )
         elif self.path == "/text":
+            if not self._remote.is_paired():
+                self._send_json(
+                    {"ok": False, "error": "not paired"}, status=403,
+                )
+                return
             payload = self._read_json()
             text = sanitize_text(payload.get("text") or "")
             if text:
@@ -124,6 +149,8 @@ class RemoteController:
         self._port = 0
         self._pair_code = ""
         self._records: deque[str] = deque(maxlen=10)
+        self._relay_url = ""
+        self._relay_available = False
         self._lock = threading.Lock()
         self.on_state_change = None  # callable(state: str)
         self.on_key = None           # callable(key: str)
@@ -143,10 +170,71 @@ class RemoteController:
 
     @property
     def url(self) -> str:
+        """手机上应打开的地址：优先公网中转，否则局域网地址。"""
         with self._lock:
+            if self._relay_url:
+                return self._relay_url
             host = self._host
             port = self._port
         return f"http://{host}:{port}" if port else ""
+
+    def is_paired(self) -> bool:
+        return self.state == self.STATE_CONNECTED
+
+    # ── 公网中转 ──
+
+    def set_relay_available(self, available: bool) -> None:
+        """服务器是否支持网页手柄中转（握手能力位）。"""
+        with self._lock:
+            self._relay_available = bool(available)
+
+    @property
+    def relay_available(self) -> bool:
+        with self._lock:
+            return self._relay_available
+
+    def set_relay_url(self, url: str) -> None:
+        with self._lock:
+            self._relay_url = url or ""
+
+    def clear_relay_url(self) -> None:
+        self.set_relay_url("")
+
+    def proxy_request(self, method: str, target: str, body_b64: str) -> dict:
+        """在后台线程把中转请求交给本机手柄服务，返回可回传的响应。
+
+        复用本机 HTTP 服务处理，网页与配对逻辑因此只有一份实现。
+        """
+        with self._lock:
+            port = self._port
+        if not port:
+            return _relay_response(503, "text/plain; charset=utf-8", b'remote off')
+        try:
+            body = base64.b64decode(body_b64) if body_b64 else None
+        except (ValueError, TypeError):
+            body = None
+        headers = {}
+        if body:
+            headers = {
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            }
+        try:
+            conn = http.client.HTTPConnection(
+                "127.0.0.1", port, timeout=PROXY_TIMEOUT,
+            )
+            try:
+                conn.request(method, target or "/", body=body, headers=headers)
+                response = conn.getresponse()
+                content = response.read(MAX_PROXY_BODY)
+                content_type = (response.getheader("Content-Type")
+                                or "application/octet-stream")
+                return _relay_response(response.status, content_type, content)
+            finally:
+                conn.close()
+        except (OSError, http.client.HTTPException):
+            return _relay_response(
+                502, "text/plain; charset=utf-8", b'handle unavailable')
 
     # ── 状态迁移 ──
 
@@ -182,12 +270,13 @@ class RemoteController:
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def disable(self) -> None:
-        """关闭：停止 HTTP 服务。"""
+        """关闭：停止 HTTP 服务并作废中转地址。"""
         with self._lock:
             server = self._server
             self._server = None
             self._port = 0
             self._pair_code = ""
+            self._relay_url = ""
             self._records.clear()
         if server is not None:
             try:

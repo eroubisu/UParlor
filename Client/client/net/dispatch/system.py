@@ -2,10 +2,43 @@
 
 from __future__ import annotations
 
+import threading
+
 from ..messages import (
     SystemMessage, GameMessage, StatusUpdate,
     LocationUpdate, CommandsUpdate, ActionCommand,
+    RemoteHttp, RemoteSessionOpened,
 )
+
+
+def _on_remote_http(parsed, app, _screen, _st):
+    """服务器中转来的手柄请求 → 交本机手柄服务处理（不能阻塞主线程）。"""
+    remote = getattr(app, 'remote', None)
+    if remote is None or remote.state == remote.STATE_OFF:
+        return
+    worker = threading.Thread(
+        target=_relay_http_worker, args=(app, remote, parsed), daemon=True,
+    )
+    worker.start()
+
+
+def _relay_http_worker(app, remote, parsed) -> None:
+    response = remote.proxy_request(parsed.method, parsed.target, parsed.body)
+    app.network.send({
+        'type': 'remote_http_response',
+        'id': parsed.req_id,
+        **response,
+    })
+
+
+def _on_remote_session_opened(parsed, app, _screen, _st):
+    network = app.network
+    token = parsed.token
+    if not token or not network.host:
+        return
+    app.remote.set_relay_url(
+        f'http://{network.host}:{network.port}/r/{token}/')
+    app.refresh_remote_window()
 
 
 def _on_system_message(parsed, app, screen, st):
@@ -131,4 +164,6 @@ HANDLERS = {
     LocationUpdate: _on_location_update,
     CommandsUpdate: _on_commands_update,
     ActionCommand: _on_action_command,
+    RemoteHttp: _on_remote_http,
+    RemoteSessionOpened: _on_remote_session_opened,
 }

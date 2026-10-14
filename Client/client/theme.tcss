@@ -93,3 +93,11 @@ Window.-active Panel.-focused {
 #chat-window {
     margin-bottom: 1;
 }
+
+/* ── iOS 连接二维码 ── */
+/* 必须写在这里：上面的 `Static { background: transparent }` 会覆盖窗口
+   DEFAULT_CSS 里的 background，二维码会变成黑底黑块而扫不出来。 */
+#remote-qr {
+    background: #ffffff;
+    color: #000000;
+}

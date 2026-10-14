@@ -127,6 +127,10 @@ class UParlorApp(App):
             self.post_message(ServerMsg(msg))
         self._pending_messages.clear()
 
+        # 重连后旧的会话令牌已失效，重新申请一个
+        if self.remote.state != RemoteController.STATE_OFF:
+            self.request_remote_relay()
+
     @work(thread=True)
     def _start_receive_worker(self):
         buffer = ""
@@ -164,6 +168,9 @@ class UParlorApp(App):
                 conn.update(f" [{COLOR_OFFLINE}]{NF_ONLINE}[/] ---- ")
             except Exception:
                 log.exception("Failed to shut down companion")
+        # 中转地址随连接失效，退回局域网地址
+        self.remote.clear_relay_url()
+        self.refresh_remote_window()
 
     def _on_send_failure(self):
         """发送失败回调 — 通知用户"""
@@ -182,7 +189,27 @@ class UParlorApp(App):
 
     def _remote_on_state_change(self, state: str) -> None:
         """后台线程回调：把状态变化投递回主线程。"""
+        if state == RemoteController.STATE_OFF:
+            self._request_remote_relay("close")
+        elif state == RemoteController.STATE_LISTENING:
+            self._request_remote_relay("open")
         self.post_message(RemoteStateChanged(state))
+
+    def request_remote_relay(self) -> None:
+        """向服务器申请网页手柄中转会话（主线程调用）。"""
+        if self.network.connected:
+            self._request_remote_relay("open")
+
+    def _request_remote_relay(self, action: str) -> None:
+        if not self.network.connected:
+            return
+        if action == "open" and not self.remote.relay_available:
+            return
+        self.network.send({"type": "remote_session", "action": action})
+
+    def refresh_remote_window(self) -> None:
+        """主线程调用：让 iOS 连接窗口与设置开关重新渲染。"""
+        self.on_remote_state_changed(RemoteStateChanged(self.remote.state))
 
     def on_remote_state_changed(self, event: RemoteStateChanged) -> None:
         """主线程：刷新 iOS 连接窗口与设置项开关标签。"""

@@ -143,6 +143,21 @@ class ProfileCard:
 
 
 @dataclass
+class RemoteHttp:
+    """服务器中转过来的网页手柄 HTTP 请求。"""
+    req_id: int = 0
+    method: str = 'GET'
+    target: str = '/'
+    body: str = ''      # base64 编码的请求正文
+
+
+@dataclass
+class RemoteSessionOpened:
+    """服务器已为本客户端开通手柄中转会话。"""
+    token: str = ''
+
+
+@dataclass
 class GameList:
     games: list = field(default_factory=list)
 
@@ -200,6 +215,12 @@ _PARSERS = {
     'friend_request': lambda m: FriendRequest(from_name=m.get('from', ''), pending=m.get('pending')),
     'dm_history':     lambda m: DMHistory(conversations=m.get('conversations', {})),
     'profile_card':   lambda m: ProfileCard(data=m.get('data', {})),
+    'remote_http':    lambda m: RemoteHttp(
+        req_id=m.get('id', 0), method=m.get('method', 'GET'),
+        target=m.get('target', '/'), body=m.get('body', ''),
+    ),
+    'remote_session_opened': lambda m: RemoteSessionOpened(
+        token=m.get('token', '')),
     'game_list':      lambda m: GameList(games=m.get('games', [])),
     'room_list':      lambda m: RoomList(rooms=m.get('rooms', [])),
     'room_chat':      lambda m: RoomChat(name=m.get('name', ''), from_name=m.get('from', ''),

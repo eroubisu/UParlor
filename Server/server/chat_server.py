@@ -19,6 +19,7 @@ from .lobby.engine import LobbyEngine
 from .storage.chat_log import ChatLogManager
 from .storage.dm_log import DMLogManager
 from .player.auth import AuthMixin
+from .core.http_relay import RemoteRelay, looks_like_http, serve_http
 from .core.result_dispatcher import (
     dispatch_game_result as _dispatch_game_result_impl,
     dispatch_result as _dispatch_result_impl,
@@ -26,7 +27,8 @@ from .core.result_dispatcher import (
 )
 from .msg_types import (
     AUTH_CANCEL, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
-    LOGIN_PROMPT, LOCATION_UPDATE, ONLINE_USERS, PONG,
+    LOGIN_PROMPT, LOCATION_UPDATE, ONLINE_USERS, PONG, REMOTE_HTTP_RESPONSE,
+    REMOTE_SESSION, REMOTE_SESSION_OPENED,
 )
 
 # 触发消息处理器注册
@@ -61,6 +63,9 @@ class ChatServer(AuthMixin):
             _create = _info.get('create_bot_scheduler')
             if _create:
                 self.bot_schedulers[_gid] = _create(self)
+
+        # 网页手柄的公网中转（复用本端口上的 HTTP 请求）
+        self.remote_relay = RemoteRelay(self.send_to)
 
         self.running = False
         self.log_mgr = ChatLogManager()
@@ -230,6 +235,11 @@ class ChatServer(AuthMixin):
         except OSError:
             pass
 
+        # 浏览器访问网页手柄时走 HTTP 中转，不进入游戏协议
+        if looks_like_http(client_socket):
+            serve_http(client_socket, self.remote_relay)
+            return
+
         with self.lock:
             self._send_locks[client_socket] = threading.Lock()
             self.clients[client_socket] = {
@@ -237,7 +247,11 @@ class ChatServer(AuthMixin):
             }
 
         # 登录提示发到指令区
-        self.send_to(client_socket, {'type': CLIENT_VERSION, 'latest': self._client_version})
+        self.send_to(client_socket, {
+            'type': CLIENT_VERSION,
+            'latest': self._client_version,
+            'relay': True,          # 支持网页手柄的公网中转
+        })
         self.send_to(client_socket, {'type': LOGIN_PROMPT, 'text': '请输入用户名：'})
 
         while self.running:
@@ -271,8 +285,17 @@ class ChatServer(AuthMixin):
         self.remove_client(client_socket)
 
     def process_message(self, client_socket, msg):
+        # 网页手柄中转：会话开关与响应回传
+        msg_type = msg.get('type', 'command')
+        if msg_type == REMOTE_HTTP_RESPONSE:
+            self.remote_relay.deliver(client_socket, msg)
+            return
+        if msg_type == REMOTE_SESSION:
+            self._handle_remote_session(client_socket, msg)
+            return
+
         # ping/pong 不需要认证，立即回复
-        if msg.get('type') == 'ping':
+        if msg_type == 'ping':
             self.send_to(client_socket, {'type': PONG, 't': msg.get('t', 0)})
             return
 
@@ -283,7 +306,6 @@ class ChatServer(AuthMixin):
             return
 
         state = client_info['state']
-        msg_type = msg.get('type', 'command')
         text = msg.get('text', '').strip()
 
         if msg_type == AUTH_CANCEL and state in (
@@ -395,12 +417,30 @@ class ChatServer(AuthMixin):
         except Exception:
             logger.exception("build_status_message 异常")
 
+    def _handle_remote_session(self, client_socket, msg: dict) -> None:
+        """开关网页手柄的公网中转会话（仅已登录玩家）。"""
+        with self.lock:
+            info = self.clients.get(client_socket)
+        if not info or info.get('state') != 'playing':
+            return
+        if msg.get('action') == 'open':
+            token = self.remote_relay.open_session(client_socket)
+            self.send_to(client_socket, {
+                'type': REMOTE_SESSION_OPENED,
+                'token': token,
+            })
+            logger.info("%s 开通网页手柄中转", info.get('name'))
+        else:
+            self.remote_relay.close_session(client_socket)
+
     def remove_client(self, client_socket):
         name = None
         info = None
         should_broadcast = False
         room_notifications = None
         send_lock = None
+
+        self.remote_relay.close_session(client_socket)
 
         lobby_lock = getattr(self.lobby_engine, '_lock', None)
         with lobby_lock if lobby_lock is not None else nullcontext():
@@ -474,6 +514,7 @@ class ChatServer(AuthMixin):
     def graceful_stop(self):
         """优雅关闭：保存所有在线玩家数据，刷盘日志，关闭连接"""
         self.running = False
+        self.remote_relay.shutdown()
         with self.lock:
             snapshot = [
                 (cs, info, self._send_locks.get(cs))

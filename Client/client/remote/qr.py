@@ -1,7 +1,9 @@
 """把 URL 渲染成终端可扫描的二维码文本（半块字符）。
 
 用 ``qrcode`` 库生成模块矩阵，再用上半块 / 下半块字符把纵向高度压缩一半。
-配合白底黑字的显示区域（CSS ``background: #ffffff; color: #000000``）即可扫描。
+深色模块用字符、浅色模块用空格，因此必须显示在实心浅底上（见 ``theme.tcss``
+的 ``#remote-qr``）。尺寸按 ``http://<ipv4>:<port>``（≤ 28 字符）预算为
+29 列 × 15 行，``RemotePanel`` 的二维码区域必须留出四周白边。
 """
 
 from __future__ import annotations

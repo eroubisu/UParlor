@@ -27,9 +27,11 @@ def dispatch_server_message(app, screen, raw: dict) -> None:
     Widget 通过 State listener 自动收到通知并渲染。
     只有少数不经过 State 的 UI 操作（如布局、位置指示器）仍直接操作 screen。
     """
-    # 版本检查 — 连接后服务器下发最新客户端版本号
+    # 版本检查 — 连接后服务器下发最新客户端版本号与中转能力
     if raw.get('type') == 'client_version':
-        handle_version_check(app, screen, raw.get('latest', ''))
+        handle_version_check(
+            app, screen, raw.get('latest', ''), bool(raw.get('relay')),
+        )
         return
 
     parsed = parse_server_message(raw)

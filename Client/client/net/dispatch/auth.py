@@ -27,8 +27,11 @@ def _on_auth_conflict(parsed, _app, screen, st):
     st.auth.show_conflict(parsed.text, parsed.choices)
 
 
-def handle_version_check(app, screen, latest: str):
-    """服务器下发最新客户端版本号，与本地对比"""
+def handle_version_check(app, screen, latest: str, relay: bool = False):
+    """服务器下发最新客户端版本号与能力开关，与本地对比"""
+    app.remote.set_relay_available(relay)
+    if relay and app.remote.state != app.remote.STATE_OFF:
+        app.request_remote_relay()
     if not latest:
         return
     try:

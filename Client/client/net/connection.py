@@ -31,6 +31,7 @@ class NetworkManager:
     def __init__(self, port):
         self.socket = None
         self.port = port
+        self.host = ""
         self.connected = False
         self.on_send_failure = None  # callback()
         self._send_lock = threading.Lock()
@@ -44,7 +45,10 @@ class NetworkManager:
         _enable_keepalive(sock)
         with self._send_lock:
             self.socket = sock
+            self.host = host
             self.connected = True
+        # 问候包：服务器据此立刻判定这是游戏连接（而不是浏览器）
+        self.send({'type': 'ping', 't': 0})
         return True
 
     def disconnect(self):

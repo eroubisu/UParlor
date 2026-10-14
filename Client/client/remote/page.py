@@ -283,7 +283,7 @@ INDEX_HTML = """<!DOCTYPE html>
       body: body ? JSON.stringify(body) : null
     }).catch(function () {});
   }
-  function sendKey(k) { post("/key", { key: k }); }
+  function sendKey(k) { post("key", { key: k }); }
 
   function pressDir(key) {
     if (shiftHold) spaceUsed = true;
@@ -314,7 +314,7 @@ INDEX_HTML = """<!DOCTYPE html>
   }
 
   async function submitText() {
-    await post("/text", { text: textInput.value, submit: true });
+    await post("text", { text: textInput.value, submit: true });
     if (stickyText) {
       textInput.value = "";
       textInput.focus();
@@ -379,7 +379,7 @@ INDEX_HTML = """<!DOCTYPE html>
   });
 
   document.getElementById("confirm-btn").addEventListener("click", async function () {
-    await post("/confirm");
+    await post("confirm");
     poll();
   });
 
@@ -401,7 +401,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
   async function poll() {
     try {
-      var res = await fetch("/status");
+      var res = await fetch("status");
       var s = await res.json();
       if (s.state === "connected") {
         document.getElementById("pairing").classList.remove("show");

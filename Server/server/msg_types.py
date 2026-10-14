@@ -53,3 +53,9 @@ PROFILE_CARD = 'profile_card'
 GAME_QUIT = 'game_quit'
 CLIENT_VERSION = 'client_version'
 PONG = 'pong'
+
+# ── 网页手柄中转 ──
+REMOTE_SESSION = 'remote_session'
+REMOTE_SESSION_OPENED = 'remote_session_opened'
+REMOTE_HTTP = 'remote_http'
+REMOTE_HTTP_RESPONSE = 'remote_http_response'

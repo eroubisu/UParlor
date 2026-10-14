@@ -105,8 +105,8 @@ class RemoteWindow(Window):
     DEFAULT_CSS = f"""
     RemoteWindow {{
         layer: floating;
-        width: 58;
-        height: 18;
+        width: 66;
+        height: 21;
     }}
     RemoteWindow > #remote-panel {{
         width: 1fr;
@@ -121,11 +121,9 @@ class RemoteWindow(Window):
         height: 1fr;
     }}
     RemotePanel #remote-qr {{
-        width: 32;
-        height: 1fr;
-        background: #ffffff;
-        color: #000000;
-        padding: 0 1;
+        width: 33;
+        height: 17;
+        padding: 1 2;
     }}
     RemotePanel #remote-details {{
         width: 1fr;
