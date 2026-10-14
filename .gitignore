@@ -37,6 +37,11 @@ Server/scripts/deploy.py
 *.swp
 *~
 
+# 本地专用（只在本机保留，不进入仓库）
+/archive/
+/tests/
+/docs/
+/temp/
+
 # 存档
-archive/
 game_archive/

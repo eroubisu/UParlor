@@ -25,12 +25,6 @@ REQUIRED_FILES = (
     "tools/impact.py",
     "tools/quality_audit.py",
     "tools/repo_policy.py",
-    "docs/quality/README.md",
-    "docs/quality/quality-baseline.json",
-    "docs/design/game-design-principles.md",
-    "docs/testing/README.md",
-    "docs/testing/07-release-checklist.md",
-    "docs/architecture/extension-contracts.md",
 )
 FORBIDDEN_ROOT_PATHS = ("temp",)
 FORBIDDEN_TRACKED_PARTS = {
@@ -78,6 +72,16 @@ def _repository_files() -> list[Path]:
     return _git_files("--cached", "--others", "--exclude-standard")
 
 
+def _is_ignored(relative: str) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", relative],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def _check_required_files(
     errors: list[str],
     tracked: set[Path],
@@ -93,8 +97,9 @@ def _check_required_files(
 
 def _check_forbidden_root_paths(errors: list[str]) -> None:
     for relative in FORBIDDEN_ROOT_PATHS:
-        if (ROOT / relative).exists():
-            errors.append(f"temporary root path must be removed: {relative}")
+        if (ROOT / relative).exists() and not _is_ignored(relative):
+            errors.append(
+                f"temporary root path must be git-ignored: {relative}")
 
 
 def _check_tracked_files(errors: list[str], tracked: set[Path]) -> None:

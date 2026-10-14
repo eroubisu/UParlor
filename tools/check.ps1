@@ -16,6 +16,13 @@ $env:PYTHONPATH = @(
     (Join-Path $root "Server")
 ) -join $separator
 
+# tests/ 只在本机保留（不进入仓库），CI 检出中不存在时跳过。
+$sourceDirs = @("Client\client", "Server\server", "tools")
+$hasTests = Test-Path (Join-Path $root "tests")
+if ($hasTests) {
+    $sourceDirs += "tests"
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory)]
@@ -38,14 +45,14 @@ Invoke-Checked "Repository policy" {
     & $python @policyArgs
 }
 Invoke-Checked "Python syntax" {
-    & $python -m compileall -q Client\client Server\server tests tools
+    & $python -m compileall -q @sourceDirs
 }
 Invoke-Checked "Ruff name and dead-local safety" {
-    & $python -m ruff check Client\client Server\server tests tools `
+    & $python -m ruff check @sourceDirs `
         --select F821,F822,F823,F841 `
         --output-format concise
 }
-if (-not $SkipTests) {
+if (-not $SkipTests -and $hasTests) {
     Invoke-Checked "Pytest" { & $python -m pytest -q }
 }
 
