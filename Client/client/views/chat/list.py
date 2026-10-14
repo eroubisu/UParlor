@@ -8,7 +8,7 @@ from textual.message import Message
 from textual.widgets import Static
 from rich.markup import escape
 
-from ...config import COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_HINT_TAB_DIM, ICON_INDENT
+from ...config import COLOR_FG_PRIMARY, COLOR_HINT_TAB_DIM
 from ...widgets.panel import Panel
 from ...window_engine import Divider, Option
 

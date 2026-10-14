@@ -9,7 +9,7 @@ from textual.containers import VerticalScroll
 from rich.markup import escape
 
 from ...widgets.panel import Panel
-from ...config import M_DIM, M_END, COLOR_FG_SECONDARY, ICON_INDENT
+from ...config import M_DIM, M_END, ICON_INDENT
 from ...window_engine import Option, SurfaceState
 
 

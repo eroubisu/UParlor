@@ -10,7 +10,7 @@ GameScreen — 主屏幕
 from __future__ import annotations
 
 from textual.screen import Screen
-from textual.widgets import Static, Input
+from textual.widgets import Static
 from textual.containers import Horizontal
 from textual.app import ComposeResult
 from textual.reactive import reactive
@@ -20,8 +20,7 @@ from .state import ModuleStateManager
 # 触发所有窗口模块导入 → register_window() 自动注册窗口。
 # screen.py 不再直接引用任何 Window 类。
 from . import views as _views  # noqa: F401  (import-as-side-effect)
-from .views.system.tutorial import TutorialPanel, _TOTAL as _TUT_TOTAL
-from .widgets.panel import PlayerSelected
+from .views.system.tutorial import _TOTAL as _TUT_TOTAL
 from .input_actions import (
     focus_direction, is_exit_key, is_popup_key, navigation_action,
     text_input_mode,
@@ -54,7 +53,6 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
     def __init__(self, **kw):
         super().__init__(**kw)
         self.logged_in = False
-        self.current_location = "lobby"
         self.state = ModuleStateManager()
         self.state.cmd.add_listener(self._on_cmd_for_remote)
         from .companion import CompanionController
@@ -232,7 +230,6 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         controls.update_commands(tabs)
 
     def _update_location(self, location: str, location_path: str | None = None):
-        self.current_location = location
         self.state.status.update_location(location)
         display = location_path or location
         icon = NF_SWORD if '#' in location else NF_HOME

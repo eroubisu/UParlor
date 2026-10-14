@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...config import M_BOLD, M_DIM, M_END, M_MUTED
+from ...config import M_BOLD, M_DIM, M_END
 from ...widgets.panel import Panel
 
 

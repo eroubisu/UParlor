@@ -40,13 +40,6 @@ def _save_history(char_id: str, entries: list[dict]):
     _cache[char_id] = trimmed
 
 
-def invalidate_cache():
-    """角色切换时清除缓存"""
-    global _cache_id
-    _cache.clear()
-    _cache_id = ""
-
-
 def _tokenize(text: str) -> list[str]:
     return re.findall(r'[a-zA-Z]{2,}|[\u4e00-\u9fff]', text.lower())
 

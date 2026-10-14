@@ -49,7 +49,7 @@ Invoke-Checked "Python syntax" {
 }
 Invoke-Checked "Ruff name and dead-local safety" {
     & $python -m ruff check @sourceDirs `
-        --select F821,F822,F823,F841 `
+        --select F401,F821,F822,F823,F841 `
         --output-format concise
 }
 if (-not $SkipTests -and $hasTests) {

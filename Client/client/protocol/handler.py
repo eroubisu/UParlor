@@ -54,7 +54,6 @@ class GameClientHandler(Protocol):
     - on_nav_cancel(ctx) — 取消导航（Esc）
     - on_room_update(room_data, ctx) — 房间数据更新时调用
     - companion_events(previous, current, player) — 声明本游戏的重要事件
-    - get_input_prefix(room_data) -> str — 输入框前缀
     """
 
     game_type: str

@@ -17,16 +17,8 @@ the recommended extensions appear when the workspace opens.
 ## Workflow
 
 The canonical human/AI workflow is [WORKFLOW.md](WORKFLOW.md). Keep this file focused on technical
-contribution details and do not duplicate the operating procedure here.
-
-## Definition of done
-
-- The exact requested outcome is demonstrably present.
-- State, registration, message, locking, and character contracts remain intact.
-- No duplicate implementation, dead definition, unexplained broad catch, or stale dependency was added.
-- Automated checks pass on supported Python versions.
-- Relevant manual cases pass with safe evidence.
-- Documentation and dependency declarations match runtime behavior.
+contribution details and do not duplicate the operating procedure here. The review checklist lives in
+the pull request template.
 
 ## Dependencies
 

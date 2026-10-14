@@ -88,8 +88,6 @@ class UParlorApp(App):
         self.network.on_send_failure = self._on_send_failure
         self.player_data: dict = {}
         self._pending_messages: list[dict] = []
-        self._current_channel = 1
-        self._saved_layout: dict | None = None
         self._ping_sent_at: float = 0.0
         self.remote = RemoteController()
         self.remote.on_key = self._remote_inject_key
@@ -248,13 +246,6 @@ class UParlorApp(App):
 
     def send_command(self, text: str):
         self.network.send({"type": "command", "text": text})
-
-    def send_chat(self, text: str, channel: int):
-        self.network.send({"type": "chat", "text": text, "channel": channel})
-
-    def switch_channel(self, channel_id: int):
-        self._current_channel = channel_id
-        self.network.send({"type": "switch_channel", "channel": channel_id})
 
     # ── 退出 ──
 

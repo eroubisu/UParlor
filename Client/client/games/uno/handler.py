@@ -42,9 +42,6 @@ class UnoHandler:
                 if winner == player else "UNO 对局结束")
         return events
 
-    def get_input_prefix(self, location: str) -> str | None:
-        return None
-
     def _snapshot(self, ctx: GameHandlerContext) -> dict:
         return (
             ctx.state.game_interaction.snapshot(self.game_type)

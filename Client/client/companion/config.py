@@ -44,10 +44,6 @@ def set_current_player(name: str):
     _current_player = (name or "").strip()
 
 
-def get_current_player() -> str:
-    return _current_player
-
-
 def player_dir(name: str | None = None) -> Path:
     n = (name or _current_player).strip()
     if not n:
@@ -58,16 +54,24 @@ def player_dir(name: str | None = None) -> Path:
 
 # ── 全局配置 (跨玩家共享) ──
 
+_PROVIDER_DEFAULTS = {
+    "gemini": {"api_key": "", "model": "gemini-2.5-flash"},
+    "deepseek": {"api_key": "", "model": ""},
+}
+
 _DEFAULT_GLOBAL = {
     "provider": "gemini",
     "api_key": "",
     "base_url": "",
     "model": "gemini-2.5-flash",
+    "providers": _PROVIDER_DEFAULTS,
 }
 
 
-def ensure_dir():
-    COMPANION_DIR.mkdir(parents=True, exist_ok=True)
+def _default_global_config() -> dict:
+    config = dict(_DEFAULT_GLOBAL)
+    config["providers"] = _normalize_provider_configs(None)
+    return config
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -95,11 +99,11 @@ def _atomic_write(path: Path, text: str) -> None:
 def load_global_config() -> dict:
     path = COMPANION_DIR / "config.json"
     if not path.exists():
-        return dict(_DEFAULT_GLOBAL)
+        return _default_global_config()
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        merged = dict(_DEFAULT_GLOBAL)
+        merged = _default_global_config()
         merged.update(data)
         provider = merged.get("provider")
         if provider == "google":
@@ -113,13 +117,28 @@ def load_global_config() -> dict:
         if provider not in ("gemini", "deepseek"):
             merged.update({"api_key": "", "model": ""})
             provider = "gemini"
+            data = {
+                "api_key": "",
+                "model": "",
+                "providers": {
+                    "gemini": {"api_key": "", "model": ""},
+                },
+            }
+        providers = _normalize_provider_configs(data.get("providers"))
+        if data:
+            providers[provider] = {
+                "api_key": str(data.get("api_key", "")),
+                "model": str(data.get("model", "")),
+            }
         merged["provider"] = provider
+        merged["providers"] = providers
+        merged.update(providers[provider])
         merged["base_url"] = (
             DEEPSEEK_BASE_URL if provider == "deepseek" else "")
         return merged
     except (OSError, json.JSONDecodeError, TypeError):
         _log.warning("Failed to load companion global config", exc_info=True)
-        return dict(_DEFAULT_GLOBAL)
+        return _default_global_config()
 
 
 def save_global_config(data: dict):
@@ -127,12 +146,44 @@ def save_global_config(data: dict):
     if provider not in ("gemini", "deepseek"):
         raise ValueError(f"Unsupported companion provider: {provider!r}")
     data = dict(data)
+    providers = _normalize_provider_configs(data.get("providers"))
+    providers[provider] = {
+        "api_key": str(data.get("api_key", "")),
+        "model": str(data.get("model", "")),
+    }
+    data["providers"] = providers
     data["base_url"] = (
         DEEPSEEK_BASE_URL if provider == "deepseek" else "")
     _atomic_write(
         COMPANION_DIR / "config.json",
         json.dumps(data, ensure_ascii=False, indent=2),
     )
+
+
+def _normalize_provider_configs(value) -> dict[str, dict[str, str]]:
+    source = value if isinstance(value, dict) else {}
+    normalized = {}
+    for provider, defaults in _PROVIDER_DEFAULTS.items():
+        item = source.get(provider)
+        if not isinstance(item, dict):
+            item = {}
+        normalized[provider] = {
+            "api_key": str(item.get("api_key", defaults["api_key"])),
+            "model": str(item.get("model", defaults["model"])),
+        }
+    return normalized
+
+
+def provider_config(config: dict, provider: str) -> dict[str, str]:
+    if provider not in _PROVIDER_DEFAULTS:
+        raise ValueError(f"Unsupported companion provider: {provider!r}")
+    providers = _normalize_provider_configs(config.get("providers"))
+    if config.get("provider") == provider:
+        providers[provider] = {
+            "api_key": str(config.get("api_key", "")),
+            "model": str(config.get("model", "")),
+        }
+    return providers[provider]
 
 
 # ── 玩家级偏好 ──

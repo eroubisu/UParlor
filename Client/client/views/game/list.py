@@ -5,10 +5,6 @@ from __future__ import annotations
 from textual.message import Message
 from rich.markup import escape
 
-from ...config import (
-    COLOR_FG_PRIMARY, COLOR_HINT_TAB_DIM, ICON_INDENT,
-    M_DIM, M_END,
-)
 from ...widgets.panel import Panel
 from ...protocol.renderer import get_renderer
 from ...window_engine import Option, SurfaceState

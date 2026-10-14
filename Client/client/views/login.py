@@ -13,10 +13,7 @@ from ..window_engine import InputSpec, Option
 from ..window_engine import WindowSpec, register_window
 from ..window_specs import bind_state
 from ..config import (
-    M_CMD, M_END,
     NF_KEY, NF_USERS, NF_GEAR,
-    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
-    DEFAULT_HOST,
 )
 
 # Login exposes only the guide needed before entering the application.

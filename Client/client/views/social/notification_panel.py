@@ -6,9 +6,7 @@ import time
 from rich.markup import escape
 
 from ...config import (
-    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_HINT_TAB_DIM, ICON_INDENT,
-    NF_CHECK, NF_CROSS, NF_BELL, NF_HEART, NF_SWORD,
-    M_DIM, M_END,
+    COLOR_FG_TERTIARY, COLOR_HINT_TAB_DIM, NF_CHECK, NF_CROSS, NF_BELL, NF_HEART, NF_SWORD,
 )
 from ...widgets.panel import Panel
 from ...window_engine import Option, SurfaceState

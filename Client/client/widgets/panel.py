@@ -389,14 +389,17 @@ class Panel(Widget):
         self.update(state.render(ICON_INDENT), tab=tab)
 
     def scroll_to_line(self, line: int, tab: int | None = None, margin: int = 3) -> None:
-        """滚动使指定行可见（0-indexed），下方保留 margin 行裕度"""
+        """滚动使指定行可见（0-indexed），上下保留相同裕度。"""
         tab = self._active if tab is None else tab
         vs = self.query_one(f"#t{tab}", VerticalScroll)
         top = vs.scroll_offset.y
         height = vs.size.height
-        if line < top:
+        if line - margin < top:
             vs.scroll_to(
-                y=line, animate=False, force=True, immediate=True,
+                y=max(line - margin, 0),
+                animate=False,
+                force=True,
+                immediate=True,
             )
         elif line + margin >= top + height:
             vs.scroll_to(

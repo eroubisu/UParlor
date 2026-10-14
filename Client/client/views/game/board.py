@@ -15,7 +15,7 @@ from textual.app import ComposeResult
 
 from ...config import M_DIM, M_END, COLOR_BORDER
 from ...widgets.panel import Panel, _widget_width, _widget_height
-from ...protocol.renderer import get_renderer, render_doc
+from ...protocol.renderer import get_renderer
 from ...protocol.handler import get_handler, GameHandlerContext
 from ...window_engine import Divider
 

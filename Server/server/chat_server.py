@@ -25,7 +25,7 @@ from .core.result_dispatcher import (
     inject_location_path as _inject_location_path_impl,
 )
 from .msg_types import (
-    ALL_USERS, AUTH_CANCEL, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
+    AUTH_CANCEL, CHAT_HISTORY, CLIENT_VERSION, DM_HISTORY, FRIEND_LIST, GAME,
     LOGIN_PROMPT, LOCATION_UPDATE, ONLINE_USERS, PONG,
 )
 

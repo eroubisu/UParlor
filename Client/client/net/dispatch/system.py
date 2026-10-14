@@ -27,9 +27,6 @@ def _on_status_update(parsed, app, screen, st):
         st.status.update_location(parsed.location)
     if parsed.location_path:
         st.status.update_location_path(parsed.location_path)
-    layout_data = parsed.data.get('window_layout')
-    if layout_data:
-        app._saved_layout = layout_data
     player_name = parsed.data.get('name', '')
     if player_name:
         st.chat.set_player_name(player_name)

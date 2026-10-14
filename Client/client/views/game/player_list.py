@@ -4,8 +4,7 @@ from __future__ import annotations
 from rich.markup import escape
 
 from ...config import (
-    COLOR_FG_PRIMARY, COLOR_HINT_TAB_DIM, ICON_INDENT,
-    M_DIM, M_END, NF_OFFLINE, NF_ONLINE,
+    NF_OFFLINE, NF_ONLINE,
 )
 from ...widgets.panel import Panel, PlayerSelected
 from ...window_engine import Option, SurfaceState

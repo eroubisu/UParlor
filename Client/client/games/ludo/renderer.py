@@ -188,9 +188,6 @@ class Board:
             [Cell() for _ in range(cols)] for _ in range(rows)
         ]
 
-    def at(self, y: int, x: int) -> Cell:
-        return self._cells[y][x]
-
     def set(self, y: int, x: int, text: str, fg: str = '#000000',
             bg=_KEEP_BG, bold: bool = False) -> None:
         if cell_width(text) != 2:
@@ -468,7 +465,6 @@ class LudoRenderer:
         NF_CARET_D, NF_CARET_U, NF_CROSS, NF_DIAMOND, NF_FLAG, NF_OFFLINE,
         NF_ONLINE, NF_PLANE, NF_STAR, NF_TROPHY,
     })
-    no_scroll = True
     doc_commands = _DOC_COMMANDS
 
     def render_doc(self, text: str) -> RenderableType:

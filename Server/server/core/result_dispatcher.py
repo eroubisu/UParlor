@@ -6,7 +6,7 @@ from typing import Callable
 from ..player.manager import PlayerManager
 from ..handlers.friends import send_friend_request
 from ..msg_types import (
-    ACTION, CHAT, CHAT_HISTORY, FRIEND_REQUEST, GAME, GAME_EVENT, GAME_INVITE,
+    ACTION, CHAT, CHAT_HISTORY, GAME, GAME_EVENT, GAME_INVITE,
     GAME_QUIT, LOGIN_PROMPT, LOGIN_SUCCESS, LOCATION_UPDATE, COMMANDS_UPDATE,
     ONLINE_USERS, ROOM_LIST, ROOM_UPDATE, ROOM_LEAVE, STATUS, SYSTEM,
 )

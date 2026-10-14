@@ -21,16 +21,23 @@ widgets from claiming them.
 
 from __future__ import annotations
 
+import logging
 from bisect import bisect_left, bisect_right
 from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence, cast
 
-from textual.geometry import Region
-from textual.strip import Strip
-
 if TYPE_CHECKING:
     from textual._compositor import Compositor
+    from textual.geometry import Region
+    from textual.strip import Strip
 
-_PLACEHOLDER = Strip([], 0)
+_log = logging.getLogger(__name__)
+
+# 该补丁按下列 Textual 内部接口验证。接口变化时只记录告警，不改动 Textual 内部实现。
+_VERIFIED_TEXTUAL = "8.1.1"
+
+_Region = None
+_Strip = None
+_PLACEHOLDER = None
 
 
 def _patched_render_chops(
@@ -46,7 +53,7 @@ def _patched_render_chops(
     cut_strips: Iterable[Strip]
 
     renders = self._get_renders(crop)
-    intersection = Region.intersection
+    intersection = _Region.intersection
 
     _bisect_left = bisect_left
     _bisect_right = bisect_right
@@ -96,8 +103,56 @@ def _patched_render_chops(
     return cast("Sequence[Mapping[int, Strip]]", chops)
 
 
-def apply() -> None:
-    """Apply the CJK rendering fix.  Call once before TUI startup."""
-    from textual._compositor import Compositor
+def apply() -> bool:
+    """Install the CJK fix when the installed Textual matches the verified internals.
 
+    Returns True when the compositor was patched. An incompatible Textual is left
+    untouched and reported through the log instead of breaking rendering.
+    """
+    global _Region, _Strip, _PLACEHOLDER
+    try:
+        import textual
+        from textual._compositor import Compositor
+        from textual.geometry import Region
+        from textual.strip import Strip
+    except ImportError:
+        _log.warning(
+            "CJK patch skipped: Textual compositor internals unavailable",
+            exc_info=True,
+        )
+        return False
+
+    missing = [
+        name
+        for name, available in (
+            ("Compositor._render_chops", hasattr(Compositor, "_render_chops")),
+            ("Compositor._get_renders", hasattr(Compositor, "_get_renders")),
+            ("Region.intersection", hasattr(Region, "intersection")),
+            ("Strip.divide", hasattr(Strip, "divide")),
+        )
+        if not available
+    ]
+    if missing:
+        _log.warning(
+            "CJK patch skipped on Textual %s (verified %s); missing %s",
+            getattr(textual, "__version__", "unknown"),
+            _VERIFIED_TEXTUAL,
+            ", ".join(missing),
+        )
+        return False
+
+    try:
+        placeholder = Strip([], 0)
+    except (TypeError, ValueError):
+        _log.warning(
+            "CJK patch skipped: Strip signature differs from Textual %s",
+            _VERIFIED_TEXTUAL,
+            exc_info=True,
+        )
+        return False
+
+    _Region = Region
+    _Strip = Strip
+    _PLACEHOLDER = placeholder
     Compositor._render_chops = _patched_render_chops  # type: ignore[assignment]
+    return True

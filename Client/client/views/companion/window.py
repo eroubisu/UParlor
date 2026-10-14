@@ -213,12 +213,15 @@ class CompanionPanel(Panel):
 
     def _render_chat(self) -> None:
         controller = self._controller
+        configured_provider = _configured_provider(cfg.load_global_config())
         self.border_subtitle = escape(self._selected_character_name())
-        if self._chat_lines:
+        if not controller or not controller.player:
+            text = "尚未登录。"
+        elif self._draft_provider != configured_provider:
+            text = "AI 服务变更尚未保存。请在“设置”中保存并验证。"
+        elif self._chat_lines:
             self._flush_chat()
             return
-        elif not controller or not controller.player:
-            text = "尚未登录。"
         elif not controller.has_api_key() or not cfg.load_global_config().get("model"):
             text = "AI 服务未配置。请切换到“设置”标签完成配置。"
         elif not controller.has_character():
@@ -260,11 +263,13 @@ class CompanionPanel(Panel):
 
     def input_spec(self) -> InputSpec:
         controller = self._controller
+        configured_provider = _configured_provider(cfg.load_global_config())
         chat_ready = bool(
             self._active == 0
             and controller
             and controller.is_enabled()
             and controller.is_ready()
+            and self._draft_provider == configured_provider
         )
         editing_api = self._active == 1 and self._editing == "api_key"
         return InputSpec(
@@ -291,6 +296,7 @@ class CompanionPanel(Panel):
     def can_enter_insert(self) -> bool:
         """Report whether the shared input row is actionable."""
         controller = self._controller
+        configured_provider = _configured_provider(cfg.load_global_config())
         return bool(
             self._editing
             or (
@@ -304,6 +310,7 @@ class CompanionPanel(Panel):
                 and controller
                 and controller.is_enabled()
                 and controller.is_ready()
+                and self._draft_provider == configured_provider
             )
         )
 
@@ -321,16 +328,15 @@ class CompanionPanel(Panel):
     def _settings_rows(self) -> list[tuple[str, str]]:
         global_config = cfg.load_global_config()
         player_config = cfg.load_player_config()
-        saved_provider = _configured_provider(global_config)
-        key = self._pending_key or global_config.get("api_key", "")
+        provider_config = cfg.provider_config(
+            global_config, self._draft_provider,
+        )
+        key = self._pending_key or provider_config["api_key"]
         if self._pending_key:
             key_label = "待验证"
-        elif self._draft_provider != saved_provider:
-            key_label = "需重新输入"
         else:
             key_label = _mask_key(key)
-        model = global_config.get("model", "") if (
-            self._draft_provider == saved_provider) else ""
+        model = provider_config["model"]
         character = self._selected_character_name() or "未选择"
         enabled = "开" if player_config.get("enabled", False) else "关"
         proactive = (
@@ -408,7 +414,11 @@ class CompanionPanel(Panel):
             (Option(value, label) for value, label in items),
             f"companion-settings:{self._settings_menu}",
         )
-        self.query_one("#t1 .content", Static).update(self.render_options())
+        self.update(
+            self.render_options(),
+            tab=1,
+            focus_line=self.selected_line(),
+        )
 
     def _settings_nav(self, action: str) -> None:
         if self._settings_menu:
@@ -480,7 +490,14 @@ class CompanionPanel(Panel):
                 self._pending_key = ""
                 self._models = []
                 self._api_revision += 1
-                self._status = "服务已切换；请输入对应 API Key。"
+                saved = cfg.provider_config(
+                    cfg.load_global_config(), self._draft_provider,
+                )
+                self._status = (
+                    "已载入该服务的 API Key；请保存并验证。"
+                    if saved["api_key"]
+                    else "服务已切换；请输入对应 API Key。"
+                )
             self._settings_menu = ""
             self._render_settings()
         elif self._settings_menu == "model":
@@ -579,10 +596,11 @@ class CompanionPanel(Panel):
         if controller is None:
             return
         saved = cfg.load_global_config()
-        saved_provider = _configured_provider(saved)
         key = self._pending_key
-        if not key and self._draft_provider == saved_provider:
-            key = saved.get("api_key", "")
+        if not key:
+            key = cfg.provider_config(
+                saved, self._draft_provider,
+            )["api_key"]
         if not key:
             self._status = "请先输入 API Key。"
             self._render_settings()
@@ -631,10 +649,11 @@ class CompanionPanel(Panel):
         if controller is None:
             return
         old_config = cfg.load_global_config()
-        old_provider = _configured_provider(old_config)
-        old_model = old_config.get("model", "")
+        old_model = cfg.provider_config(
+            old_config, provider_name,
+        )["model"]
         names = {model["name"] for model in models}
-        model = old_model if old_provider == provider_name and old_model in names else ""
+        model = old_model if old_model in names else ""
         controller.apply_api_config(provider_name, key, model)
         self._pending_key = ""
         self._models = models
@@ -701,15 +720,16 @@ class CompanionPanel(Panel):
             return
         self.post_message(self.OpenCreation())
 
-    def _append_user(self, text: str) -> None:
+    def _append_user(self, text: str, *, flush: bool = True) -> None:
         self._chat_lines.append(text)
         self._chat_meta.append((
             "user", datetime.now().strftime("%H:%M:%S"), "",
         ))
-        self._flush_chat()
+        if flush:
+            self._flush_chat()
 
     def _enqueue_chat(self, text: str) -> None:
-        self._append_user(text)
+        self._append_user(text, flush=False)
         slot = len(self._chat_lines)
         self._chat_lines.append("")
         self._chat_meta.append((

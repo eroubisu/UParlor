@@ -132,13 +132,6 @@ class AIProvider(ABC):
                        max_tokens: int, temperature: float) -> tuple[str, int]:
         """非流式生成，返回 (文本, token用量)"""
 
-    @abstractmethod
-    async def stream(self, messages: list[dict], *, model: str,
-                     max_tokens: int, temperature: float,
-                     tools: list[dict] | None = None,
-                     ) -> AsyncIterator[str | ToolCall]:
-        """流式生成，yield 文本块或 ToolCall。最后一个 yield 可能是 int (token用量)。"""
-        yield  # type: ignore
 
     @abstractmethod
     async def validate_key(self, api_key: str, **kwargs) -> tuple[bool, str]:
@@ -184,36 +177,6 @@ class GoogleProvider(AIProvider):
         tokens = usage.total_token_count if usage and usage.total_token_count else 0
         return (resp.text or ""), tokens
 
-    async def stream(self, messages: list[dict], *, model: str,
-                     max_tokens: int, temperature: float,
-                     tools: list[dict] | None = None,
-                     ) -> AsyncIterator[str | ToolCall]:
-        from google.genai import types
-        system, contents = _to_gemini_contents(messages)
-        gemini_tools = _to_gemini_tools(tools) if tools else None
-        config = types.GenerateContentConfig(
-            system_instruction=system or None,
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-            tools=gemini_tools,
-        )
-        response = await self._client.aio.models.generate_content_stream(
-            model=model, contents=contents, config=config,
-        )
-        last_usage = 0
-        async for chunk in response:
-            usage = chunk.usage_metadata
-            if usage and usage.total_token_count:
-                last_usage = usage.total_token_count
-            if not chunk.candidates:
-                continue
-            for part in chunk.candidates[0].content.parts or []:
-                if part.text:
-                    yield part.text
-                elif part.function_call:
-                    yield ToolCall(part.function_call.name, dict(part.function_call.args or {}))
-        if last_usage:
-            yield last_usage  # type: ignore
 
     async def stream_with_tools(
         self, messages: list[dict], *, model: str,
@@ -349,47 +312,6 @@ class OpenAIProvider(AIProvider):
         tokens = resp.usage.total_tokens if resp.usage else 0
         return text, tokens
 
-    async def stream(self, messages: list[dict], *, model: str,
-                     max_tokens: int, temperature: float,
-                     tools: list[dict] | None = None,
-                     ) -> AsyncIterator[str | ToolCall]:
-        oai_messages = _to_openai_messages(messages)
-        kwargs: dict[str, Any] = dict(
-            model=model, messages=oai_messages,
-            max_tokens=max_tokens, temperature=temperature,
-            stream=True, stream_options={"include_usage": True},
-        )
-        if tools:
-            kwargs["tools"] = _to_openai_tools(tools)
-        response = await self._client.chat.completions.create(**kwargs)
-        # 累积 tool_call 片段
-        pending_tc: dict[int, dict] = {}  # index → {name, args_buf}
-        async for chunk in response:
-            if chunk.usage and chunk.usage.total_tokens:
-                yield chunk.usage.total_tokens  # type: ignore
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in pending_tc:
-                        pending_tc[idx] = {"name": "", "args_buf": ""}
-                    if tc.function and tc.function.name:
-                        pending_tc[idx]["name"] = tc.function.name
-                    if tc.function and tc.function.arguments:
-                        pending_tc[idx]["args_buf"] += tc.function.arguments
-        # yield 完整的 tool calls
-        for info in pending_tc.values():
-            args = {}
-            if info["args_buf"]:
-                try:
-                    args = json.loads(info["args_buf"])
-                except Exception:
-                    pass
-            yield ToolCall(info["name"], args)
 
     async def stream_with_tools(
         self, messages: list[dict], *, model: str,

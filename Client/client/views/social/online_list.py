@@ -6,7 +6,6 @@ from textual.widgets import Input
 from rich.markup import escape
 
 from ...config import (
-    ICON_INDENT,
     NF_ONLINE, NF_OFFLINE, COLOR_ONLINE, COLOR_OFFLINE,
 )
 from ...widgets.panel import Panel, PlayerSelected

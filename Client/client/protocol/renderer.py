@@ -45,8 +45,6 @@ class GameRenderer(Protocol):
     空分区传 None。
 
     可选属性（用 getattr 读取）：
-    - no_scroll: bool — 禁用滚动条（内容始终匹配视口）
-    - server_viewport: bool — 渲染依赖服务端视口数据，resize 后等新数据
     - scroll_hint: int — 建议滚动到的行号（board 区内，-1=不滚动）
 
     每个游戏必须声明：
