@@ -355,9 +355,12 @@ class Board:
 
     def _capture_runway_at(self, runway_color: str, runway_pos: int,
                            my_color: str) -> list[Piece]:
-        """吃掉指定终点跑道某格上的非己方棋子（用于 JP 飞行掠过跑道）。"""
+        """吃掉指定终点跑道某格上的非己方棋子（用于 JP 飞行掠过跑道）。
+
+        飞行会掠过全部 4 条跑道，其中可能包含本局未参战的颜色。
+        """
         captured = []
-        for p in self.pieces[runway_color]:
+        for p in self.pieces.get(runway_color, ()):
             if (p.color != my_color
                     and p.state == PieceState.RUNWAY
                     and p.runway_pos == runway_pos):
