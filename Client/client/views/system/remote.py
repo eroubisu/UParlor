@@ -18,6 +18,11 @@ from ...config import (
 )
 from ...remote.qr import render_qr
 
+# 二维码四周的白边（行, 列）：保证静默区不被窗口背景吃掉
+QR_MARGIN = (1, 2)
+# 右侧信息列的最小宽度（访问地址会折行显示）
+DETAILS_MIN_WIDTH = 31
+
 
 class RemotePanel(Panel):
     """左侧二维码 + 右侧地址/配对码/状态。"""
@@ -37,6 +42,10 @@ class RemotePanel(Panel):
                     yield Static("", id="remote-info", markup=True)
             yield Divider()
             yield Static("", id="remote-action", markup=True)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.qr_size: tuple[int, int] = (0, 0)
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -65,16 +74,30 @@ class RemotePanel(Panel):
         qr = self.query_one("#remote-qr", Static)
         info = self.query_one("#remote-info", Static)
         if remote is None or remote.state == "off":
+            self.qr_size = (0, 0)
             qr.update("")
+            qr.styles.width = 0
+            qr.styles.height = 0
             info.update(
                 f"{M_OFFLINE}{NF_CROSS} 连接已关闭{M_END}\n\n"
                 f"{M_DIM}请从设置中重新开启 iOS 连接。{M_END}"
             )
             self._redraw_action()
             return
-        qr.update(render_qr(remote.url))
+        text = render_qr(remote.url)
+        qr.update(text)
+        self.qr_size = self._qr_size(text)
+        # 尺寸跟着二维码走：中转地址比局域网地址长，二维码会更大，
+        # 固定尺寸会把它裁掉（静默区缺失后就扫不出来了）。
+        qr.styles.width = self.qr_size[0] + QR_MARGIN[1] * 2
+        qr.styles.height = self.qr_size[1] + QR_MARGIN[0] * 2
         info.update(self._render_info(remote))
         self._redraw_action()
+
+    @staticmethod
+    def _qr_size(text: str) -> tuple[int, int]:
+        lines = text.split("\n") if text else []
+        return max((len(line) for line in lines), default=0), len(lines)
 
     def _redraw_action(self) -> None:
         action = self.query_one("#remote-action", Static)
@@ -121,8 +144,8 @@ class RemoteWindow(Window):
         height: 1fr;
     }}
     RemotePanel #remote-qr {{
-        width: 33;
-        height: 17;
+        width: 37;
+        height: 19;
         padding: 1 2;
     }}
     RemotePanel #remote-details {{
@@ -155,9 +178,21 @@ class RemoteWindow(Window):
 
     def redraw(self) -> None:
         try:
-            self.query_one("#remote-panel", RemotePanel).redraw()
+            panel = self.query_one("#remote-panel", RemotePanel)
+            panel.redraw()
         except Exception:
-            pass
+            return
+        self._fit_to_qr(panel)
+
+    def _fit_to_qr(self, panel: RemotePanel) -> None:
+        """窗口跟着二维码尺寸走，保证静默区完整、二维码不被裁掉。"""
+        cols, rows = panel.qr_size
+        if not cols or not rows:
+            return
+        self.styles.width = (
+            cols + QR_MARGIN[1] * 2 + DETAILS_MIN_WIDTH + 2
+        )
+        self.styles.height = rows + QR_MARGIN[0] * 2 + 4
 
 
 register_window(RemoteWindow)

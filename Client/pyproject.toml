@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uparlor"
-version = "0.4.3"
+version = "0.4.4"
 description = "UParlor — 终端游戏厅 TUI 客户端"
 requires-python = ">=3.10"
 license = "MIT"
