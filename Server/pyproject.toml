@@ -14,7 +14,7 @@ dependencies = [
 uparlor-server = "server:main"
 
 [project.optional-dependencies]
-test = ["pytest>=9.1.1"]
+test = ["pytest>=9.2.0"]
 
 [tool.setuptools.packages.find]
 include = ["server*"]
