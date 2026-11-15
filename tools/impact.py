@@ -133,9 +133,13 @@ def _add_validation(path: str, impact: Impact) -> None:
     for game_id, handbook in (
         ("uno", "docs/testing/04-uno.md"),
         ("ludo", "docs/testing/05-ludo.md"),
+        ("baseball", "docs/testing/08-baseball.md"),
     ):
         if f"/games/{game_id}/" in path:
             impact.tests.add("tests/test_game_remediation.py")
+            per_game = ROOT / "tests" / f"test_{game_id}.py"
+            if per_game.is_file():
+                impact.tests.add(f"tests/test_{game_id}.py")
             impact.manuals.add(handbook)
     if path.endswith("/net/dispatch/game.py"):
         impact.tests.add("tests/test_game_remediation.py")

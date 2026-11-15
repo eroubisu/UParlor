@@ -91,6 +91,10 @@ register_game('uno', uno)
 
 from . import ludo
 register_game('ludo', ludo)
+
+from . import baseball
+register_game('baseball', baseball)
+
 # 游戏模块目录结构（JSON 文件均为可选，存在即自动注入）:
 #   games/chess/
 #       __init__.py        — GAME_INFO（id, name, icon, locations, create_engine）

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: windows-latest
+    runs-on: macos-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -31,11 +31,9 @@ jobs:
             Server/pyproject.toml
 
       - name: Install project
-        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".\Client[test]" -e ".\Server[test]"
+          python -m pip install -e "Client[test]" -e "Server[test]"
 
       - name: Run repository checks
-        shell: pwsh
-        run: .\tools\check.ps1 -RequireTracked
+        run: python tools/check.py --require-tracked

@@ -7,12 +7,13 @@ from rich.console import RenderableType
 
 from ...protocol.renderer import (
     GameStatusContent, make_status_table, register_renderer,
+    render_button_boxes,
 )
 from ...config import (
     NF_ARROW_D, NF_ARROW_U, NF_BAN, NF_EXCHANGE, NF_MOON, NF_OFFLINE,
     NF_ONLINE, NF_REPEAT, NF_CARDS, NF_STAR, NF_SUN, NF_WARNING,
 )
-from ...window_engine.text import cell_width, fit_cells
+from ...window_engine.text import fit_cells
 
 # ── 样式常量 ──
 
@@ -555,10 +556,7 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
                        active: bool, color_mode: bool,
                        has_selection: bool, my_turn: bool = True) -> None:
     """渲染操作按钮行（出牌按钮在无选中时置灰，非回合全部置灰）"""
-    if not buttons:
-        return
-    btn_styles = []
-
+    entries = []
     for i, btn in enumerate(buttons):
         label = btn.get('label', '?')
         cmd = btn.get('command', '')
@@ -580,30 +578,8 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
             style = 'bold #ffffff'
             b_style = f'bold {_BORDER_CURSOR}' if is_cursor else 'bold #a0a0a0'
 
-        btn_styles.append((label, style, b_style))
+        entries.append((label, style, b_style))
 
-    text.append('  ')
-    # 顶边
-    for label, style, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        text.append('╭' + '─' * w + '╮', style=b_style)
-        text.append(' ')
-    text.append('\n  ')
-
-    # 内容行
-    for label, style, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        padded = fit_cells(label, w, "center")
-        text.append('│', style=b_style)
-        text.append(padded, style=style)
-        text.append('│', style=b_style)
-        text.append(' ')
-    text.append('\n  ')
-
-    # 底边
-    for label, style, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        text.append('╰' + '─' * w + '╯', style=b_style)
-        text.append(' ')
+    render_button_boxes(text, entries)
 
 register_renderer(UnoRenderer())

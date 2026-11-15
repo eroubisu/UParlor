@@ -21,7 +21,7 @@ REQUIRED_FILES = (
     ".github/workflows/quality.yml",
     ".vscode/settings.json",
     ".vscode/tasks.json",
-    "tools/check.ps1",
+    "tools/check.py",
     "tools/impact.py",
     "tools/quality_audit.py",
     "tools/repo_policy.py",

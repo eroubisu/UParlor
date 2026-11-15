@@ -1,3 +1,2 @@
-# Shell 脚本必须用 LF 换行：它们会被上传到 Linux 主机直接执行，
-# 带 CR 的 shebang/set 行会让 bash 报 "invalid option name"。
-*.sh text eol=lf
+# 统一用 LF 换行，避免 Windows/macOS 之间出现整文件改动。
+* text=auto eol=lf

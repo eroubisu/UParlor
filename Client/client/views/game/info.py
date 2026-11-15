@@ -44,6 +44,9 @@ class RoomInfoPanel(Panel):
             f"人数    {count}/{max_p}" if max_p else f"人数    {count}",
             f"状态    {state}",
         ]
+        # 游戏自己的房间设置（如棒球的局数）：[[标签, 值], …]，没有就不写
+        lines.extend(f"{label}    {value}"
+                     for label, value in rd.get('summary', []))
         self.update("\n".join(lines))
 
     def reset_cursor(self) -> None:

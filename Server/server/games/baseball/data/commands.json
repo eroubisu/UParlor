@@ -1,0 +1,29 @@
+{
+    "baseball:lobby": [
+        {"name": "create", "label": "创建", "desc": "创建一个新房间（1v1）"},
+        {"name": "rooms",  "label": "房间", "desc": "查看当前房间列表"},
+        {"name": "accept", "label": "接受", "desc": "接受好友的游戏邀请"}
+    ],
+    "baseball:room": [
+        {"name": "start",    "label": "开始", "desc": "开始比赛（需 2 人）"},
+        {"name": "ready",    "label": "准备", "desc": "切换准备状态"},
+        {"name": "bot",      "label": "机器人", "desc": "添加机器人对手"},
+        {"name": "kick",     "label": "踢出", "desc": "踢出玩家"},
+        {"name": "dissolve", "label": "解散", "desc": "解散房间"},
+        {"name": "invite",   "label": "邀请", "desc": "邀请好友加入房间"},
+        {"name": "back",     "label": "退出", "desc": "退出房间"}
+    ],
+    "baseball:playing": [
+        {"name": "shift",   "label": "布阵",  "desc": "守备站位：标准/偏左/偏右/前压/退守"},
+        {"name": "pitch",   "label": "投球",  "desc": "球种 + 区域 + 力度 + 是否牵制跑者（垒上没人时无效果）"},
+        {"name": "release", "label": "投出",  "desc": "倒数完之后按下，把这一球投出去"},
+        {"name": "swing",   "label": "打击",  "desc": "预判球种 + 挥棒方式 + 盗垒（垒上没人时无效果）"},
+        {"name": "hit",     "label": "击球",  "desc": "球到了自己按，时机看按的那一下"},
+        {"name": "field",   "label": "移动",  "desc": "追球：向左 / 向右 / 停住"},
+        {"name": "jump",    "label": "起跳",  "desc": "飞行中起跳：落地前球到才算，范围大但更糙，跳完要缓一缓"},
+        {"name": "run",     "label": "跑垒",  "desc": "击出后让跑者：前进（一直往前跑）/ 停止（跑到下一个垒就站住）/ 撤回（半路调头回去）"},
+        {"name": "throw",   "label": "传球",  "desc": "捡起球后传向某个垒包"},
+        {"name": "hold",    "label": "控球",  "desc": "不传，结束这次击球"},
+        {"name": "forfeit", "label": "放弃",  "desc": "放弃本场比赛"}
+    ]
+}

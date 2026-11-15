@@ -4,7 +4,7 @@
 
 ## Verification
 
-- [ ] Intended files are staged and `pwsh -File tools/check.ps1 -RequireTracked` passes
+- [ ] Intended files are staged and `python tools/check.py --require-tracked` passes
 - [ ] Relevant manual cases under `docs/testing/` were run
 - [ ] Manual evidence contains no secrets or private messages
 

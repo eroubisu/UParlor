@@ -23,6 +23,7 @@ from .keys import sanitize_text, validate_key
 from .page import INDEX_HTML
 
 PROXY_TIMEOUT = 10.0
+MAX_REQUEST_BODY = 64 * 1024    # 与公网中转的请求体上限一致
 MAX_PROXY_BODY = 512 * 1024
 
 
@@ -66,13 +67,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
+        # 先读完请求体再决定响应：拒收（未配对/参数错）时若把请求体留在
+        # 缓冲里，close() 会被系统变成 RST，公网中转只能看到连接中断，
+        # 于是把本该返回的 403/400 变成 502「手柄不可用」。
+        payload, oversize = self._read_json()
+        if oversize:
+            self._send_json(
+                {"ok": False, "error": "payload too large"}, status=413,
+            )
+            return
         if self.path == "/key":
             if not self._remote.is_paired():
                 self._send_json(
                     {"ok": False, "error": "not paired"}, status=403,
                 )
                 return
-            payload = self._read_json()
             key = payload.get("key")
             if isinstance(key, str) and validate_key(key):
                 callback = self._remote.on_key
@@ -89,7 +98,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     {"ok": False, "error": "not paired"}, status=403,
                 )
                 return
-            payload = self._read_json()
             text = sanitize_text(payload.get("text") or "")
             if text:
                 callback = self._remote.on_text
@@ -122,17 +130,36 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _read_json(self) -> dict:
+    def _read_json(self) -> tuple[dict, bool]:
+        """读完请求体并解析 JSON，返回（数据, 是否超限）。
+
+        必须在任何响应之前调用（见 do_POST 的说明）：超限时也要把请求体读干净，
+        否则 close() 会被系统变成 RST，状态码就传不到对端。
+        """
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
-        raw = self.rfile.read(length) if length > 0 else b""
+        if length <= 0:
+            return {}, False
+        if length > MAX_REQUEST_BODY:
+            self._drain(length)
+            return {}, True
+        raw = self.rfile.read(length)
         try:
             obj = json.loads(raw.decode("utf-8"))
-            return obj if isinstance(obj, dict) else {}
+            return (obj if isinstance(obj, dict) else {}), False
         except (ValueError, TypeError):
-            return {}
+            return {}, False
+
+    def _drain(self, length: int) -> None:
+        """丢弃最多 MAX_PROXY_BODY 的剩余请求体，避免连接被 RST 掉。"""
+        remaining = min(length, MAX_REQUEST_BODY + MAX_PROXY_BODY)
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 64 * 1024))
+            if not chunk:
+                return
+            remaining -= len(chunk)
 
 
 class RemoteController:

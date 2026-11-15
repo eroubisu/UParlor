@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
-
+import sysconfig
 _DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TOML = os.path.join(_DIR, "pyproject.toml")
 _VER_RE = re.compile(r'^(version\s*=\s*")(.+?)(")', re.MULTILINE)
@@ -29,7 +29,7 @@ def _write_toml(text):
 
 def _check_path_conflict():
     """检查 PATH 上的 uparlor 是否指向当前 venv"""
-    venv_scripts = os.path.join(sys.prefix, 'Scripts')
+    venv_scripts = sysconfig.get_path('scripts')
     result = shutil.which('uparlor')
     if result and not os.path.normcase(result).startswith(
             os.path.normcase(venv_scripts)):

@@ -5,10 +5,14 @@ Repository instructions, checks, review, and human verification are the trust bo
 
 ## Setup
 
-```powershell
-py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".\Client[test]" -e ".\Server[test]"
-pwsh -File tools\check.ps1
+Development happens on macOS only (Python 3.10+).
+The game itself must keep running on every operating system, so never add OS-specific behavior to
+`Client/` or `Server/` code.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e "Client[test]" -e "Server[test]"
+python tools/check.py
 ```
 
 Use Nerd Font Mono v3 for UI work. The tracked `.vscode` settings configure Pylance paths and pytest;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.containers import VerticalScroll
 
 from ...widgets.panel import Panel
 from ...widgets.window import Window
@@ -18,8 +19,32 @@ class RecordsPanel(Panel):
 
     title = "记录"
 
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self._state = None
+
     def bind_state(self, state) -> None:
+        # 窗口每次打开都会重新绑定：监听只订一次，别让同一条记录被追加几遍
+        if self._state is not state:
+            if self._state is not None:
+                self._state.cmd.remove_listener(self._on_state)
+            self._state = state
+            state.cmd.add_listener(self._on_state)
         self.update("\n".join(state.cmd.lines[-_INITIAL_RECORD_LIMIT:]))
+        self.call_after_refresh(
+            self.query_one("#t0", VerticalScroll).scroll_end, animate=False)
+
+    def _on_state(self, event: str, *args) -> None:
+        """窗口开着的时候新记录接着往下写，不让它停在打开那一刻的样子。"""
+        match event:
+            case "add_line":
+                text, kw = args
+                if kw.get("update_last"):
+                    self.replace_last(text)
+                else:
+                    self.append(text)
+            case "clear":
+                self.update("")
 
 
 class RecordsWindow(Window):

@@ -35,9 +35,12 @@
 - When a repeated defect or contract violation can be recognized deterministically, add the cheapest
   regression test or repository-policy check in the same task. Do not rely on another prose reminder.
 - Preserve the State SSOT and registry-based game boundaries.
+- Development happens on macOS only: tooling, VS Code configuration, and docs assume macOS paths and
+  commands. The shipped game must still run on every OS, so `Client/` and `Server/` code detects the
+  platform at runtime instead of assuming one.
 - Update an existing manual case when its expected behavior changes; add a case only when no existing
   case covers the regression.
-- Use targeted diagnostics and tests for local changes. Run `pwsh -File tools/check.ps1` for
+- Use targeted diagnostics and tests for local changes. Run `python tools/check.py` for
   cross-module changes, shared-engine changes, dependency/governance changes, or before commit/release.
 
 ## Durable user preferences

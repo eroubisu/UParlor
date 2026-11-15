@@ -1,0 +1,21 @@
+"""棒球画面共用的样式：颜色值住在 client/config.py，这里只决定粗细和语义名。"""
+
+from __future__ import annotations
+
+from ...config import (
+    COLOR_FG_PRIMARY, COLOR_FG_TERTIARY, COLOR_GAME_BALL, COLOR_GAME_FIELDER,
+    COLOR_GAME_HEAD, COLOR_GAME_HIT, COLOR_GAME_MARK, COLOR_GAME_READY,
+    COLOR_GAME_RUNNER, COLOR_GAME_TEXT, COLOR_GAME_WALL,
+)
+
+HEAD = f'bold {COLOR_GAME_HEAD}'
+TEXT = COLOR_GAME_TEXT
+BALL = f'bold {COLOR_GAME_BALL}'
+FIELDER = f'bold {COLOR_GAME_FIELDER}'
+MARK = f'bold {COLOR_GAME_MARK}'
+RUNNER = f'bold {COLOR_GAME_RUNNER}'
+HIT = f'bold {COLOR_GAME_HIT}'
+READY = f'bold {COLOR_GAME_READY}'
+WALL = COLOR_GAME_WALL
+DIM = COLOR_FG_TERTIARY
+CURSOR = COLOR_FG_PRIMARY       # 按钮光标边框（和 UNO 一致）

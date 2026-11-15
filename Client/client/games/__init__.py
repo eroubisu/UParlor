@@ -8,3 +8,4 @@
 
 from . import uno  # noqa: F401
 from . import ludo  # noqa: F401
+from . import baseball  # noqa: F401

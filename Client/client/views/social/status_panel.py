@@ -15,6 +15,7 @@ from ...config import (
     NF_LEVEL, NF_COIN, NF_STAR, NF_HEART, NF_CALENDAR,
     M_DIM, M_END,
 )
+from ...protocol.renderer import make_status_table
 from ...widgets.panel import Panel
 from ...window_engine import Option
 
@@ -24,13 +25,8 @@ _BAR_LEN = 16
 
 
 def _make_table() -> Table:
-    t = Table(
-        show_header=False, show_edge=False,
-        box=None, expand=True, padding=(0, 0), pad_edge=False,
-    )
-    t.add_column(no_wrap=True)
-    t.add_column(justify="right", no_wrap=True)
-    return t
+    """玩家名片的两列：标签靠左、值贴右边框（和游戏状态面板共用一套布局）。"""
+    return make_status_table()
 
 
 def _row(table: Table, label: str, value: str, icon: str = "") -> None:

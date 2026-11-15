@@ -1,51 +1,201 @@
-"""IME 自动切换 — 窗口焦点变化时自动调整输入法状态 (Windows)
+"""IME 自动切换 — 窗口焦点/输入模式变化时自动调整输入法状态
 
-使用 PostMessage WM_INPUTLANGCHANGEREQUEST 切换输入法语言，
-经测试在 Textual TUI (ConPTY) 环境下有效。
+按客户端所在系统选择后端：
+- Windows: PostMessage WM_INPUTLANGCHANGEREQUEST，经测试在 Textual TUI (ConPTY) 环境下有效。
+- macOS: Text Input Source Services。切英文时记住当前中文输入源，切中文时恢复它；
+  从未使用过中文输入源时，改选已启用的第一个中文输入源。
+- 其他系统不做任何切换。
 """
 
+import ctypes
 import sys
 
-_available = False
 _EN_US = 0x04090409
 _ZH_CN = 0x08040804
 _WM_INPUTLANGCHANGEREQUEST = 0x0050
 
-if sys.platform == 'win32':
-    try:
-        import ctypes
-        _user32 = ctypes.windll.user32
-        _available = True
-    except Exception:
-        pass
+_CF_UTF8 = 0x08000100
+_CF_PATH = '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation'
+_CARBON_PATH = '/System/Library/Frameworks/Carbon.framework/Carbon'
 
 
-def _switch_to(locale: int):
-    if not _available:
-        return
-    try:
-        hwnd = _user32.GetForegroundWindow()
-        if hwnd:
-            _user32.PostMessageW(hwnd, _WM_INPUTLANGCHANGEREQUEST, 0, locale)
-    except Exception:
-        pass
+class _WindowsSwitcher:
+    def __init__(self) -> None:
+        self._user32 = ctypes.windll.user32
+
+    def _switch_to(self, locale: int) -> None:
+        try:
+            hwnd = self._user32.GetForegroundWindow()
+            if hwnd:
+                self._user32.PostMessageW(hwnd, _WM_INPUTLANGCHANGEREQUEST, 0, locale)
+        except Exception:
+            pass
+
+    def to_english(self) -> None:
+        self._switch_to(_EN_US)
+
+    def to_chinese(self) -> None:
+        self._switch_to(_ZH_CN)
+
+
+def _is_chinese_language(code: str | None) -> bool:
+    return code is not None and (code == 'zh' or code.startswith('zh-'))
+
+
+class _MacInputSources:
+    """Text Input Source Services 的 ctypes 封装。current/ascii_capable/enabled_chinese
+    返回的引用归调用方所有，用完必须 release。"""
+
+    def __init__(self) -> None:
+        self._cf = ctypes.CDLL(_CF_PATH)
+        self._tis = ctypes.CDLL(_CARBON_PATH)
+        vp = ctypes.c_void_p
+        cf, tis = self._cf, self._tis
+        cf.CFArrayGetCount.restype = ctypes.c_long
+        cf.CFArrayGetCount.argtypes = [vp]
+        cf.CFArrayGetValueAtIndex.restype = vp
+        cf.CFArrayGetValueAtIndex.argtypes = [vp, ctypes.c_long]
+        cf.CFStringGetCString.restype = ctypes.c_bool
+        cf.CFStringGetCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+        cf.CFBooleanGetValue.restype = ctypes.c_bool
+        cf.CFBooleanGetValue.argtypes = [vp]
+        cf.CFRetain.restype = vp
+        cf.CFRetain.argtypes = [vp]
+        cf.CFRelease.argtypes = [vp]
+        tis.TISCopyCurrentKeyboardInputSource.restype = vp
+        tis.TISCopyCurrentASCIICapableKeyboardInputSource.restype = vp
+        tis.TISCreateInputSourceList.restype = vp
+        tis.TISCreateInputSourceList.argtypes = [vp, ctypes.c_bool]
+        tis.TISGetInputSourceProperty.restype = vp
+        tis.TISGetInputSourceProperty.argtypes = [vp, vp]
+        tis.TISSelectInputSource.restype = ctypes.c_int32
+        tis.TISSelectInputSource.argtypes = [vp]
+        self._ascii_key = vp.in_dll(tis, 'kTISPropertyInputSourceIsASCIICapable')
+        self._select_key = vp.in_dll(tis, 'kTISPropertyInputSourceIsSelectCapable')
+        self._languages_key = vp.in_dll(tis, 'kTISPropertyInputSourceLanguages')
+
+    def current(self):
+        return self._tis.TISCopyCurrentKeyboardInputSource()
+
+    def ascii_capable(self):
+        return self._tis.TISCopyCurrentASCIICapableKeyboardInputSource()
+
+    def retain(self, source):
+        return self._cf.CFRetain(source)
+
+    def release(self, source) -> None:
+        self._cf.CFRelease(source)
+
+    def select(self, source) -> None:
+        self._tis.TISSelectInputSource(source)
+
+    def _flag(self, source, key) -> bool:
+        return self._cf.CFBooleanGetValue(self._tis.TISGetInputSourceProperty(source, key))
+
+    def _string(self, ref) -> str | None:
+        buffer = ctypes.create_string_buffer(128)
+        if self._cf.CFStringGetCString(ref, buffer, len(buffer), _CF_UTF8):
+            return buffer.value.decode('utf-8')
+        return None
+
+    def _languages(self, source) -> list[str | None]:
+        array = self._tis.TISGetInputSourceProperty(source, self._languages_key)
+        if not array:
+            return []
+        return [
+            self._string(self._cf.CFArrayGetValueAtIndex(array, index))
+            for index in range(self._cf.CFArrayGetCount(array))
+        ]
+
+    def is_chinese(self, source) -> bool:
+        return not self._flag(source, self._ascii_key) and any(
+            _is_chinese_language(code) for code in self._languages(source)
+        )
+
+    def enabled_chinese(self):
+        """已启用且可选择的第一个中文输入源，没有则返回 None。"""
+        sources = self._tis.TISCreateInputSourceList(None, False)
+        if not sources:
+            return None
+        try:
+            for index in range(self._cf.CFArrayGetCount(sources)):
+                candidate = self._cf.CFArrayGetValueAtIndex(sources, index)
+                if self._flag(candidate, self._select_key) and self.is_chinese(candidate):
+                    return self._cf.CFRetain(candidate)
+        finally:
+            self._cf.CFRelease(sources)
+        return None
+
+
+class _MacSwitcher:
+    def __init__(self, sources) -> None:
+        self._sources = sources
+        self._chinese = None
+
+    def _remember(self, source) -> None:
+        retained = self._sources.retain(source)
+        if self._chinese is not None:
+            self._sources.release(self._chinese)
+        self._chinese = retained
+
+    def to_english(self) -> None:
+        sources = self._sources
+        current = sources.current()
+        target = sources.ascii_capable()
+        try:
+            if sources.is_chinese(current):
+                self._remember(current)
+            sources.select(target)
+        finally:
+            sources.release(current)
+            sources.release(target)
+
+    def to_chinese(self) -> None:
+        if self._chinese is None:
+            self._chinese = self._sources.enabled_chinese()
+        if self._chinese is not None:
+            self._sources.select(self._chinese)
+
+
+def _create_switcher():
+    if sys.platform == 'win32':
+        return _WindowsSwitcher()
+    if sys.platform == 'darwin':
+        try:
+            return _MacSwitcher(_MacInputSources())
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+_switcher = _create_switcher()
+
+
+def _to_english() -> None:
+    if _switcher is not None:
+        _switcher.to_english()
+
+
+def _to_chinese() -> None:
+    if _switcher is not None:
+        _switcher.to_chinese()
 
 
 def on_app_blur():
     """应用失去焦点 — 恢复中文键盘，避免切出后系统输入法停留在英文"""
-    _switch_to(_ZH_CN)
+    _to_chinese()
 
 
 def on_app_focus(normal_mode: bool = True):
     """应用恢复焦点 — 切换到英文键盘"""
-    _switch_to(_EN_US)
+    _to_english()
 
 
 def on_insert_enter():
     """进入 INSERT 模式 — 切换到中文输入法"""
-    _switch_to(_ZH_CN)
+    _to_chinese()
 
 
 def on_insert_leave():
     """退出 INSERT 模式 — 切换到英文键盘"""
-    _switch_to(_EN_US)
+    _to_english()

@@ -393,9 +393,8 @@ class RoomGameEngine(BaseGameEngine):
             if not room.is_bot(p):
                 lobby.set_player_location(p, loc)
 
-        game_text = self._text_start()
-        if first_msg:
-            game_text += f'\n{first_msg}'
+        game_text = '\n'.join(
+            text for text in (self._text_start(), first_msg) if text)
 
         notify = self._notify_room(room, game_text,
                                    exclude=player_name, location=loc)

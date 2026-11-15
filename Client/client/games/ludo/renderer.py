@@ -19,13 +19,14 @@ from rich.console import RenderableType
 
 from ...protocol.renderer import (
     GameStatusContent, make_status_table, register_renderer, render_doc,
+    render_button_boxes,
 )
 from ...config import (
     NF_ARROW_D, NF_ARROW_L, NF_ARROW_R, NF_ARROW_U, NF_BULLSEYE,
     NF_CARET_D, NF_CARET_U, NF_CROSS, NF_DIAMOND, NF_FLAG, NF_OFFLINE,
     NF_ONLINE, NF_PLANE, NF_STAR, NF_TROPHY,
 )
-from ...window_engine.text import cell_width, fit_cells
+from ...window_engine.text import cell_width
 
 
 # ─────────────────────────── 样式常量 ───────────────────────────
@@ -511,10 +512,12 @@ class LudoRenderer:
             marker = '>' if owner == current else ' '
             status.add_row(
                 f'[{_DIM}]{marker}[/] '
-                f'[bold #000000 on {_COLOR_MAP[color]}] {_COLOR_SHAPE[color]} [/]'
+                f'[bold #000000 on {_COLOR_MAP[color]}]{_COLOR_SHAPE[color]}[/]'
                 f'[{_ACTIVE if owner == current else _SCORE}] {owner}[/]',
-                f'[{_DIM}]机场{airport} 赛道{track} '
-                f'跑道{runway} 完成{finished}[/]',
+                # 四个数字挨着写（不留空格）：状态面板左右各缩进一个 ICON_INDENT，
+                # 这一行正好在 34 列的面板里放得下；空格会让最右边的"完成"被裁掉
+                f'[{_DIM}]机场{airport}赛道{track}'
+                f'跑道{runway}完成{finished}[/]',
             )
         return GameStatusContent(status)
 
@@ -609,12 +612,10 @@ class LudoRenderer:
 
 def _render_button_row(text: Text, buttons: list[dict], cursor: int,
                        active: bool, my_turn: bool) -> None:
-    if not buttons:
-        return
-    btn_styles = []
-    for i, btn in enumerate(buttons):
-        label = btn.get('label', '?')
-        is_cursor = active and i == cursor
+    entries = []
+    for index, button in enumerate(buttons):
+        label = button.get('label', '?')
+        is_cursor = active and index == cursor
         if not my_turn:
             style = '#505050'
             b_style = f'bold {_BORDER_PLAYABLE}' if is_cursor else '#505050'
@@ -622,28 +623,8 @@ def _render_button_row(text: Text, buttons: list[dict], cursor: int,
             style = 'bold #ffffff'
             b_style = (f'bold {_BORDER_CURSOR}' if is_cursor
                        else 'bold #a0a0a0')
-        btn_styles.append((label, style, b_style))
-
-    text.append('  ')
-    for label, _, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        text.append('╭' + '─' * w + '╮', style=b_style)
-        text.append(' ')
-    text.append('\n  ')
-
-    for label, style, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        padded = fit_cells(label, w, "center")
-        text.append('│', style=b_style)
-        text.append(padded, style=style)
-        text.append('│', style=b_style)
-        text.append(' ')
-    text.append('\n  ')
-
-    for label, _, b_style in btn_styles:
-        w = max(8, cell_width(label) + 2)
-        text.append('╰' + '─' * w + '╯', style=b_style)
-        text.append(' ')
+        entries.append((label, style, b_style))
+    render_button_boxes(text, entries)
 
 
 register_renderer(LudoRenderer())

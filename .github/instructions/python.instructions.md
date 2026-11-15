@@ -9,5 +9,5 @@ applyTo: "Client/**/*.py, Server/**/*.py, tests/**/*.py, tools/**/*.py"
 - Keep Python 3.10 compatibility; do not use syntax introduced after 3.10.
 - Catch only expected exceptions. If a framework boundary requires a broad catch, log or surface the failure.
 - After changing signatures, inspect every semantic caller.
-- Run the smallest relevant pytest selection. Run `pwsh -File tools/check.ps1` only when required by
+- Run the smallest relevant pytest selection. Run `python tools/check.py` only when required by
   the workspace policy for cross-module/shared-engine/governance work or commit/release readiness.
