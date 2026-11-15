@@ -12,6 +12,7 @@ from ...window_engine.text import cell_width
 from textual.app import ComposeResult
 from textual.events import Click, MouseDown, MouseMove
 from textual.containers import VerticalScroll
+from textual.widget import Widget
 from textual.widgets import Input, Static
 from textual.message import Message
 
@@ -536,6 +537,8 @@ class TutorialPanel(Panel):
         self.set_options(
             options, f"tutorial:{self._page}:{target}",
         )
+        if target == 0:
+            self._clear_scroll_extras()
         before: list[str] = []
         after: list[str] = []
         lines = before
@@ -566,14 +569,26 @@ class TutorialPanel(Panel):
             f"#tutorial-after-{target}", Static,
         ).update("\n".join(after))
 
+    def _clear_scroll_extras(self) -> None:
+        self.query(".tutorial-scroll-extra").remove()
+
     def _redraw_scroll(self) -> None:
-        before, after = _SCROLL_TMPL.split("{sep}", 1)
         values = {"dim": M_DIM, "end": M_END, "cmd": M_CMD}
-        self.query_one("#tutorial-before-0", Static).update(
-            before.format(**values))
+        before, first, *rest = (
+            part.format(**values) for part in _SCROLL_TMPL.split("{sep}")
+        )
+        self.query_one("#tutorial-before-0", Static).update(before)
         self.query_one("#tutorial-divider-0", Divider).display = True
-        self.query_one("#tutorial-after-0", Static).update(
-            after.format(**values))
+        self.query_one("#tutorial-after-0", Static).update(first)
+        self._clear_scroll_extras()
+        extras: list[Widget] = []
+        for part in rest:
+            extras.append(Divider(classes="tutorial-scroll-extra"))
+            extras.append(Static(
+                part, classes="tutorial-after tutorial-scroll-extra",
+                markup=True,
+            ))
+        self.query_one("#t0", VerticalScroll).mount(*extras)
 
 
 class _FocusTarget(Panel):

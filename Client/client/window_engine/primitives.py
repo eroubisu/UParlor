@@ -15,7 +15,7 @@ from textual.geometry import Size
 from textual.widgets import Input, Static
 from rich.markup import escape
 
-from .text import cell_width, grapheme_clusters, wrap_cells
+from .text import cell_width, grapheme_clusters, wrap_markup
 
 
 @dataclass(frozen=True)
@@ -218,7 +218,7 @@ class SelectList:
         # Hidden windows have no measured width yet. Leave their rows unwrapped;
         # Textual can lay them out safely until the window's post-show reflow.
         rows = (
-            wrap_cells(content, text_width) or [""]
+            wrap_markup(content, text_width) or [""]
             if width > prefix_width
             else [content]
         )
@@ -317,6 +317,7 @@ class InputSpec:
     visible: bool = True
     enabled: bool = True
     password: bool = False
+    latin_only: bool = False  # 只接受英文数字的输入框：进入 INSERT 时输入法保持英文
     value: str = ""
     focus: bool = False
     on_submit: Callable[[str], None] | None = None
@@ -369,6 +370,7 @@ class InputSession:
             "visible",
             "enabled",
             "password",
+            "latin_only",
             "value",
             "focus",
             "on_submit",

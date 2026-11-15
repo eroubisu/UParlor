@@ -55,9 +55,12 @@ SPAN_POINT = 1.0            # 范围窄到不足一格，就收成一个虚线�
 _BASE_NUMBERS = {'一垒': 1, '二垒': 2, '三垒': 3}
 _BASE_NAMES = {number: name for name, number in _BASE_NUMBERS.items()}
 
-# 棋盘中间那三行实时槽（用户 2026-10-15 定）：高度位置钉死在方框的 1/4、1/2、3/4，
-# 某一槽没内容就是留白——别的内容绝不允许挤过来。
+# 棋盘中间的实时槽（用户 2026-10-15 定）：高度位置钉死，某一槽没内容就是留白——
+# 别的内容绝不允许挤过来。倒数 / 灯或球位 / 当前动作钉在方框的 1/4、1/2、3/4；
+# 判定另有自己的一槽（第 2 行，倒数槽上方），不和交牌灯共用，所以出结果后灯还在原位
+# （用户 2026-11-15 定：东西都在原位，亮不亮都占同样空间）。
 _SLOT_RATIOS = (0.25, 0.5, 0.75)
+_VERDICT_ROW = 1
 # 这一拍的判定：实时状态一律中文 + 英文（英文是权威写法）；
 # 颜色按结果分：安全/保送＝绿、各种出局/三振/双杀＝红、全垒打＝金（用户 2026-10-16 定）；
 # 出局按方式写清（2026-10-21 用户要求显示封杀 / 接杀）
@@ -132,30 +135,31 @@ def ready_segments(board: Board) -> Segments:
     return segments
 
 
-def live_slot_segments(board: Board) -> tuple[Segments, Segments, Segments]:
-    """方框中间那三槽的内容：倒数 / 判定（或交牌灯、球的方位）/ 当前动作。
+def live_slot_segments(
+        board: Board) -> tuple[Segments, Segments, Segments, Segments]:
+    """方框中间四槽的内容，自上而下：判定 / 倒数 / 交牌灯（或球的方位）/ 当前动作。
 
-    判定那一槽在**还没有判定的时候**写交牌灯（`投 ●  打 ○`）：位置是钉死的槽，
-    所以它只是"这一槽此刻写什么"，不会挤动别人。球被打出去之后、还没判出安全/出局之前，
-    这一槽写球的方位（飞向哪 / 落在哪），守方攻方都能一眼对上球路。
+    每样东西各占自己钉死的一槽，互不顶替：判定出来后交牌灯照旧在中槽（下一球的准备阶段
+    两盏灯一直都在），只是"这一槽此刻写什么"。球被打出去之后、还没判出安全/出局之前，
+    中槽写球的方位（飞向哪 / 落在哪），守方攻方都能一眼对上球路。
 
     样式走格点自己的（一格一样式），**绝不把富文本标记塞进文字**——格子不解析标记，
     塞进去玩家就会看到 `[#50b070]` 这种生字符串（2026-10-17 实机抓到的 bug）。
     """
-    slot1: Segments = ([(str(board.countdown), style.HEAD)]
-                       if board.countdown > 0 else [])
-    if board.verdict:
-        slot2: Segments = [(_VERDICT_LABELS[board.verdict],
+    verdict: Segments = ([(_VERDICT_LABELS[board.verdict],
                             _VERDICT_STYLES[board.verdict])]
-    elif board.phase == 'call':
-        slot2 = ready_segments(board)
+                         if board.verdict else [])
+    countdown: Segments = ([(str(board.countdown), style.HEAD)]
+                           if board.countdown > 0 else [])
+    if board.phase == 'call':
+        middle = ready_segments(board)
     elif board.phase == 'flight':
-        slot2 = [(f'飞向 {board.flight.estimate_label}', style.HEAD)]
+        middle = [(f'飞向 {board.flight.estimate_label}', style.HEAD)]
     elif board.phase == 'ground':
-        slot2 = [(f'落点 {board.ground.ball_label}', style.HEAD)]
+        middle = [(f'落点 {board.ground.ball_label}', style.HEAD)]
     else:
-        slot2 = []
-    return slot1, slot2, [(situation_label(board), style.HEAD)]
+        middle = []
+    return verdict, countdown, middle, [(situation_label(board), style.HEAD)]
 
 
 Cells = list[list[tuple[str, str]]]
@@ -235,9 +239,9 @@ class Infield:
         for row in range(1, self.rows + 1):
             border[row][self.left] = ('│', style.DIM)
             border[row][self.right] = ('│', style.DIM)
-        for ratio, segments in zip(_SLOT_RATIOS, live_slot_segments(board)):
-            if segments:
-                self._write_slot(border, 1 + int(self.rows * ratio), segments)
+        for row, segments in zip(self._slot_rows(), live_slot_segments(board)):
+            if segments and row is not None:
+                self._write_slot(border, row, segments)
         corners = {'三垒': (0, self.left), '二垒': (0, self.right),
                    '本垒': (self.rows + 1, self.left),
                    '一垒': (self.rows + 1, self.right)}
@@ -307,6 +311,12 @@ class Infield:
             return {board.throw.base: f'{board.throw.distance}米'}
         return {}
 
+    def _slot_rows(self) -> tuple[int | None, ...]:
+        """四个实时槽在 border 里的行号（自上而下）；矮到判定槽会压到倒数槽时不画判定。"""
+        fixed = tuple(1 + int(self.rows * ratio) for ratio in _SLOT_RATIOS)
+        verdict = 1 + _VERDICT_ROW
+        return (verdict if verdict < fixed[0] else None, *fixed)
+
     def _write_slot(self, border: Cells, row: int,
                     segments: Segments) -> None:
         """把一槽写进方框中间那一行：居中，夹在两条竖线之间，绝不越界。"""
@@ -325,35 +335,42 @@ class Infield:
 
     def _corner_row(self, left: str, right: str, distances: dict[str, str],
                     spans: dict[str, str]) -> Text:
-        """垒名那一行：球被打出去之后，名字后面跟上"传到这个垒有多远"。
+        """垒名那一行：球被打出去之后，垒名旁边写上"传到这个垒有多远"。
 
-        颜色按四个垒之间的**相对远近平滑变化**：最近的偏绿、最远的偏红（用户 2026-10-16 定）。
-        带距离之后要是比正方形还宽，就**连距离一起省掉**（只留垒名）：
+        垒名永远在原位（用户 2026-11-15 定：东西都在原位，亮不亮都占同样空间）：左边的名字
+        贴左、距离写在它右边；右边的名字贴着方框右缘、距离写在它**左边**，所以有没有距离
+        名字都不挪。颜色按四个垒之间的**相对远近平滑变化**：最近的偏绿、最远的偏红
+        （用户 2026-10-16 定）。带距离之后要是比正方形还宽，就**连距离一起省掉**（只留垒名）：
         这一行的宽度是棋盘的骨架，宁可少写一个字也不许把它顶出去。
         """
-        def shown(name: str) -> str:
+        def shown(name: str, mirrored: bool) -> str:
             distance = distances.get(name)
-            return f'{name} {distance}' if distance else name
+            if not distance:
+                return name
+            return f'{distance} {name}' if mirrored else f'{name} {distance}'
 
-        if (SQUARE_INDENT + cell_width(shown(left)) + 2
-                + cell_width(shown(right))) > self.width:
+        if (SQUARE_INDENT + cell_width(shown(left, False)) + 2
+                + cell_width(shown(right, True))) > self.width:
             distances, spans = {}, {}
         gap = max(2, self.width - SQUARE_INDENT
-                  - cell_width(shown(left)) - cell_width(shown(right)))
+                  - cell_width(shown(left, False))
+                  - cell_width(shown(right, True)))
         text = Text(' ' * SQUARE_INDENT)
-        self._append_corner(text, left, distances, spans)
+        self._append_corner(text, left, distances, spans, mirrored=False)
         text.append(' ' * gap)
-        self._append_corner(text, right, distances, spans)
+        self._append_corner(text, right, distances, spans, mirrored=True)
         return text
 
     @staticmethod
     def _append_corner(text: Text, name: str, distances: dict[str, str],
-                       spans: dict[str, str]) -> None:
-        """垒名 + 距离：名字永远先读（有距离时提到正文亮度），
+                       spans: dict[str, str], *, mirrored: bool) -> None:
+        """垒名 + 距离：有距离时名字提到正文亮度，
         距离退一档（只留远近配色、不加粗）——先看地形，再看数字（2026-10-17 定）。"""
         distance = distances.get(name)
+        if distance and mirrored:
+            text.append(distance + ' ', style=spans.get(name, style.DIM))
         text.append(name, style=style.TEXT if distance else style.DIM)
-        if distance:
+        if distance and not mirrored:
             text.append(' ' + distance, style=spans.get(name, style.DIM))
 
     def _base_cell(self, base: int) -> tuple[int, int]:

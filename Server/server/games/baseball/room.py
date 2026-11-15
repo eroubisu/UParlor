@@ -120,7 +120,7 @@ class BaseballRoom:
         name = f'Bot_{index}'
         self.players.append(name)
         self.bots.add(name)
-        return True, f'已添加机器人: {name}'
+        return True, name
 
     def reset_match(self) -> None:
         self.state = 'waiting'          # waiting / playing / finished

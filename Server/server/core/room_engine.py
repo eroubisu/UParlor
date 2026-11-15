@@ -150,7 +150,7 @@ class RoomGameEngine(BaseGameEngine):
             return self._select_menu('确认', [
                 {'label': '确认放弃对局？', 'type': 'text'},
                 {'type': 'separator'},
-                {'label': '是', 'desc': '', 'command': '/forfeit'},
+                {'label': '是', 'desc': '', 'command': '/forfeit yes'},
                 {
                     'label': '否', 'desc': '',
                     'command': '', 'type': 'return',
@@ -177,7 +177,7 @@ class RoomGameEngine(BaseGameEngine):
             return self._select_menu('确认', [
                 {'label': '确认放弃对局？', 'type': 'text'},
                 {'type': 'separator'},
-                {'label': '是', 'desc': '', 'command': '/forfeit'},
+                {'label': '是', 'desc': '', 'command': '/forfeit yes'},
                 {
                     'label': '否', 'desc': '',
                     'command': '', 'type': 'return',

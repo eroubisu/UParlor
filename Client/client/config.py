@@ -158,7 +158,7 @@ NERD_GLYPHS = frozenset({
 
 # 游戏布局可使用的单色符号。彩色 emoji、VS16、ZWJ 序列不在契约内。
 GAME_TEXT_GLYPHS = frozenset({
-    '>', '─', '│', '╭', '╮', '╰', '╯', '█', '░', '·', '┄', '┆',
+    '>', '─', '│', '╭', '╮', '╰', '╯', '╴', '╶', '█', '░', '·', '┄', '┆',
 })
 GAME_GLYPHS = NERD_GLYPHS | GAME_TEXT_GLYPHS | CHAT_STYLE_GLYPHS
 

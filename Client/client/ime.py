@@ -191,9 +191,12 @@ def on_app_focus(normal_mode: bool = True):
     _to_english()
 
 
-def on_insert_enter():
-    """进入 INSERT 模式 — 切换到中文输入法"""
-    _to_chinese()
+def on_insert_enter(latin_only: bool = False):
+    """进入 INSERT 模式 — 切换到中文输入法；只收英文数字的输入框（如登录）保持英文"""
+    if latin_only:
+        _to_english()
+    else:
+        _to_chinese()
 
 
 def on_insert_leave():

@@ -16,7 +16,7 @@ from ...config import (
     NF_HIT_LOW, NF_LEVEL, NF_OFFLINE, NF_ONLINE, NF_USER,
 )
 from ...protocol.renderer import GameStatusContent, register_renderer, render_doc
-from .diamond import GUIDE_GLYPH, Infield, track_rows
+from .diamond import GUIDE_GLYPH, SPAN_CAPS, Infield, track_rows
 from .panel import render_controls
 from .status import STATUS_HEIGHT, status_content
 from .view import Board
@@ -39,7 +39,7 @@ class BaseballRenderer:
         NF_CARET_D, NF_CARET_U, NF_CIRCLE_NOTCH, NF_CROSS, NF_HIT_FLAT,
         NF_HIT_HIGH, NF_HIT_LOW, NF_LEVEL, NF_OFFLINE, NF_ONLINE,
         NF_USER,
-        '█', '─', '│', '·', GUIDE_GLYPH,
+        '█', '─', '│', '·', GUIDE_GLYPH, *SPAN_CAPS,
     })
     scroll_hint: int = -1
     doc_commands = _DOC_COMMANDS

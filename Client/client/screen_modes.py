@@ -26,7 +26,9 @@ class InputModeMixin:
         self._sticky_insert = sticky
         self._set_mode('insert', 'INSERT')
         from . import ime
-        ime.on_insert_enter()
+        session = getattr(self.engine.active_focused_panel(),
+                          "input_session", None)
+        ime.on_insert_enter(latin_only=bool(session and session.spec.latin_only))
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         if not self._sticky_insert:

@@ -6,6 +6,7 @@ from typing import Literal
 
 import regex
 from rich.cells import cell_len
+from rich.errors import MarkupError
 from rich.text import Text
 
 
@@ -99,6 +100,24 @@ def wrap_cells(text: str, width: int) -> list[str]:
             line_width += cluster_width
         wrapped.append("".join(line))
     return wrapped
+
+
+def wrap_markup(markup: str, width: int) -> list[str]:
+    """Wrap Rich markup by the cells of its visible text, keeping styles on every row."""
+    try:
+        text = Text.from_markup(markup)
+    except MarkupError:
+        return wrap_cells(markup, width)
+
+    rows: list[str] = []
+    for line in text.split("\n", allow_blank=True):
+        offsets: list[int] = []
+        position = 0
+        for row in wrap_cells(line.plain, width)[:-1]:
+            position += len(row)
+            offsets.append(position)
+        rows.extend(piece.markup for piece in line.divide(offsets))
+    return rows
 
 
 def uses_emoji_presentation(text: str) -> bool:
