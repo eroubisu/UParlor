@@ -14,9 +14,18 @@ pip install uparlor
 uparlor
 ```
 
-终端字体请使用 **Nerd Font Mono v3**。UParlor 的内置界面和游戏图形仅使用可由
+终端字体推荐使用 **Nerd Font Mono v3**。UParlor 的内置界面和游戏图形仅使用可由
 终端前景色统一着色的单色字形，不使用自带配色的 emoji。聊天和玩家输入仍支持完整
 Unicode 文本，并按 Unicode 字素簇和终端单元格宽度进行布局。
+
+## 启动不了？
+
+仅限 0.5.0 及以下版本。提示"版本检查失败"时，卸载重装：
+
+```
+pip uninstall uparlor -y
+pip install uparlor
+```
 
 ## 卸载
 
@@ -24,7 +33,7 @@ Unicode 文本，并按 Unicode 字素簇和终端单元格宽度进行布局。
 uparlor --uninstall
 ```
 
-删除所有本地数据并卸载包。
+删除所有本地数据并卸载包（只想重装请用上面的两条 pip 命令，不要用这条）。
 
 ## 开发
 

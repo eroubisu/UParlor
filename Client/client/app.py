@@ -328,6 +328,20 @@ def _uninstall():
     print("\n卸载完成。")
 
 
+def _tls_context():
+    """访问 PyPI 用的 TLS 上下文：优先用 certifi 的根证书。
+
+    macOS 上 python.org 安装的 Python 默认没有根证书，用系统默认上下文会报
+    CERTIFICATE_VERIFY_FAILED，被误当成断网（2026-11-15 实机遇到）。certifi 由 openai 依赖带来。
+    """
+    import ssl
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _check_update(current: str | None):
     """启动前查 PyPI 最新版，版本不一致或查询失败均阻止启动（dev 版本跳过）"""
     import os
@@ -347,7 +361,8 @@ def _check_update(current: str | None):
             'https://pypi.org/pypi/uparlor/json',
             headers={'Accept': 'application/json'},
         )
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(
+                req, timeout=3, context=_tls_context()) as resp:
             data = json.loads(resp.read())
         latest = data['info']['version']
         lat = _ver_tuple(latest)
@@ -356,7 +371,11 @@ def _check_update(current: str | None):
             print(f"  * 更新命令: pip install -U uparlor\n")
             sys.exit(0)
     except Exception:
-        print("  x 版本检查失败，无法启动。请检查网络连接。\n")
+        print("  x 版本检查失败，无法启动。请检查网络连接。")
+        print("  * 网络正常仍无法启动，请卸载并重装最新版（不会丢失你的数据）：")
+        print("      pip uninstall uparlor -y")
+        print("      pip install uparlor")
+        print("  * 详细说明：https://github.com/eroubisu/UParlor\n")
         sys.exit(1)
 
 
