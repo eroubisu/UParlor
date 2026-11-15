@@ -317,7 +317,7 @@ class InputSpec:
     visible: bool = True
     enabled: bool = True
     password: bool = False
-    latin_only: bool = False  # 只接受英文数字的输入框：进入 INSERT 时输入法保持英文
+    english_ime: bool = False  # 进入 INSERT 时用英文输入法（账号、密码这类不需要中文的框）
     value: str = ""
     focus: bool = False
     on_submit: Callable[[str], None] | None = None
@@ -370,7 +370,7 @@ class InputSession:
             "visible",
             "enabled",
             "password",
-            "latin_only",
+            "english_ime",
             "value",
             "focus",
             "on_submit",
@@ -647,3 +647,36 @@ class Divider(Static):
     def on_mount(self) -> None:
         if self._divider_style:
             self.styles.border_top = ("solid", self._divider_style)
+
+
+class PinnedSlots:
+    """固定槽位：一个已知高度的区块里，每个槽永远占同一行，内容换了、没内容了，行号都不变。
+
+    槽用 0~1 之间的小数（占高度的这一比例）或整数（绝对行号）声明，自上而下排列。
+    某个槽会压到下面的槽、或超出区块时，该槽没有行（``None``）——宁可不画，也不让两个
+    槽共用一行、互相顶替。
+    """
+
+    def __init__(self, *slots: float | int) -> None:
+        if not slots:
+            raise ValueError("at least one slot is required")
+        for slot in slots:
+            if isinstance(slot, float) and not 0 <= slot < 1:
+                raise ValueError(f"fractional slot must be in [0, 1): {slot}")
+            if isinstance(slot, int) and slot < 0:
+                raise ValueError(f"absolute slot must not be negative: {slot}")
+        self._slots = slots
+
+    def rows(self, height: int) -> tuple[int | None, ...]:
+        """每个槽在 ``height`` 行区块里的行号（0 起）；没有位置的槽是 ``None``。"""
+        wanted = [int(height * slot) if isinstance(slot, float) else slot
+                  for slot in self._slots]
+        rows: list[int | None] = []
+        below = height
+        for row in reversed(wanted):
+            if 0 <= row < below:
+                rows.append(row)
+                below = row
+            else:
+                rows.append(None)
+        return tuple(reversed(rows))

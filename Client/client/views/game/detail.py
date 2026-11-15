@@ -8,13 +8,13 @@ from ...config import (
     COLOR_FG_PRIMARY, COLOR_FG_TERTIARY,
     M_DIM, M_BOLD, M_END, M_MUTED, ICON_INDENT,
 )
-from ...widgets.panel import Panel, text_width
-from ...window_engine.text import wrap_cells
+from ...widgets.panel import Panel
+from ...window_engine.text import cell_width, wrap_cells
 from ...window_engine import Option
 from ...protocol.renderer import get_renderer
 
 def _pad_left(s: str, target: int) -> str:
-    w = text_width(s)
+    w = cell_width(s)
     return s + ' ' * max(0, target - w)
 
 def _wrap_text(text: str, width: int, indent: str) -> list[str]:
@@ -83,7 +83,7 @@ class GameDetailPanel(Panel):
         if desc:
             # 手动折行，保证每行都有 ICON_INDENT
             panel_w = self._content_width(0)
-            desc_w = max(10, panel_w - text_width(ICON_INDENT))
+            desc_w = max(10, panel_w - cell_width(ICON_INDENT))
             for dl in _wrap_text(desc, desc_w, ICON_INDENT):
                 lines.append(f"{M_MUTED}{dl}{M_END}")
             lines.append("")
@@ -98,7 +98,7 @@ class GameDetailPanel(Panel):
         max_label_w = 4
         for item in self._items:
             if item['type'] == 'setting':
-                w = text_width(item['schema']['label'])
+                w = cell_width(item['schema']['label'])
                 if w > max_label_w:
                     max_label_w = w
 

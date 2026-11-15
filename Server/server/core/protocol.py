@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import string
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable, Any
 
 from ..msg_types import GAME, ROOM_UPDATE
@@ -38,6 +39,42 @@ def build_select_menu(title, items, empty_msg=''):
             'empty_msg': empty_msg,
         }],
     }
+
+
+def build_confirm_menu(prompt, yes_command, title='确认'):
+    """构建"确认"请求 — 所有需要玩家再确认一次的操作统一用它（是 / 否）。
+
+    客户端看到 `confirm` 字段就用共享的确认组件（`ConfirmMenu`）显示，和聊天、设置里的
+    确认长得一样；`items` 是给不认识 `confirm` 的旧客户端留的等价菜单。
+    「是」直接发出 yes_command；它必须是**不会再确认**的写法（末尾带 `yes`），
+    否则就会连问两次。
+    """
+    menu = build_select_menu(title, [
+        {'label': prompt, 'type': 'text'},
+        {'type': 'separator'},
+        {'label': '是', 'desc': '', 'command': yes_command},
+        {'label': '否', 'desc': '', 'command': '', 'type': 'return'},
+    ])
+    menu['send_to_caller'][0]['confirm'] = {
+        'message': prompt, 'command': yes_command}
+    return menu
+
+
+@dataclass(frozen=True)
+class ConfirmedCommand:
+    """一条要先确认的指令：在哪个路由键下、确认语是什么。"""
+
+    state: str                    # 'playing'（对局中）/ 'room'（等候室）
+    prompt: str                   # 确认语；{target} 换成 @ 后面的名字
+    needs_target: bool = False    # True：只有带 @目标 才确认（不带目标是在弹选人菜单）
+
+
+def split_confirmation(args: str) -> tuple[str, bool]:
+    """去掉末尾的确认标记 `yes`：返回 (剩下的参数, 是否已确认)。"""
+    tokens = args.split()
+    if tokens and tokens[-1] == 'yes':
+        return ' '.join(tokens[:-1]), True
+    return args, False
 
 
 # ── 游戏引擎标准接口 ──
@@ -87,6 +124,13 @@ class BaseGameEngine:
     # 路由键由房间状态决定: 无房间→'lobby', waiting→'room', playing→'playing'
     _GLOBAL_COMMANDS: dict[str, str] = {}   # cmd_name → method_name
     _COMMAND_MAP: dict[str, dict[str, str]] = {}  # state_key → {cmd → method}
+    # 要先确认一次的指令。首次（末尾不带 `yes`）只发确认请求，玩家点「是」再带 `yes` 重发；
+    # 游戏的指令实现里不用自己写确认，也看不到 `yes`。
+    _CONFIRMED_COMMANDS: dict[str, ConfirmedCommand] = {
+        'forfeit': ConfirmedCommand('playing', '确认放弃对局?'),
+        'invite': ConfirmedCommand('room', '确认邀请 {target}?', True),
+        'kick': ConfirmedCommand('room', '确认踢出 {target}?', True),
+    }
     _SETTLEMENT_RETRY_BASE_DELAY = 1.0
     _SETTLEMENT_RETRY_MAX_DELAY = 30.0
     _SETTLEMENT_RETRY_MAX_EXPONENT = 5
@@ -106,13 +150,25 @@ class BaseGameEngine:
         """通用指令路由 — 子类通过 _COMMAND_MAP / _GLOBAL_COMMANDS 声明即可。"""
         cmd_name = cmd.lstrip('/')
         method_name = self._GLOBAL_COMMANDS.get(cmd_name)
+        key = self._get_command_key(player_name)
         if not method_name:
-            key = self._get_command_key(player_name)
             commands = self._COMMAND_MAP.get(key, {})
             method_name = commands.get(cmd_name)
         if method_name:
+            rule = self._CONFIRMED_COMMANDS.get(cmd_name)
+            if rule and key == rule.state:
+                args, confirmed = split_confirmation(args)
+                if not confirmed and (args.startswith('@') or not rule.needs_target):
+                    return self._confirm_menu(cmd_name, args)
             return getattr(self, method_name)(lobby, player_name, player_data, args)
         return None
+
+    def _confirm_menu(self, cmd_name: str, args: str = ''):
+        """某条需确认指令的确认请求（「是」发 `/<指令> <参数> yes`）。"""
+        rule = self._CONFIRMED_COMMANDS[cmd_name]
+        prompt = rule.prompt.format(target=args.lstrip('@').strip())
+        yes = ' '.join(part for part in (f'/{cmd_name}', args, 'yes') if part)
+        return build_confirm_menu(prompt, yes)
 
     @staticmethod
     def gen_room_id() -> str:

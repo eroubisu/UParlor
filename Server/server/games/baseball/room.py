@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -16,6 +17,8 @@ from .state import (
     Delivery, Exchange, Fielder, Flight, Pickup, PitchRecord, Relay, Runner,
     Tag, Throw, ThrowOption, Tick,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_INNINGS = 3
 OUTS_PER_HALF = 3
@@ -30,6 +33,8 @@ STAMINA_TIRED = 35
 # 播报的每一行都收在这个宽度里，放不下的在词组之间换行（最后一行就是留在栏上的那句）
 # 播报的写法：词组之间一个空格，不用中文标点连句子；计数一律 `1-2`（坏球-好球）、`2出局`、`A 4-2 B`
 LOG_COLS = 70
+# 播报里不许出现的中文标点（2026-10-22 定：词组之间只用一个空格，不用标点连句子）
+LOG_FORBIDDEN_PUNCTUATION = frozenset('，；：。！？（）、')
 STAT_KEYS = ('hits', 'homeruns', 'walks', 'strikeouts')
 
 # 下发给客户端的取值文案：菜单由客户端生成，文字以服务端为准
@@ -51,6 +56,21 @@ def _cols(text: str) -> int:
     """终端里占几列：汉字与全角符号两列，其余一列。"""
     return sum(2 if unicodedata.east_asian_width(char) in 'WF' else 1
                for char in text)
+
+
+def log_violations(line: str) -> list[str]:
+    """一行播报违反了哪些写法规则（空表示合规）：单行、≤ LOG_COLS 列、无中文标点、
+    词组之间只有一个空格、首尾无空白。"""
+    problems = []
+    if '\n' in line:
+        problems.append('不是单行')
+    if _cols(line) > LOG_COLS:
+        problems.append(f'超过 {LOG_COLS} 列')
+    if LOG_FORBIDDEN_PUNCTUATION.intersection(line):
+        problems.append('含中文标点')
+    if line != line.strip() or '  ' in line:
+        problems.append('空格不规范')
+    return problems
 
 
 def _wrap(phrases: list[str]) -> list[str]:
@@ -233,7 +253,11 @@ class BaseballRoom:
 
     def _push(self, *phrases: str) -> None:
         """记一条播报：词组之间一个空格，一行放不下就在词组之间换行。"""
-        self.log.extend(_wrap([phrase for phrase in phrases if phrase]))
+        lines = _wrap([phrase for phrase in phrases if phrase])
+        for line in lines:
+            for problem in log_violations(line):
+                logger.warning('棒球播报违反写法规则（%s）：%r', problem, line)
+        self.log.extend(lines)
 
     def _drain(self) -> list[str]:
         lines, self.log = self.log, []

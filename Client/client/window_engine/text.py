@@ -1,4 +1,12 @@
-"""Terminal text measurement shared by the window system and game renderers."""
+"""Terminal text measurement shared by the window system and game renderers.
+
+This module is the only place that measures or wraps terminal text; there are two vocabularies:
+
+* plain text: ``cell_width`` / ``fit_cells`` / ``wrap_cells``;
+* Rich markup: ``plain_text`` (strip the tags) / ``wrap_markup`` (wrap by the visible width and
+  keep each row's styles). Never hand plain-text helpers a markup string: its tags would count
+  as visible cells.
+"""
 
 from __future__ import annotations
 

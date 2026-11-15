@@ -8,7 +8,8 @@
 """
 
 import ctypes
-import sys
+
+from . import hostplatform
 
 _EN_US = 0x04090409
 _ZH_CN = 0x08040804
@@ -158,9 +159,10 @@ class _MacSwitcher:
 
 
 def _create_switcher():
-    if sys.platform == 'win32':
+    system = hostplatform.current()
+    if system == hostplatform.WINDOWS:
         return _WindowsSwitcher()
-    if sys.platform == 'darwin':
+    if system == hostplatform.MACOS:
         try:
             return _MacSwitcher(_MacInputSources())
         except (OSError, ValueError):
@@ -191,9 +193,9 @@ def on_app_focus(normal_mode: bool = True):
     _to_english()
 
 
-def on_insert_enter(latin_only: bool = False):
-    """进入 INSERT 模式 — 切换到中文输入法；只收英文数字的输入框（如登录）保持英文"""
-    if latin_only:
+def on_insert_enter(english_ime: bool = False):
+    """进入 INSERT 模式 — 切换到中文输入法；声明了英文输入法的输入框（如登录）保持英文"""
+    if english_ime:
         _to_english()
     else:
         _to_chinese()

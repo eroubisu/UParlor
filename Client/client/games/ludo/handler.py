@@ -94,6 +94,7 @@ class LudoHandler:
             title=title,
             items=items,
             empty_msg=data.get('empty_msg', ''),
+            confirm=data.get('confirm'),
         )
         return True
 

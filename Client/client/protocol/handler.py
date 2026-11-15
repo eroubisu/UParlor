@@ -37,10 +37,12 @@ class GameHandlerContext:
         if self._send_command:
             self._send_command(command)
 
-    def show_select_menu(self, title: str, items: list[dict], empty_msg: str = ''):
-        """在操作面板上显示选择菜单"""
+    def show_select_menu(self, title: str, items: list[dict],
+                         empty_msg: str = '', confirm: dict | None = None):
+        """在操作面板上显示选择菜单（带 confirm 的是确认请求）"""
         self._widget_call('room_controls', 'show_select_menu',
-                          title=title, items=items, empty_msg=empty_msg)
+                          title=title, items=items, empty_msg=empty_msg,
+                          confirm=confirm)
 
 
 # ── 处理器协议 ──

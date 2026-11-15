@@ -21,9 +21,6 @@ class RoomControlsPanel(Panel):
     icon_align = True
     follow_focus = True
 
-    # 需要确认的指令前缀
-    _CONFIRM_PREFIXES = ('/invite @', '/kick @')
-
     DEFAULT_CSS = """
     RoomControlsPanel > .tab > #control-items {
         width: 1fr;
@@ -41,7 +38,8 @@ class RoomControlsPanel(Panel):
         self._send = None
         self._items: list[dict] = []   # [{'label', 'desc', 'command'}]
         self._stack: list[tuple[str, list[dict], str | None]] = []
-        self._confirming: str = ''   # 待确认的指令
+        self._confirming: str = ''   # 待确认的指令（服务端声明，点「是」才发）
+        self._confirm_message = ''   # 确认语
         self._root_signature: tuple[tuple[str, str], ...] = ()
 
     def bind_send(self, send_fn) -> None:
@@ -106,8 +104,15 @@ class RoomControlsPanel(Panel):
         return start
 
     def show_select_menu(self, *, title: str, items: list[dict],
-                         empty_msg: str = '') -> None:
-        """显示服务端推送的选择菜单（推入子菜单栈）"""
+                         empty_msg: str = '',
+                         confirm: dict | None = None) -> None:
+        """显示服务端推送的选择菜单（推入子菜单栈）；带 `confirm` 的是确认请求，
+        用共享的确认组件显示（和聊天、设置里的确认同一个样子）。"""
+        if confirm:
+            self._confirming = confirm['command']
+            self._confirm_message = confirm['message']
+            self._redraw()
+            return
         if not items:
             if empty_msg:
                 self.app.notify(empty_msg)
@@ -223,18 +228,7 @@ class RoomControlsPanel(Panel):
     def _redraw_confirm(self) -> None:
         """绘制确认对话框"""
         cmd = self._confirming
-        if cmd == '/back':
-            msg = "确认退出房间?"
-        elif '@' in cmd:
-            name = cmd.split('@', 1)[1].strip()
-            if cmd.startswith('/invite'):
-                msg = f"确认邀请 {name}?"
-            elif cmd.startswith('/kick'):
-                msg = f"确认踢出 {name}?"
-            else:
-                msg = f"确认执行?"
-        else:
-            msg = f"确认执行?"
+        msg = self._confirm_message
         if not self.confirmation.is_open:
             self.confirmation.open(
                 msg, context_id=f"room-control-confirm:{cmd}")
@@ -258,9 +252,6 @@ class RoomControlsPanel(Panel):
 
     def reflow_content(self) -> None:
         self._redraw()
-
-    def _needs_confirm(self, cmd: str) -> bool:
-        return any(cmd.startswith(prefix) for prefix in self._CONFIRM_PREFIXES)
 
     def nav(self, action: str) -> None:
         # 确认状态处理
@@ -297,11 +288,6 @@ class RoomControlsPanel(Panel):
             if not cmd:
                 # 空指令 = 取消/返回上级
                 self._pop_stack()
-                return
-            if cmd and self._needs_confirm(cmd):
-                self._confirming = cmd
-
-                self._redraw()
                 return
             # 普通指令
             if self._send and cmd:

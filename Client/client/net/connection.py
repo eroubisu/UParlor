@@ -4,23 +4,24 @@
 
 import socket
 import json
-import platform
 import threading
+
+from .. import hostplatform
 
 
 def _enable_keepalive(sock: socket.socket, idle: int = 60, interval: int = 10, count: int = 5):
     """启用 TCP Keepalive，防止 NAT/防火墙关闭空闲连接"""
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    system = platform.system()
-    if system == 'Linux':
+    system = hostplatform.current()
+    if system == hostplatform.LINUX:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)
-    elif system == 'Darwin':
+    elif system == hostplatform.MACOS:
         # macOS: TCP_KEEPALIVE = idle time
         TCP_KEEPALIVE = 0x10
         sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, idle)
-    elif system == 'Windows':
+    elif system == hostplatform.WINDOWS:
         # Windows: SIO_KEEPALIVE_VALS (onoff, keepalivetime_ms, keepaliveinterval_ms)
         sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, idle * 1000, interval * 1000))
 

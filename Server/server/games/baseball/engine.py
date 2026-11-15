@@ -263,13 +263,6 @@ class BaseballEngine(RoomGameEngine):
 
     @_in_match
     def _cmd_forfeit(self, lobby, room, player_name, player_data, args):
-        if not args.strip():
-            return self._select_menu('确认', [
-                {'label': '确认放弃比赛', 'type': 'text'},
-                {'type': 'separator'},
-                {'label': '是', 'desc': '', 'command': '/forfeit yes'},
-                {'label': '否', 'desc': '', 'command': '', 'type': 'return'},
-            ])
         # 放弃＝中止比赛：回等待室、不发奖励（和 UNO / Ludo 同一语义）
         msg = f'{player_name} 放弃比赛'
         room.reset_match()

@@ -50,7 +50,7 @@ _COLOR_SHAPE = {
     'red':    NF_CARET_U,
     'yellow': 'o',
     'blue':   NF_CARET_D,
-    'green':  '◇',
+    'green':  NF_DIAMOND,
 }
 
 COLOR_SEQ = ['red', 'yellow', 'blue', 'green']

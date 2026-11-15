@@ -48,6 +48,10 @@ def main() -> int:
         ],
         env,
     )
+    if not args.skip_tests:
+        _run("Baseball frame invariants",
+             ["tools/frame_invariants.py", "--games", "2", "--sizes", "46x19"],
+             env)
     if not args.skip_tests and has_tests:
         _run("Pytest", ["-m", "pytest", "-q"], env)
 

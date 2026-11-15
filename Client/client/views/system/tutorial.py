@@ -39,7 +39,8 @@ _KEYS_HORZ_PREV = f'{M_DIM}上一标签  {M_CMD}h/←/a{M_END}'
 
 # ── Item types ──
 TEXT = 'text'
-SEP = 'sep'
+SEP = 'sep'    # 第一条画成分隔线，页面里之后的 SEP 只起分段作用、不画
+RULE = 'rule'  # 每一条都画成分隔线（滚动页）
 RADIO = 'radio'
 PRACTICE = 'practice'
 ACTION = 'action'
@@ -224,38 +225,35 @@ def _page_done(p: int) -> list[tuple[str, str]]:
 _BUILDERS = [_page_intro, _page_welcome, None, _page_tab, None, None, _page_space, _page_done]
 
 # ── Scroll page ──
-_SCROLL_TMPL = """\
-{dim}上下滚动  {cmd}j/k{end}{dim}  {cmd}↑/↓{end}{dim}  {cmd}w/s{end}
-{sep}
-试试向下滚动
 
+def _page_scroll() -> list[tuple[str, str]]:
+    """Page 2: 文本滚动 — 每段之间一条分隔线，内容比面板高，必须滚动才读得完。
 
+    各段的行数是原模板的行数（总高 43 行）：高一点的终端里也要滚得动，别随手删空行。
+    """
+    def section(label: str) -> list[tuple[str, str]]:
+        return [(TEXT, ''), (TEXT, label), *[(TEXT, '')] * 5]
 
-
-{sep}
-继续……
-
-
-
-
-{sep}
-再往下一点
-
-
-
-
-{sep}
-快到底了
-
-
-
-
-{sep}
-
-
-{sep}
-{dim}到底了！按 {cmd}Enter{end}{dim} 继续{end}
-{dim}按 {cmd}h{end}{dim}/{cmd}←{end}{dim} 返回上一步{end}"""
+    return [
+        (TEXT, f'{M_DIM}上下滚动  {M_CMD}j/k{M_END}{M_DIM}  {M_CMD}↑/↓{M_END}'
+               f'{M_DIM}  {M_CMD}w/s{M_END}'),
+        (TEXT, ''),
+        (SEP, ''),
+        *section('试试向下滚动'),
+        (RULE, ''),
+        *section('继续……'),
+        (RULE, ''),
+        *section('再往下一点'),
+        (RULE, ''),
+        *section('快到底了'),
+        (RULE, ''),
+        *[(TEXT, '')] * 4,
+        (RULE, ''),
+        (TEXT, ''),
+        (TEXT, f'{M_DIM}到底了！按 {M_CMD}Enter{M_END}{M_DIM} 继续{M_END}'),
+        (TEXT, f'{M_DIM}按 {M_CMD}h{M_END}{M_DIM}/{M_CMD}←{M_END}'
+               f'{M_DIM} 返回上一步{M_END}'),
+    ]
 
 
 class TutorialPanel(Panel):
@@ -467,10 +465,9 @@ class TutorialPanel(Panel):
 
     def _build_page(self) -> None:
         if self._page == _P_SCROLL:
-            self._items = []
-            self.selection.set_options((), f"tutorial:{self._page}")
+            self._items = _page_scroll()
             self._set_scrollbar(True)
-            self.call_after_refresh(self._redraw_scroll)
+            self.call_after_refresh(self._redraw)
             return
         self._set_scrollbar(False)
         # Input page uses special builder
@@ -530,26 +527,24 @@ class TutorialPanel(Panel):
             options.append(Option(
                 str(index),
                 rendered_label,
-                enabled=typ not in (TEXT, SEP),
+                enabled=typ not in (TEXT, SEP, RULE),
                 data=(typ, label),
                 markup=True,
             ))
         self.set_options(
             options, f"tutorial:{self._page}:{target}",
         )
-        if target == 0:
-            self._clear_scroll_extras()
-        before: list[str] = []
-        after: list[str] = []
-        lines = before
-        has_divider = False
-
+        # 分隔线把页面切成若干段：第 0 段在第一条分隔线（Divider 组件）上面，
+        # 第 1 段在它下面，之后每多一条分隔线就多挂一对 Divider + 文字段。
+        segments: list[list[str]] = [[]]
         for i, (typ, label) in enumerate(self._items):
+            lines = segments[-1]
             if typ == TEXT:
                 lines.append(label)
+            elif typ == RULE or (typ == SEP and len(segments) == 1):
+                segments.append([])
             elif typ == SEP:
-                has_divider = True
-                lines = after
+                continue
             else:
                 lines.extend(self.selection.render_option(
                     options[i],
@@ -559,36 +554,32 @@ class TutorialPanel(Panel):
                     idle_style=COLOR_FG_TERTIARY,
                 ))
 
+        before, after, *rest = segments + [[]] * (2 - len(segments))
         self.query_one(
             f"#tutorial-before-{target}", Static,
         ).update("\n".join(before))
         self.query_one(
             f"#tutorial-divider-{target}", Divider,
-        ).display = has_divider
+        ).display = len(segments) > 1
         self.query_one(
             f"#tutorial-after-{target}", Static,
         ).update("\n".join(after))
+        self._remount_extra_segments(target, rest)
 
-    def _clear_scroll_extras(self) -> None:
-        self.query(".tutorial-scroll-extra").remove()
-
-    def _redraw_scroll(self) -> None:
-        values = {"dim": M_DIM, "end": M_END, "cmd": M_CMD}
-        before, first, *rest = (
-            part.format(**values) for part in _SCROLL_TMPL.split("{sep}")
-        )
-        self.query_one("#tutorial-before-0", Static).update(before)
-        self.query_one("#tutorial-divider-0", Divider).display = True
-        self.query_one("#tutorial-after-0", Static).update(first)
-        self._clear_scroll_extras()
+    def _remount_extra_segments(self, target: int,
+                                segments: list[list[str]]) -> None:
+        """第 2 段起的内容：每段前面一条 Divider，换页时整批清掉再按新页面挂。"""
+        scroll = self.query_one(f"#t{target}", VerticalScroll)
+        scroll.query(".tutorial-extra").remove()
         extras: list[Widget] = []
-        for part in rest:
-            extras.append(Divider(classes="tutorial-scroll-extra"))
+        for lines in segments:
+            extras.append(Divider(classes="tutorial-extra"))
             extras.append(Static(
-                part, classes="tutorial-after tutorial-scroll-extra",
+                "\n".join(lines), classes="tutorial-after tutorial-extra",
                 markup=True,
             ))
-        self.query_one("#t0", VerticalScroll).mount(*extras)
+        if extras:
+            scroll.mount(*extras)
 
 
 class _FocusTarget(Panel):

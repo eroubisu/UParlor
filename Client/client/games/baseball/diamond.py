@@ -19,6 +19,7 @@ from ...config import (
     NF_HIT_FLAT, NF_HIT_HIGH, NF_HIT_LOW, NF_OFFLINE, NF_ONLINE, NF_USER,
 )
 from ...protocol.animation import Animator
+from ...window_engine import PinnedSlots
 from ...window_engine.text import cell_width, grapheme_clusters
 from . import style
 from .view import STAGE_SWING, Board, Runner
@@ -59,8 +60,8 @@ _BASE_NAMES = {number: name for name, number in _BASE_NUMBERS.items()}
 # 别的内容绝不允许挤过来。倒数 / 灯或球位 / 当前动作钉在方框的 1/4、1/2、3/4；
 # 判定另有自己的一槽（第 2 行，倒数槽上方），不和交牌灯共用，所以出结果后灯还在原位
 # （用户 2026-11-15 定：东西都在原位，亮不亮都占同样空间）。
-_SLOT_RATIOS = (0.25, 0.5, 0.75)
-_VERDICT_ROW = 1
+# 自上而下：判定（第 1 行）/ 倒数 / 灯或球位 / 当前动作
+LIVE_SLOTS = PinnedSlots(1, 0.25, 0.5, 0.75)
 # 这一拍的判定：实时状态一律中文 + 英文（英文是权威写法）；
 # 颜色按结果分：安全/保送＝绿、各种出局/三振/双杀＝红、全垒打＝金（用户 2026-10-16 定）；
 # 出局按方式写清（2026-10-21 用户要求显示封杀 / 接杀）
@@ -239,7 +240,7 @@ class Infield:
         for row in range(1, self.rows + 1):
             border[row][self.left] = ('│', style.DIM)
             border[row][self.right] = ('│', style.DIM)
-        for row, segments in zip(self._slot_rows(), live_slot_segments(board)):
+        for row, segments in zip(self.slot_rows(), live_slot_segments(board)):
             if segments and row is not None:
                 self._write_slot(border, row, segments)
         corners = {'三垒': (0, self.left), '二垒': (0, self.right),
@@ -311,11 +312,10 @@ class Infield:
             return {board.throw.base: f'{board.throw.distance}米'}
         return {}
 
-    def _slot_rows(self) -> tuple[int | None, ...]:
-        """四个实时槽在 border 里的行号（自上而下）；矮到判定槽会压到倒数槽时不画判定。"""
-        fixed = tuple(1 + int(self.rows * ratio) for ratio in _SLOT_RATIOS)
-        verdict = 1 + _VERDICT_ROW
-        return (verdict if verdict < fixed[0] else None, *fixed)
+    def slot_rows(self) -> tuple[int | None, ...]:
+        """四个实时槽在 border 里的行号（自上而下）；没位置的槽（太矮）不画。"""
+        return tuple(None if row is None else 1 + row
+                     for row in LIVE_SLOTS.rows(self.rows))
 
     def _write_slot(self, border: Cells, row: int,
                     segments: Segments) -> None:

@@ -26,7 +26,6 @@ from ..window_engine import (
     SelectList,
     SurfaceState,
 )
-from ..window_engine.text import cell_width
 
 PanelSeparator = Divider
 
@@ -36,11 +35,6 @@ class PlayerSelected(Message):
     def __init__(self, name: str) -> None:
         super().__init__()
         self.name = name
-
-
-def text_width(s: str) -> int:
-    """兼容旧调用；新代码使用 window_engine.text.cell_width。"""
-    return cell_width(s)
 
 
 class Panel(Widget):

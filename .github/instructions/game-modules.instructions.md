@@ -19,7 +19,11 @@ applyTo: "Client/client/games/**/*.py, Server/server/games/**/*.py, Server/serve
   （用户 2026-10-15 报的字符重叠与"没对齐"就是这么来的）。依据是字体契约 **Nerd Font Mono v3**
   （见 README / CONTRIBUTING），并已用 fontTools 实测玩家机器上的 Sarasa Term SC Nerd Font：
   `a`=500、`中`=1000、Font Awesome 与 Octicons 图标全部 500。
+- 带 Rich 标记的文字用 `window_engine.text.wrap_markup()` 折行、`plain_text()` 取可见文字：
+  纯文本的 `wrap_cells` 会把 `[#50b070]` 这类标记也算成宽度（2026-11-15 选中项提前折行的根因）。
 - 两列状态面板统一用共享的 `make_status_table()`，不要自己算间距（等于重复 rich 的一遍排版）。
+- 棋盘里“位置钉死”的槽（亮不亮、有没有内容都占同一行）用 `window_engine.PinnedSlots` 声明，
+  不要各写一套行号算术；撞行的槽由它统一丢弃，不会共用一行。新增实时内容先给它自己一个槽。
 - 固定宽度的行/栏必须**按同一套格点**排：同一区块里的每一行要么都用点阵、要么都用轨道，
   别一行密一行疏；行宽由格点数决定，不随内容增减变化，并且同一块棋盘的左边距要一致
   （棒球那边是 `ProgressTrack.indent` 和正方形共用 `_SQUARE_INDENT`）。

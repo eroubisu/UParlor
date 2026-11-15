@@ -53,7 +53,7 @@ class BaseballHandler:
         # 玩法菜单由客户端按阶段自己生成；这里只会是房间级确认菜单（放弃）
         ctx.show_select_menu(
             title=data['title'], items=data['items'],
-            empty_msg=data['empty_msg'],
+            empty_msg=data['empty_msg'], confirm=data.get('confirm'),
         )
         return True
 

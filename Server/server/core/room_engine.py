@@ -147,15 +147,7 @@ class RoomGameEngine(BaseGameEngine):
     def handle_back(self, lobby, player_name, player_data):
         room = self.get_player_room(player_name)
         if room and room.state == 'playing':
-            return self._select_menu('确认', [
-                {'label': '确认放弃对局？', 'type': 'text'},
-                {'type': 'separator'},
-                {'label': '是', 'desc': '', 'command': '/forfeit yes'},
-                {
-                    'label': '否', 'desc': '',
-                    'command': '', 'type': 'return',
-                },
-            ])
+            return self._confirm_menu('forfeit')
         if room and player_name in room._result_pending:
             room._result_pending.discard(player_name)
             td = room.get_table_data()
@@ -174,15 +166,7 @@ class RoomGameEngine(BaseGameEngine):
     def handle_quit(self, lobby, player_name, player_data):
         room = self.get_player_room(player_name)
         if room and room.state == 'playing':
-            return self._select_menu('确认', [
-                {'label': '确认放弃对局？', 'type': 'text'},
-                {'type': 'separator'},
-                {'label': '是', 'desc': '', 'command': '/forfeit yes'},
-                {
-                    'label': '否', 'desc': '',
-                    'command': '', 'type': 'return',
-                },
-            ])
+            return self._confirm_menu('forfeit')
         self._remove_player(player_name)
         lobby.set_player_location(player_name, DEFAULT_LOCATION)
         result = {

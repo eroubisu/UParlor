@@ -22,6 +22,7 @@ REQUIRED_FILES = (
     ".vscode/settings.json",
     ".vscode/tasks.json",
     "tools/check.py",
+    "tools/frame_invariants.py",
     "tools/impact.py",
     "tools/quality_audit.py",
     "tools/repo_policy.py",

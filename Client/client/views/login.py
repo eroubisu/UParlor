@@ -114,7 +114,7 @@ class LoginPanel(Panel):
             visible=self._tab in ("login", "register"),
             enabled=interactive,
             password=password,
-            latin_only=True,
+            english_ime=True,
             focus=True,
         )
 
