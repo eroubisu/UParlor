@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
-    "ruff>=0.15,<0.16",
+    "ruff>=0.15,<0.18",
 ]
 audit = [
     "pylint>=4.0,<5",
