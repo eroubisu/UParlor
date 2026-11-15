@@ -1,5 +1,3 @@
-# Repository automation and Copilot workspace instructions are tracked.
-
 # Python
 __pycache__/
 *.pyc
@@ -32,16 +30,10 @@ Server/scripts/deploy.py
 .env
 .env.*
 
-# 编辑器
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/extensions.json
+# 编辑器（个人配置，不入库）
+.vscode/
 *.swp
 *~
 
 # 本地专用（只在本机保留，不进入仓库）
 /archive/
-/tests/
-/docs/
-/temp/

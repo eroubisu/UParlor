@@ -15,8 +15,10 @@ python3 -m venv .venv
 python tools/check.py
 ```
 
-Use Nerd Font Mono v3 for UI work. The tracked `.vscode` settings configure Pylance paths and pytest;
-the recommended extensions appear when the workspace opens.
+Use Nerd Font Mono v3 for UI work. Editor settings are personal and not tracked.
+
+Enable the repository hooks once per clone: `git config core.hooksPath .githooks`. Pre-commit rejects
+oversized code commits; pre-push runs `python tools/check.py --require-tracked`.
 
 ## Workflow
 

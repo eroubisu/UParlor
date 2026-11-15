@@ -31,7 +31,13 @@
   the user explicitly chooses that scope after being shown the tradeoff.
 - Do not add unrequested behavior, limits, configuration, or performance changes. If a requested fix
   appears to require one, ask the user before changing it.
-- Every new class, protocol, message, helper, or setting must have a real caller.
+- Every new class, protocol, message, helper, or setting must have a real caller. Every check, test,
+  or rule must be able to name the concrete failure it prevents; delete the ones that cannot.
+- Before fixing a defect, list every sibling of it (other games, other call sites of the same
+  function, other registrations of the same kind) and fix them in the same change.
+- For any visible change, render the real "after" screen first and get the user's approval before
+  writing the implementation. Verify user-facing flows end to end (`tests/test_e2e_flow.py`), never
+  only through an isolated widget.
 - When a repeated defect or contract violation can be recognized deterministically, add the cheapest
   regression test or repository-policy check in the same task. Do not rely on another prose reminder.
 - Preserve the State SSOT and registry-based game boundaries.
@@ -59,7 +65,7 @@
 - The user does not review source code or diffs. Inspect them yourself and report behavior, automated
   evidence, remaining uncertainty, and the one required user action in plain language.
 - End every completed task or decision point with one concrete `下一步` for the user, based on
-  `WORKFLOW.md`.
+  `docs/WORKFLOW.md`.
 - If no user action is currently required, say so and name the next recommended repository task.
 - Do not offer a vague list of optional next steps when one workflow action is clearly required.
 

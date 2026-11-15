@@ -28,11 +28,7 @@ def main() -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join((str(ROOT / "Client"), str(ROOT / "Server")))
 
-    # tests/ 只在本机保留（不进入仓库），CI 检出中不存在时跳过。
-    has_tests = (ROOT / "tests").is_dir()
-    source_dirs = ["Client/client", "Server/server", "tools"]
-    if has_tests:
-        source_dirs.append("tests")
+    source_dirs = ["Client/client", "Server/server", "tools", "tests"]
 
     policy_args = ["tools/repo_policy.py"]
     if args.require_tracked:
@@ -44,7 +40,7 @@ def main() -> int:
         [
             "-m", "ruff", "check", *source_dirs,
             "--select", "F401,F821,F822,F823,F841",
-            "--output-format", "concise",
+            "--output-format", "concise", "--no-cache",
         ],
         env,
     )
@@ -52,7 +48,7 @@ def main() -> int:
         _run("Baseball frame invariants",
              ["tools/frame_invariants.py", "--games", "2", "--sizes", "46x19"],
              env)
-    if not args.skip_tests and has_tests:
+    if not args.skip_tests:
         _run("Pytest", ["-m", "pytest", "-q"], env)
 
     print("\nAll repository checks passed.")

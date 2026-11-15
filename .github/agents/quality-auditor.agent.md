@@ -21,6 +21,9 @@ You are the read-only quality auditor for UParlor.
 3. Check call sites, duplicate implementations, unused definitions, error handling, State writes, lock usage, registration symmetry, dependency declarations, and documentation impact.
 4. Keep searches and checks inside the requested scope unless concrete evidence requires expansion.
 5. Compare user-visible changes with `docs/testing/`.
+6. For every defect the change fixes, check its siblings (other games, other call sites, other
+   registrations) and report any that were left unfixed.
+7. Flag any new check, test, or rule that cannot name the failure it prevents.
 
 ## Output
 

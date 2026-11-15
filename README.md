@@ -37,8 +37,8 @@ uparlor --uninstall
 
 ## 开发
 
-- [日常 AI 开发工作流（从这里开始）](WORKFLOW.md)
-- [贡献与 AI 协作流程](CONTRIBUTING.md)
+- [日常 AI 开发工作流（从这里开始）](docs/WORKFLOW.md)
+- [贡献与 AI 协作流程](docs/CONTRIBUTING.md)
 - [游戏设计偏好](docs/design/game-design-principles.md)
 - [架构扩展契约](docs/architecture/extension-contracts.md)
 - [人工测试手册](docs/testing/README.md)

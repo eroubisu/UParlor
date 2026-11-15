@@ -11,23 +11,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_FILES = (
-    "WORKFLOW.md",
-    "CONTRIBUTING.md",
+    "docs/WORKFLOW.md",
+    "docs/CONTRIBUTING.md",
     ".github/copilot-instructions.md",
     ".github/agents/quality-auditor.agent.md",
     ".github/prompts/review-current-change.prompt.md",
     ".github/prompts/record-game-preference.prompt.md",
     ".github/prompts/update-manual-tests.prompt.md",
     ".github/workflows/quality.yml",
-    ".vscode/settings.json",
-    ".vscode/tasks.json",
+    ".githooks/pre-commit",
+    ".githooks/pre-push",
     "tools/check.py",
+    "tools/commit_size.py",
     "tools/frame_invariants.py",
     "tools/impact.py",
     "tools/quality_audit.py",
     "tools/repo_policy.py",
 )
-FORBIDDEN_ROOT_PATHS = ("temp",)
+FORBIDDEN_ROOT_PATHS = ("archive", "temp")
 FORBIDDEN_TRACKED_PARTS = {
     ".pytest_cache",
     "__pycache__",
@@ -136,7 +137,7 @@ def _check_whitespace(errors: list[str]) -> None:
 
 
 def _check_json(errors: list[str]) -> None:
-    roots = (ROOT / ".vscode", ROOT / "Client", ROOT / "Server")
+    roots = (ROOT / "Client", ROOT / "Server")
     for base in roots:
         for path in base.rglob("*.json"):
             try:

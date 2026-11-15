@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -24,10 +25,12 @@ class AuditError(RuntimeError):
     """Raised when a quality tool cannot produce a trustworthy result."""
 
 
-def _run(args: list[str], accepted_codes: set[int]) -> str:
+def _run(args: list[str], accepted_codes: set[int],
+         env: dict[str, str] | None = None) -> str:
     result = subprocess.run(
         [sys.executable, "-m", *args],
         cwd=ROOT,
+        env=None if env is None else {**os.environ, **env},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -94,7 +97,7 @@ def _coverage() -> float:
             "--cov=Server/server",
             "--cov=tools",
             f"--cov-report=json:{report_path}",
-        ], {0})
+        ], {0}, env={"COVERAGE_FILE": str(Path(directory) / ".coverage")})
         report = json.loads(report_path.read_text(encoding="utf-8"))
     return round(float(report["totals"]["percent_covered"]), 2)
 
