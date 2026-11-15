@@ -37,6 +37,13 @@ _PLAIN_STEP_PROMPTS = (
     '请设置密码（至少3个字符）：',
 )
 
+# 输入框里暗色的提示（没输入时显示）：告诉新玩家怎么开始
+_USERNAME_HINTS = {
+    'login': "按 i 输入用户名，新用户请先切换到“注册”",
+    'register': "按 i 输入新用户名（2-12 位英文字母或数字）",
+    'settings': "请输入用户名",
+}
+
 _STEP_USERNAME = 'username'
 _STEP_PASSWORD = 'password'
 _STEP_WAITING = 'waiting'
@@ -105,7 +112,7 @@ class LoginPanel(Panel):
             placeholder = "请稍候..."
             password = False
         else:
-            placeholder = "请输入用户名"
+            placeholder = _USERNAME_HINTS[self._tab]
             password = False
         placeholder = getattr(self, "_placeholder_override", "") or placeholder
         return InputSpec(

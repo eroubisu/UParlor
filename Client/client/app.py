@@ -298,15 +298,24 @@ class UParlorApp(App):
 
     # ── 窗口焦点 ──
 
+    def _insert_state(self) -> tuple[bool, bool]:
+        """(是否在 INSERT 模式, 聚焦的输入框是否声明了英文输入法)"""
+        screen = self.screen
+        if getattr(screen, '_mode', 'normal') != 'insert':
+            return False, False
+        return True, screen._focused_input_is_english()
+
     def on_app_blur(self) -> None:
         """窗口失去焦点 — 恢复中文 IME，避免切出后停留在英文"""
         from . import ime
-        ime.on_app_blur()
+        in_insert, english = self._insert_state()
+        ime.on_app_blur(in_insert=in_insert, english_ime=english)
 
     def on_app_focus(self) -> None:
-        """窗口恢复焦点 — 恢复英文 IME（纯 NORMAL 模式）"""
+        """窗口恢复焦点 — NORMAL 模式英文；在输入框里则恢复输入框该用的输入法"""
         from . import ime
-        ime.on_app_focus(True)
+        in_insert, english = self._insert_state()
+        ime.on_app_focus(normal_mode=not in_insert, english_ime=english)
 
 
 def _uninstall():

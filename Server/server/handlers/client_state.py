@@ -1,4 +1,4 @@
-"""客户端状态消息处理器 — viewport / save_layout / delete_account"""
+"""客户端状态消息处理器 — viewport / save_layout / tutorial_done / delete_account"""
 
 from __future__ import annotations
 
@@ -27,6 +27,13 @@ def handle_save_layout(server, client_socket, name, player_data, msg):
         if server.lobby_engine._validate_layout(layout):
             player_data['window_layout'] = layout
             PlayerManager.save_player_data(name, player_data)
+
+
+@register('tutorial_done')
+def handle_tutorial_done(server, client_socket, name, player_data, msg):
+    """玩家在教程最后一页选择了"下次登录不再显示"：记在账号上，换设备也一样。"""
+    player_data['tutorial_done'] = True
+    PlayerManager.save_player_data(name, player_data)
 
 
 @register('delete_account')

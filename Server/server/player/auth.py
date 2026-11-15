@@ -260,7 +260,10 @@ class AuthMixin:
 
     def _on_login_success(self, client_socket, name, player_data, success_text, log_label):
         """登录/注册后的共用流程"""
-        self.send_to(client_socket, {'type': LOGIN_SUCCESS, 'text': success_text})
+        self.send_to(client_socket, {
+            'type': LOGIN_SUCCESS, 'text': success_text,
+            'tutorial_done': bool(player_data.get('tutorial_done', False)),
+        })
         self.send_player_status(client_socket, player_data)
         self._send_game_list(client_socket)
         self._send_room_list(client_socket)

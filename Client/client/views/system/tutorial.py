@@ -37,6 +37,16 @@ _KEYS_VERT = f'{M_DIM}上下移动  {M_CMD}j/k{M_END}{M_DIM}  {M_CMD}↑/↓{M_E
 _KEYS_HORZ_NEXT = f'{M_DIM}下一标签  {M_CMD}l/→/d{M_END}'
 _KEYS_HORZ_PREV = f'{M_DIM}上一标签  {M_CMD}h/←/a{M_END}'
 
+# 项目主页：教程第一页和最后一页都给出（"项目地址"是可点击的超链接）
+PROJECT_URL = 'https://github.com/eroubisu/UParlor'
+_HELP_LINE = (f'{M_DIM}遇到问题或想了解更多，请访问：'
+              f'[link="{PROJECT_URL}"]项目地址[/link]{M_END}')
+_LABEL_REMEMBER = '下次登录不再显示教程'
+
+# 教程占用的区域（宽 × 高）：所有页一样；面板切换练习页分给目标框一部分宽度
+_PANEL_WIDTH = 60
+_TARGET_WIDTH = 22
+
 # ── Item types ──
 TEXT = 'text'
 SEP = 'sep'    # 第一条画成分隔线，页面里之后的 SEP 只起分段作用、不画
@@ -98,6 +108,8 @@ def _page_intro() -> list[tuple[str, str]]:
         (TEXT, ''),
         (TEXT, f'{M_CMD}Enter{M_END} / {M_CMD}z{M_END}  确认选择'),
         (TEXT, f'{M_DIM}这是最基本的操作，整个游戏中都会用到。{M_END}'),
+        (TEXT, ''),
+        (TEXT, _HELP_LINE),
         (SEP, ''),
         # 练习区
         (TEXT, f'{M_BOLD}试试看：按下 {M_CMD}Enter{M_END}{M_BOLD} 或 {M_CMD}z{M_END}{M_BOLD} 开始{M_END}'),
@@ -209,20 +221,24 @@ def _page_space(p: int) -> list[tuple[str, str]]:
     ]
 
 
-def _page_done(p: int) -> list[tuple[str, str]]:
-    """Page 7: 完成"""
+def _page_done(logged_in: bool) -> list[tuple[str, str]]:
+    """Page 7: 完成。已登录才有"下次登录不再显示"：教程跟账号走，没登录就没有账号可记。"""
     return [
         (TEXT, f'{M_BOLD}基础教程完成！{M_END}'),
         (SEP, ''),
         (TEXT, f'按 {M_CMD}Esc{M_END} 退出教程'),
         (TEXT, f'{M_DIM}进入游戏后可从 {M_CMD}Space{M_END}{M_DIM} 菜单选择“设置”，再选择“打开文档”。{M_END}'),
+        (TEXT, ''),
+        (TEXT, _HELP_LINE),
         (SEP, ''),
+        # 记住：必须在这里手动选中，直接 Esc 退出不会记住
+        *([(PRACTICE, _LABEL_REMEMBER)] if logged_in else []),
         # 导航
         (BACK, _LABEL_BACK),
     ]
 
 
-_BUILDERS = [_page_intro, _page_welcome, None, _page_tab, None, None, _page_space, _page_done]
+_BUILDERS = [_page_intro, _page_welcome, None, _page_tab, None, None, _page_space, None]
 
 # ── Scroll page ──
 
@@ -260,7 +276,11 @@ class TutorialPanel(Panel):
     """交互式教程面板"""
 
     class TutorialDone(Message):
-        """教程完成"""
+        """教程结束；remember＝最后一页选中了"下次登录不再显示"。"""
+
+        def __init__(self, remember: bool = False) -> None:
+            super().__init__()
+            self.remember = remember
 
     icon_align = True
     hide_scrollbar = True
@@ -475,6 +495,10 @@ class TutorialPanel(Panel):
             self._items = _page_input(self._pref, self._messages)
             self.call_after_refresh(self._redraw)
             return
+        if self._page == _TOTAL - 1:
+            self._items = _page_done(self._is_logged_in())
+            self._redraw()
+            return
         # Focus page uses special builder
         if self._page == _P_FOCUS:
             self._items = _page_focus()
@@ -490,6 +514,18 @@ class TutorialPanel(Panel):
         else:
             self._items = builder(self._pref)
         self._redraw()
+
+    def _is_logged_in(self) -> bool:
+        """教程跟账号走：只有登录后才能记住"下次登录不再显示"。"""
+        return bool(getattr(self.screen, 'logged_in', False))
+
+    def remember_choice(self) -> bool:
+        """最后一页上"下次登录不再显示教程"是否被选中（别的页一律 False）。"""
+        if self._page != _TOTAL - 1:
+            return False
+        return any(index in self._checked
+                   for index, (kind, label) in enumerate(self._items)
+                   if kind == PRACTICE and label == _LABEL_REMEMBER)
 
     def _update_title(self) -> None:
         n = self._page + 1
@@ -633,17 +669,15 @@ class TutorialWindow(Window):
     DEFAULT_CSS = """
     TutorialWindow {
         layer: floating;
-        width: 62%;
-        height: 62%;
         align: center middle;
     }
     TutorialWindow > #tutorial-panel {
-        width: 44;
-        height: 100%;
+        width: 60;
+        height: 18;
     }
     TutorialWindow > #focus-target {
-        width: 20;
-        height: 100%;
+        width: 22;
+        height: 18;
         display: none;
     }
     """
@@ -665,11 +699,17 @@ class TutorialWindow(Window):
         ft = self._panels.get('focus-target')
         if not ft:
             return
+        # 整个教程永远占同一块 60×18 的区域：第 5 页把它分成两个小面板，加起来一样大
+        panel = self._panels.get('tutorial-panel')
         if visible:
             ft._show_waiting()
             ft.styles.display = 'block'
+            if panel:
+                panel.styles.width = _PANEL_WIDTH - _TARGET_WIDTH
         else:
             ft.styles.display = 'none'
+            if panel:
+                panel.styles.width = _PANEL_WIDTH
 
     def focus_move(self, direction: str) -> None:
         # 仅在面板切换练习页允许切换

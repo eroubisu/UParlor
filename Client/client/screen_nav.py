@@ -42,31 +42,34 @@ class NavigationMixin:
     # ── 教程窗口 (始终 primary; 完成后恢复上次 primary) ──
 
     _tutorial_return_to: str = ""  # 教程关闭后要恢复的主窗口 id
+    _tutorial_return_mode: str = ""  # 教程关闭后要恢复的模式
 
     def _open_tutorial(self):
-        """打开教程: 记住当前 primary, 切到 tutorial-window"""
-        current = getattr(self.engine, '_primary_id', None)
+        """打开教程: 记住当前 primary 和模式, 切到 tutorial-window。
+
+        登录前后都用 tutorial 模式：它挡住菜单和其它窗口，Esc 只在最后一页退出。
+        """
+        current = self.engine.target_primary_id()
         if current and current != 'tutorial-window':
             self._tutorial_return_to = current
+            self._tutorial_return_mode = self.mode
         self.engine.set_primary('tutorial-window')
-        if not self.logged_in:
-            self.mode = "tutorial"
+        self.mode = "tutorial"
 
-    def on_tutorial_panel_tutorial_done(self, _msg: TutorialPanel.TutorialDone) -> None:
-        """教程完成 — 持久化到本地设备并关闭"""
-        from .storage import set_tutorial_done
-        set_tutorial_done()
+    def on_tutorial_panel_tutorial_done(self, msg: TutorialPanel.TutorialDone) -> None:
+        """教程结束 — 只有最后一页选了"不再显示"才记在账号上（服务端存），然后关闭"""
+        if msg.remember and self.logged_in:
+            self.app.network.send({"type": "tutorial_done"})
         self._finish_tutorial()
 
     def _finish_tutorial(self):
-        """关闭教程, 回到上次的 primary (或 login)"""
+        """关闭教程, 回到上次的 primary 和模式 (没有就回 login)"""
         target = self._tutorial_return_to or 'login-window'
+        mode = self._tutorial_return_mode or "login"
         self._tutorial_return_to = ''
+        self._tutorial_return_mode = ''
         self.engine.set_primary(target)
-        if target == 'login-window':
-            self.mode = "login"
-        elif target == 'lobby-window':
-            self.mode = "game"
+        self.mode = mode
 
     # ── settings 菜单选项 → 子窗口路由 ──
 

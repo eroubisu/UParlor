@@ -19,6 +19,8 @@ def _on_login_success(parsed, app, screen, st):
     screen.logged_in = True
     st.cmd.add_line(parsed.text)
     screen.call_later(screen._rebuild_to_game_layout)
+    if not parsed.tutorial_done:
+        screen.call_later(screen._open_tutorial)   # 教程跟账号走：没选过"不再显示"就弹出
 
 
 def _on_auth_conflict(parsed, _app, screen, st):

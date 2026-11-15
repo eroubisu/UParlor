@@ -18,15 +18,15 @@ def _get_server_version():
 SERVER_VERSION = _get_server_version()
 
 # 客户端最新版本号（upload.py 上传时自动更新）
-CLIENT_VERSION = "0.5.1"
+CLIENT_VERSION = "0.5.2"
 
 # 网络配置
 HOST = '0.0.0.0'
-PORT = 5555
+PORT = int(os.environ.get('UPARLOR_PORT', 5555))
 
 # 路径配置
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
+DATA_DIR = os.environ.get('UPARLOR_DATA_DIR') or os.path.join(BASE_DIR, 'data')
 USERS_DIR = os.path.join(DATA_DIR, 'users')
 CHAT_LOG_DIR = os.path.join(DATA_DIR, 'chat_logs')
 CHAT_HISTORY_DIR = os.path.join(CHAT_LOG_DIR, 'history')

@@ -13,6 +13,7 @@ class LoginPrompt:
 @dataclass
 class LoginSuccess:
     text: str
+    tutorial_done: bool = False   # 这个账号是否选择过"下次登录不再显示教程"
 
 @dataclass
 class AuthConflict:
@@ -171,7 +172,8 @@ class RoomList:
 
 _PARSERS = {
     'login_prompt':   lambda m: LoginPrompt(text=m.get('text', '')),
-    'login_success':  lambda m: LoginSuccess(text=m.get('text', '')),
+    'login_success':  lambda m: LoginSuccess(
+        text=m.get('text', ''), tutorial_done=bool(m.get('tutorial_done', False))),
     'auth_conflict':  lambda m: AuthConflict(
         text=m.get('text', ''), choices=m.get('choices', [])),
     'system':         lambda m: SystemMessage(text=m.get('text', ''), broadcast=m.get('broadcast', False)),

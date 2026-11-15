@@ -21,19 +21,6 @@ def _save(data: dict) -> None:
     _FILE.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
 
 
-def get_tutorial_done() -> bool:
-    import os
-    if os.environ.get('UPARLOR_TUTORIAL_RESET') == '1':
-        return False
-    return _load().get('tutorial_done', False)
-
-
-def set_tutorial_done() -> None:
-    data = _load()
-    data['tutorial_done'] = True
-    _save(data)
-
-
 def get_block_ctrl_c() -> bool:
     """Return whether the application-level Ctrl+C exit is disabled."""
     return bool(_load().get("block_ctrl_c", True))

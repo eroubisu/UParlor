@@ -404,6 +404,12 @@ class WindowEngine:
     def primary_id(self) -> str | None:
         return self._primary_id
 
+    def target_primary_id(self) -> str | None:
+        """主窗口切换完成后会是谁：切换还在离屏准备时，是最后一个排队的目标，否则就是当前主窗口。"""
+        if self._pending_primary:
+            return next(reversed(self._pending_primary))
+        return self._primary_id
+
     # ── 菜单 ──
 
     def menu_items(self, group: str = "root") -> list[tuple[str, str]]:

@@ -78,13 +78,8 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
         yield Static("", id="terminal-size-warning", markup=True)
 
     def on_mount(self) -> None:
-        from .storage import get_tutorial_done
-        if not get_tutorial_done():
-            self.mode = "tutorial"
-            self.engine.set_primary("tutorial-window")
-        else:
-            self.mode = "login"
-            self.engine.set_primary("login-window")
+        self.mode = "login"
+        self.engine.set_primary("login-window")
         self.app.connect_to_server(DEFAULT_HOST)
         self._update_terminal_size(self.size.width, self.size.height)
 
@@ -127,7 +122,9 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
     # ── 布局切换（net/dispatch 调用）──
 
     async def _rebuild_to_game_layout(self):
-        if self.mode in ("login", "tutorial"):
+        # 只在登录页时切到大厅。教程现在是登录后才弹的（mode 为 tutorial），
+        # 登录后还会陆续收到位置更新等消息，它们不能把教程盖掉。
+        if self.mode == "login":
             if self._mode != 'normal':
                 self._to_normal()
             self.engine.set_primary("lobby-window")
@@ -331,7 +328,8 @@ class GameScreen(NavigationMixin, InputModeMixin, Screen):
             if self.mode == 'tutorial':
                 panel = self.query_one('#tutorial-panel')
                 if panel._page == _TUT_TOTAL - 1:
-                    panel.post_message(panel.TutorialDone())
+                    panel.post_message(
+                        panel.TutorialDone(remember=panel.remember_choice()))
                 return
             return
 
